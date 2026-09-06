@@ -72,6 +72,20 @@ web/                Svelte frontend
   are a documented, replaceable convenience — self-hosting a relay is a
   supported path (PLAN §4).
 
+## Linux desktop gotcha
+
+On Wayland with the proprietary NVIDIA driver, WebKitGTK's dmabuf renderer kills
+the window at startup:
+
+```
+Gdk-Message: Error 71 (Protocol error) dispatching to Wayland display.
+```
+
+`.cargo/config.toml` sets `WEBKIT_DISABLE_DMABUF_RENDERER=1`, which fixes
+`cargo run` and `cargo tauri dev`. **It does not apply when you execute
+`target/debug/hit-enter` directly** — that path needs the variable set by hand,
+and release packaging needs it in the `.desktop` `Exec=` line (tracked in M6).
+
 ## Commands
 
 ```bash

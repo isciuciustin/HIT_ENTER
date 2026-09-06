@@ -1,0 +1,24 @@
+# Rust
+/target
+**/*.rs.bk
+
+# Node
+node_modules/
+web/dist/
+.vite/
+
+# Tauri
+src-tauri/target/
+src-tauri/gen/
+
+# Local databases — never commit chat history or server identity keys
+*.db
+*.db-shm
+*.db-wal
+/data
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json

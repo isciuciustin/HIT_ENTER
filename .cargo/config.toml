@@ -1,0 +1,15 @@
+# WebKitGTK's dmabuf renderer crashes on Wayland with the proprietary NVIDIA
+# driver — the window dies at startup with:
+#
+#     Gdk-Message: Error 71 (Protocol error) dispatching to Wayland display.
+#
+# Disabling the dmabuf path is the standard workaround. It costs a little GPU
+# acceleration in the webview and is a no-op on machines that were fine anyway,
+# so it is set for everyone rather than making Linux+NVIDIA developers discover
+# this the hard way.
+#
+# This applies to `cargo run` / `cargo tauri dev` only. It is NOT compiled into
+# released binaries — packaging sets it in the .desktop Exec line instead (M6).
+# To opt out for one run: `WEBKIT_DISABLE_DMABUF_RENDERER=0 cargo tauri dev`
+[env]
+WEBKIT_DISABLE_DMABUF_RENDERER = { value = "1", force = false }

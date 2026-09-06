@@ -1,0 +1,20 @@
+[package]
+name = "he-cli"
+description = "Debug client for the HIT_ENTER protocol. There is no curl for QUIC."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "he-cli"
+path = "src/main.rs"
+
+[dependencies]
+he-client = { workspace = true }
+he-proto = { workspace = true }
+tokio = { workspace = true }
+anyhow = { workspace = true }
+tracing-subscriber = { workspace = true }

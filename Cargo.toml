@@ -1,0 +1,50 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/he-proto",
+    "crates/he-server",
+    "crates/he-client",
+    "crates/he-serverd",
+    "crates/he-cli",
+    "src-tauri",
+]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.90"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/isciuciustin/HIT_ENTER"
+authors = ["HIT_ENTER contributors"]
+
+# Single source of truth for versions. Crates reference these with
+# `dep = { workspace = true }` so two crates can never disagree.
+[workspace.dependencies]
+he-proto = { path = "crates/he-proto" }
+he-server = { path = "crates/he-server" }
+he-client = { path = "crates/he-client" }
+
+iroh = "1.1"
+tokio = { version = "1.53", features = ["macros", "rt-multi-thread", "sync", "time"] }
+sqlx = { version = "0.9", default-features = false, features = ["sqlite", "runtime-tokio", "macros", "migrate"] }
+argon2 = "0.6"
+uuid = { version = "1.26", features = ["v7", "serde"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
+anyhow = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+subtle = "2.6"
+
+[profile.dev]
+# iroh + sqlx are large dependency trees; optimising them once makes the
+# debug loop bearable without slowing down our own recompiles.
+opt-level = 0
+
+[profile.dev.package."*"]
+opt-level = 2
+
+[profile.release]
+lto = "thin"
+strip = true

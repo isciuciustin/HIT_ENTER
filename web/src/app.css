@@ -1,0 +1,24 @@
+@import "tailwindcss";
+
+/* Tailwind v4 is configured in CSS, not a JS config file. */
+@theme {
+  --color-ink: #0b0d10;
+  --color-panel: #14181d;
+  --color-edge: #232a32;
+  --color-accent: #3ddc84;
+  --font-mono: ui-monospace, "JetBrains Mono", "Fira Code", monospace;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-ink);
+  color: #e6edf3;
+  font-family: var(--font-mono);
+  -webkit-font-smoothing: antialiased;
+}

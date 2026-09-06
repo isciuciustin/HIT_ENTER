@@ -520,10 +520,16 @@ Enforced from M1, non-negotiable:
 
 Each milestone ends in something runnable. No milestone is "refactoring".
 
-### M0 — Skeleton (1 evening)
+### M0 — Skeleton ✅ done
 Workspace, crates, Tauri v2 shell, Svelte 5 + Tailwind on Vite, CI running
 `fmt` + `clippy -D warnings` + `test`.
 **Done when:** `cargo tauri dev` opens a window that says HIT_ENTER.
+
+Shipped: six crates building on Rust 1.98 / edition 2024; `he-proto::limits`
+with the shared validation rules; `ServerIdentity` wrapping an iroh `SecretKey`;
+`ConnectionPath` for the §6 status indicator; a Svelte 5 window that reads its
+version and protocol from Rust over `invoke`, which is what actually proves the
+bridge. 10 tests, clippy clean at `-D warnings`.
 
 ### M1 — Server core, no network
 `he-server` as a library. SQLite + migrations. Register/login/enroll logic.
@@ -566,6 +572,13 @@ Owner tools: kick, ban, revoke device, revoke invite, delete channel. Settings.
 Keyboard shortcuts. `docs/SELF_HOSTING.md` **including running your own iroh
 relay**. Signed builds for Linux/macOS/Windows. `hit_enter-serverd` released
 alongside.
+
+**Linux packaging must set `WEBKIT_DISABLE_DMABUF_RENDERER=1`** in the `.desktop`
+`Exec=` line (and in any AppImage/Flatpak wrapper). Without it the window dies at
+startup on Wayland + proprietary NVIDIA drivers with `Gdk-Message: Error 71
+(Protocol error)`. `.cargo/config.toml` sets this for development only; it is
+*not* compiled into a released binary, so shipping without the wrapper would
+break a large share of Linux desktops. Found the hard way during M0.
 **Done when:** someone who is not you hosts a space for their friends from the
 README alone.
 
@@ -588,8 +601,8 @@ transport; the codec pipeline is the work). Federation between spaces.
 | Need | Crate | Why |
 |---|---|---|
 | Transport / NAT traversal | `iroh` 1.1 | QUIC hole punching, key-based addressing, relay fallback |
-| Async runtime | `tokio` | Required by iroh and sqlx |
-| DB | `sqlx` (sqlite, runtime-tokio) | Compile-time checked SQL, migrations built in |
+| Async runtime | `tokio` 1.53 | Required by iroh and sqlx |
+| DB | `sqlx` 0.9 (sqlite, runtime-tokio) | Compile-time checked SQL, migrations built in |
 | Passwords | `argon2` | RustCrypto, PHC strings, correct defaults |
 | IDs | `uuid` (v7) | Time-sortable primary keys, no coordination |
 | Serialization | `serde` + `serde_json` | Debuggable now; `postcard` behind a flag later |
@@ -603,8 +616,9 @@ TLS), `mdns-sd` (iroh has local discovery built in), `keyring` for passwords
 (device enrollment replaces stored passwords; keyring may still guard the
 server's secret key in M6).
 
-Pin exact versions at M0 and verify each against docs.rs — this table records the
-*choice*, not the version. iroh 1.0 renamed `NodeId`/`NodeAddr` to
+Versions are pinned once in `[workspace.dependencies]` so two crates can never
+disagree; this table records the *choice*, not the version. Toolchain is Rust
+stable (1.98 at M0) on **edition 2024**, pinned in `rust-toolchain.toml`. iroh 1.0 renamed `NodeId`/`NodeAddr` to
 `EndpointId`/`EndpointAddr`; **any tutorial using `NodeId` predates 1.0** and
 will not compile.
 

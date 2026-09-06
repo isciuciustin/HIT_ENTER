@@ -1,0 +1,20 @@
+[package]
+name = "he-serverd"
+description = "Headless HIT_ENTER server, for hosting a space without the desktop app."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "he-serverd"
+path = "src/main.rs"
+
+[dependencies]
+he-server = { workspace = true }
+tokio = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
