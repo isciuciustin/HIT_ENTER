@@ -225,11 +225,13 @@ queries.
 
 IDs are **UUIDv7** stored as TEXT: they sort chronologically, so `ORDER BY id` is
 `ORDER BY time`, pagination cursors are just IDs, and there is no sequence to
-coordinate.
+coordinate. Every TEXT primary key is also spelled `NOT NULL`, because SQLite
+otherwise permits NULL in one — a compatibility bug it has documented and will
+not fix.
 
 ```sql
 CREATE TABLE users (
-  id            TEXT PRIMARY KEY,
+  id            TEXT PRIMARY KEY NOT NULL,
   username      TEXT NOT NULL,
   username_ci   TEXT NOT NULL UNIQUE,   -- lowercased; the real uniqueness key
   password_hash TEXT NOT NULL,          -- argon2id PHC string
@@ -250,7 +252,7 @@ CREATE TABLE devices (
 );
 
 CREATE TABLE channels (
-  id         TEXT PRIMARY KEY,
+  id         TEXT PRIMARY KEY NOT NULL,
   name       TEXT NOT NULL,
   topic      TEXT,
   position   INTEGER NOT NULL DEFAULT 0,
@@ -258,7 +260,7 @@ CREATE TABLE channels (
 );
 
 CREATE TABLE messages (
-  id         TEXT PRIMARY KEY,          -- UUIDv7 == creation time
+  id         TEXT PRIMARY KEY NOT NULL, -- UUIDv7 == creation time
   channel_id TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
   author_id  TEXT NOT NULL REFERENCES users(id),
   content    TEXT NOT NULL,          -- PLAINTEXT, by design — see §10
@@ -268,7 +270,7 @@ CREATE TABLE messages (
 CREATE INDEX idx_messages_channel_id ON messages(channel_id, id DESC);
 
 CREATE TABLE invites (
-  code       TEXT PRIMARY KEY,
+  code       TEXT PRIMARY KEY NOT NULL,
   created_by TEXT NOT NULL REFERENCES users(id),
   created_at INTEGER NOT NULL,
   expires_at INTEGER,                   -- NULL = never
@@ -531,11 +533,33 @@ with the shared validation rules; `ServerIdentity` wrapping an iroh `SecretKey`;
 version and protocol from Rust over `invoke`, which is what actually proves the
 bridge. 10 tests, clippy clean at `-D warnings`.
 
-### M1 — Server core, no network
+### M1 — Server core, no network ✅ done
 `he-server` as a library. SQLite + migrations. Register/login/enroll logic.
 Argon2id, devices, rate limiting — all exercised by direct function calls.
 **Done when:** an integration test registers a user, enrolls a device, and
 rejects a bad password. Zero frontend and zero networking code written.
+
+Shipped: `Server::{open, create_owner, create_invite, register, login,
+authenticate_device, revoke_device}` — the whole of §3's login story as plain
+function calls, with the `EndpointId` passed in as an argument precisely because
+M2 must read it off the connection. The §8 schema as migration `0001_initial`,
+sqlx queries checked against it at compile time (cache in `.sqlx/`, `server.db`
+chmod 0600). Argon2id at 19 MiB / t=2 on `spawn_blocking`, with a dummy verify
+on the unknown-username path so failed logins cost the same either way.
+Constant-time invite matching, redemption atomic in the `UPDATE`, and the whole
+registration in one transaction so a taken username cannot burn a use.
+Exponential backoff keyed on *both* the `EndpointId` and the username, bounded
+in memory. `he-serverd` now creates and opens a real database and prints the
+`EndpointId` that invites will point at. 43 tests, clippy clean.
+
+Two things worth knowing before M2 reads this code:
+
+- **The owner account is created locally, never over the network.** Registration
+  is invite-gated without exception; the first account cannot be, so it is made
+  by the process that already owns the machine, the database and the secret key.
+- **One device may hold several accounts on one server**, so device auth takes
+  an optional username to disambiguate. The `Hello` in §9 will need to carry it
+  — the client's `mirror.db` already stores `servers.username`.
 
 ### M2 — Two processes talk over iroh
 `he-proto` framing. iroh `Endpoint` + `Router` on both sides, ALPN `hit-enter/0`.
@@ -607,6 +631,7 @@ transport; the codec pipeline is the work). Federation between spaces.
 | IDs | `uuid` (v7) | Time-sortable primary keys, no coordination |
 | Serialization | `serde` + `serde_json` | Debuggable now; `postcard` behind a flag later |
 | Constant-time | `subtle` | Invite-code and token comparison |
+| OS randomness | `getrandom` | Invite codes and bearer tokens; no PRNG state to seed or get wrong |
 | Logging | `tracing` + `tracing-subscriber` | Structured, filterable, async-aware |
 | Attachments (M7) | `iroh-blobs` | Content-addressed transfer over the existing connection |
 

@@ -4,6 +4,9 @@
 //! place a type that crosses the wire may be defined — see `docs/PLAN.md` §7.
 
 pub mod limits;
+pub mod secret;
+
+pub use secret::Password;
 
 /// ALPN identifying the HIT_ENTER protocol to iroh.
 ///

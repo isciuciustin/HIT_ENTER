@@ -36,6 +36,14 @@ anyhow = "1.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 subtle = "2.6"
+# Invite codes and any other bearer token must come from the OS CSPRNG. This is
+# the whole dependency for that: no PRNG state, no seeding, no choices to get
+# wrong.
+getrandom = "0.4"
+
+# Dev-only. §14: integration tests run against a real temp SQLite file rather
+# than a mock, so they need somewhere to put it.
+tempfile = "3"
 
 [profile.dev]
 # iroh + sqlx are large dependency trees; optimising them once makes the

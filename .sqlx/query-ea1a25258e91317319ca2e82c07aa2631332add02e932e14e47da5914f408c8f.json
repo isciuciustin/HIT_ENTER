@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO server_meta (id, name, secret_key, created_at) VALUES (1, ?1, ?2, ?3)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "ea1a25258e91317319ca2e82c07aa2631332add02e932e14e47da5914f408c8f"
+}

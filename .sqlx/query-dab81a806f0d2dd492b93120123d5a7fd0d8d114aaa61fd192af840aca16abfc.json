@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE devices SET last_seen = ?3 WHERE endpoint_id = ?1 AND user_id = ?2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "dab81a806f0d2dd492b93120123d5a7fd0d8d114aaa61fd192af840aca16abfc"
+}

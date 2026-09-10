@@ -59,6 +59,12 @@ web/                Svelte frontend
 - `cargo clippy -- -D warnings` must pass. No `unwrap()`/`expect()` outside tests
   and `main()`.
 - Migrations are append-only. Never edit one that has shipped.
+- **SQL is checked at compile time.** `sqlx::query!` macros verify every query
+  against the real schema. The cached results live in `.sqlx/` at the workspace
+  root and are checked in, so a normal build needs no database; CI sets
+  `SQLX_OFFLINE=true` so a stale cache fails the build instead of silently
+  reaching for one. Adding or changing a query means regenerating it — see
+  Commands.
 
 ## iroh gotchas
 
@@ -90,13 +96,26 @@ and release packaging needs it in the `.desktop` `Exec=` line (tracked in M6).
 
 ```bash
 cargo tauri dev                  # run the desktop app
-cargo run -p he-serverd          # run a headless server
+cargo run -p he-serverd          # run a headless server (./he-data, override with --data-dir)
 cargo run -p he-cli -- --help    # debug client
 cargo test --workspace           # all tests
 cargo clippy --workspace -- -D warnings
 cargo fmt --all
 cd web && npm run dev            # frontend only
 ```
+
+After adding or editing a `sqlx::query!`, refresh the checked-in query cache
+(needs `cargo install sqlx-cli --no-default-features --features sqlite,rustls`):
+
+```bash
+export DATABASE_URL="sqlite://$PWD/target/he-server-dev.db"
+sqlx database create
+sqlx migrate run --source crates/he-server/migrations
+cargo sqlx prepare --workspace -- --all-targets   # writes .sqlx/, commit it
+```
+
+The dev database under `target/` is scratch — delete it and re-run the two
+`sqlx` commands whenever a new migration lands.
 
 ## Scope discipline
 

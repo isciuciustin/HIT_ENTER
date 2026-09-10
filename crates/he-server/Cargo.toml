@@ -20,3 +20,13 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 subtle = { workspace = true }
+getrandom = { workspace = true }
+
+[dev-dependencies]
+# Integration tests link only against this crate's public API plus its
+# dev-dependencies, so the two crates the tests speak in have to be named twice.
+he-proto = { workspace = true }
+iroh = { workspace = true }
+sqlx = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }

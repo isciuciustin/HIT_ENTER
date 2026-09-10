@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO devices (endpoint_id, user_id, label, enrolled_at, last_seen, revoked_at)\n         VALUES (?1, ?2, ?3, ?4, ?4, NULL)\n         ON CONFLICT (endpoint_id, user_id) DO UPDATE SET\n             label      = COALESCE(excluded.label, devices.label),\n             last_seen  = excluded.last_seen,\n             revoked_at = NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": []
+  },
+  "hash": "0c4049828611576ed1cfe703d3ee3ca5d4e3274c8a23f4c3903e4eaad32adf10"
+}

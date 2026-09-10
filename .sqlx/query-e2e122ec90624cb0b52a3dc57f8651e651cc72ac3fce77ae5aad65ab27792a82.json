@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE invites SET uses = uses + 1\n         WHERE code = ?1\n           AND (expires_at IS NULL OR expires_at > ?2)\n           AND (max_uses   IS NULL OR uses < max_uses)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "e2e122ec90624cb0b52a3dc57f8651e651cc72ac3fce77ae5aad65ab27792a82"
+}

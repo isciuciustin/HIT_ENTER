@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT name, secret_key FROM server_meta WHERE id = 1",
+  "describe": {
+    "columns": [
+      {
+        "name": "name",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "server_meta",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "name": "secret_key",
+        "ordinal": 1,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "server_meta",
+            "name": "secret_key"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "cd1337ad4fa4153b8a30aaff9e809d5ceab4e893aa0734b7bcd678dcc1dba01e"
+}

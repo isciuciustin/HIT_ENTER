@@ -8,6 +8,10 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: "-D warnings"
+  # sqlx checks every query against a real schema at compile time. CI has no
+  # database, so it uses the cached query data in .sqlx/ — and this makes a
+  # stale cache a build failure rather than a silent fallback.
+  SQLX_OFFLINE: "true"
 
 jobs:
   rust:

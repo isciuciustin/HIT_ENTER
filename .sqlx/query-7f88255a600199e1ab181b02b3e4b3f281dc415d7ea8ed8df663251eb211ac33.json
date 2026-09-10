@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE devices SET revoked_at = ?3\n         WHERE endpoint_id = ?1 AND user_id = ?2 AND revoked_at IS NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "7f88255a600199e1ab181b02b3e4b3f281dc415d7ea8ed8df663251eb211ac33"
+}

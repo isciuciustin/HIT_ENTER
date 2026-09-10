@@ -77,7 +77,14 @@ Rust (`iroh`, `tokio`, SQLite) · Tauri v2 · Svelte 5 + Vite + TailwindCSS
 
 ## Building
 
-Not yet — the scaffold lands in milestone M0. Start with [`docs/PLAN.md`](docs/PLAN.md).
+The app shell runs; there is no chat in it yet. Start with
+[`docs/PLAN.md`](docs/PLAN.md) — it is the architecture and the milestone list.
+
+```bash
+cargo tauri dev              # the desktop app
+cargo run -p he-serverd      # a headless server: creates ./he-data, prints its EndpointId
+cargo test --workspace       # everything
+```
 
 ## License
 
