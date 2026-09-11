@@ -64,6 +64,9 @@ pub enum ServerError {
     #[error("no such user")]
     UnknownUser,
 
+    #[error("no such channel")]
+    UnknownChannel,
+
     /// Argon2 failed, or a stored PHC string would not parse. Never contains
     /// the password or the hash.
     #[error("password hashing failed")]
@@ -72,4 +75,10 @@ pub enum ServerError {
     /// The stored `server_meta.secret_key` is not a 32-byte iroh secret key.
     #[error("server identity is corrupt")]
     CorruptIdentity,
+
+    /// The iroh endpoint could not be bound. A `String` rather than iroh's
+    /// error type so that this enum does not have to re-export it; the text is
+    /// a transport message and carries nothing sensitive.
+    #[error("could not bind the iroh endpoint: {0}")]
+    Endpoint(String),
 }

@@ -9,7 +9,7 @@ repository.workspace = true
 authors.workspace = true
 
 [dependencies]
-he-proto = { workspace = true }
+he-proto = { workspace = true, features = ["io"] }
 iroh = { workspace = true }
 tokio = { workspace = true }
 sqlx = { workspace = true }
@@ -18,3 +18,10 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
+
+[dev-dependencies]
+# The end-to-end test dials a real server over two real iroh endpoints on
+# loopback (PLAN §14). No mocks: a mock of a QUIC handshake proves nothing.
+he-server = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }

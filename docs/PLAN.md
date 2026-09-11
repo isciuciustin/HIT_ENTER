@@ -207,12 +207,17 @@ hit_enter/
 ├── web/                        # Svelte 5 + Vite + Tailwind
 └── docs/
     ├── PLAN.md                 # this file
-    ├── PROTOCOL.md             # written during M2, kept current
+    ├── PROTOCOL.md             # the wire, in detail — kept current with he-proto
     └── SELF_HOSTING.md         # written during M6, incl. self-hosted relay
 ```
 
 **Rules:** `he-proto` is the only crate both sides depend on — if a type crosses
-the wire it is defined there and nowhere else. `he-cli` exists because dropping
+the wire it is defined there and nowhere else. Its one concession to I/O is the
+off-by-default `io` feature, which carries the async driver for the frame codec
+— generic over `tokio::io` traits, innocent of sockets, and there rather than
+written twice because two copies of a length-prefix loop is two chances to
+disagree about what a truncated frame means. Without the feature the crate is
+still types, validation and no runtime. `he-cli` exists because dropping
 HTTP costs us `curl`, and we refuse to debug a binary protocol by print
 statement.
 
@@ -561,12 +566,42 @@ Two things worth knowing before M2 reads this code:
   an optional username to disambiguate. The `Hello` in §9 will need to carry it
   — the client's `mirror.db` already stores `servers.username`.
 
-### M2 — Two processes talk over iroh
+### M2 — Two processes talk over iroh ✅ done
 `he-proto` framing. iroh `Endpoint` + `Router` on both sides, ALPN `hit-enter/0`.
 Control stream, handshake, send/receive. `he-cli` debug client.
 **Done when:** `he-cli` on one machine sends a message to `he-serverd` on
 another, addressed only by `EndpointId`, with no router touched.
 `docs/PROTOCOL.md` exists.
+
+Shipped: `docs/PROTOCOL.md`, describing exactly what `hit-enter/0` carries
+today and what §9 still owes it. Length-prefixed JSON framing in `he-proto`
+that checks the 1 MiB cap *before* allocating, and whose parse errors carry a
+position but never the body — a `serde_json` message quotes the input it choked
+on, and one frame in three has a password in it. `he-server::accept` as an iroh
+`ProtocolHandler`: control stream, `Hello` → `Ready`, request streams, and a
+`tokio::broadcast` fan-out that echoes the nonce to the sending *connection*
+only. `he-client` with a persisted device key, so the second run of `he-cli`
+needs no password. Nine end-to-end tests over two real iroh endpoints on
+loopback with relays and discovery switched off, plus 84 tests overall, clippy
+clean.
+
+Four things worth knowing before M3 builds on this:
+
+- **`Server` still has no idea a network exists.** `accept.rs` translates
+  frames into the M1 function calls and owns the broadcast channel; nothing in
+  the authentication path learned a new rule. Everything M3 needs is already
+  callable without a socket.
+- **A refusal has to be flushed before the connection is dropped.** Returning
+  from `ProtocolHandler::accept` drops the connection, and a QUIC close
+  discards stream data the peer has not acknowledged — which turned "your
+  password is wrong" into "connection lost" until `send_final` waited on
+  `SendStream::stopped`. Any future frame that is the last one on a stream
+  needs the same treatment.
+- **The nonce belongs to a connection, not an account.** A second client signed
+  into the same account sees its own user's message as somebody else's, which
+  is right: it has no optimistic bubble to reconcile.
+- **`he-proto` grew an off-by-default `io` feature** for the async driver of
+  the frame codec (§7). The default build is still I/O-free and runtime-free.
 
 ### M3 — It looks like a chat app
 Svelte client: server rail, channel list, message pane, composer. Optimistic send

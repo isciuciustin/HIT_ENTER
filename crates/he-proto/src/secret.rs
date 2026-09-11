@@ -8,6 +8,8 @@
 
 use core::fmt;
 
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
 use crate::limits::{self, ValidationError};
 
 /// A plaintext password, in transit between the wire and Argon2id.
@@ -40,6 +42,26 @@ impl Password {
     /// there should be exactly one: the hasher.
     pub fn expose(&self) -> &str {
         &self.0
+    }
+}
+
+/// A password **must** serialise as its plaintext: crossing the wire is the
+/// one thing it is for, and QUIC + TLS 1.3 is what protects it on the way
+/// (PLAN §10). The redaction that matters is [`fmt::Debug`], because that is
+/// what a stray `tracing` call reaches for.
+impl Serialize for Password {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.0)
+    }
+}
+
+impl<'de> Deserialize<'de> for Password {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        // Unvalidated on purpose: this is an inbound *attempt*, and the rules
+        // may have changed since the account was created. The answer is
+        // "wrong password" either way, and a validation error here would tell
+        // a stranger which rule the password broke.
+        String::deserialize(deserializer).map(Self)
     }
 }
 
@@ -77,6 +99,20 @@ mod tests {
             password: Password::new("hunter2-and-then-some"),
         };
         assert!(!format!("{hello:?}").contains("hunter2"));
+    }
+
+    #[test]
+    fn a_password_crosses_the_wire_but_nothing_else() {
+        let password = Password::new("correct horse");
+        // It has to serialise, or nobody can ever log in.
+        assert_eq!(
+            serde_json::to_string(&password).expect("serialisable"),
+            "\"correct horse\""
+        );
+        assert_eq!(
+            serde_json::from_str::<Password>("\"correct horse\"").expect("parsable"),
+            password
+        );
     }
 
     #[test]

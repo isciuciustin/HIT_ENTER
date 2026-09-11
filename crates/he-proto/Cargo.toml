@@ -8,7 +8,17 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 
+[features]
+# The async driver for the frame codec. Off by default so that the crate keeps
+# its PLAN §7 property — wire types with no I/O and no runtime — for a consumer
+# that wants only the types. `he-server` and `he-client` both turn it on.
+io = ["dep:tokio"]
+
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
+tokio = { workspace = true, optional = true, features = ["io-util"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["io-util", "macros", "rt"] }

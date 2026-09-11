@@ -5,8 +5,9 @@
 An open-source, self-hosted group chat. You run the server. Your messages live on
 your disk. Nobody can suspend you from a computer you own.
 
-> Status: early development. Nothing works yet — see the
-> [build plan](docs/PLAN.md).
+> Status: early development. Two processes can now hold a conversation over the
+> network — there is no user interface on it yet. See the
+> [build plan](docs/PLAN.md) and the [wire protocol](docs/PROTOCOL.md).
 
 ## What it is
 
@@ -77,13 +78,27 @@ Rust (`iroh`, `tokio`, SQLite) · Tauri v2 · Svelte 5 + Vite + TailwindCSS
 
 ## Building
 
-The app shell runs; there is no chat in it yet. Start with
-[`docs/PLAN.md`](docs/PLAN.md) — it is the architecture and the milestone list.
+The app shell runs and the network underneath it works; there is no chat *in*
+the window yet. Start with [`docs/PLAN.md`](docs/PLAN.md) — it is the
+architecture and the milestone list.
 
 ```bash
 cargo tauri dev              # the desktop app
 cargo run -p he-serverd      # a headless server: creates ./he-data, prints its EndpointId
 cargo test --workspace       # everything
+```
+
+To watch two processes talk to each other over iroh, addressed by nothing but a
+public key:
+
+```bash
+cargo run -p he-serverd -- --owner you     # make the owner account
+cargo run -p he-serverd -- --invite        # print an invite code and the EndpointId
+cargo run -p he-serverd                    # serve
+
+# in another terminal
+cargo run -p he-cli -- --server <endpoint-id> --invite <code> --username friend info
+cargo run -p he-cli -- --server <endpoint-id> send general "hit enter"
 ```
 
 ## License

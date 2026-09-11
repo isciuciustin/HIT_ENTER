@@ -26,12 +26,16 @@
 //! [`Server::authenticate_device`], which costs nothing and prompts for
 //! nothing.
 
+pub mod accept;
 pub mod auth;
+pub mod channels;
 pub mod db;
 pub mod devices;
 pub mod error;
 pub mod invite;
+pub mod messages;
 pub mod ratelimit;
+pub mod rpc;
 
 use std::path::Path;
 use std::time::Duration;
@@ -40,6 +44,7 @@ use he_proto::{Password, limits};
 use iroh::SecretKey;
 use sqlx::SqlitePool;
 
+pub use accept::{ChatProtocol, Limits, Session, bind_endpoint, serve, serve_on};
 pub use auth::User;
 pub use devices::Device;
 pub use error::{Result, ServerError};
@@ -110,7 +115,14 @@ impl Server {
     /// database keeps the name it has.
     pub async fn open(path: &Path, name_if_new: &str) -> Result<Self> {
         let pool = db::open(path).await?;
-        let (identity, name) = load_or_create_identity(&pool, name_if_new).await?;
+        let (identity, name, is_new) = load_or_create_identity(&pool, name_if_new).await?;
+
+        if is_new {
+            // A space with no channel has nowhere to put a message, and the
+            // first person to join would arrive at a dead end.
+            let mut conn = pool.acquire().await?;
+            channels::create(&mut conn, channels::DEFAULT_CHANNEL_NAME, None, 0).await?;
+        }
 
         tracing::info!(endpoint_id = %identity.endpoint_id(), %name, "server database ready");
 
@@ -329,6 +341,56 @@ impl Server {
         auth::find_by_id(&self.pool, user_id).await
     }
 
+    /// Every channel in the space, in render order.
+    pub async fn channels(&self) -> Result<Vec<he_proto::Channel>> {
+        channels::list(&self.pool).await
+    }
+
+    /// Every account, as `Ready.members`.
+    pub async fn members(&self) -> Result<Vec<he_proto::Member>> {
+        auth::list_members(&self.pool).await
+    }
+
+    /// Stores a message and returns the authoritative row.
+    ///
+    /// Broadcasting it is the network layer's job: this call has no idea who
+    /// is connected, which is what keeps it testable without a socket.
+    pub async fn post_message(
+        &self,
+        author: &User,
+        channel_id: &str,
+        content: &str,
+    ) -> Result<he_proto::Message> {
+        limits::validate_message_content(content)?;
+        channels::require(&self.pool, channel_id).await?;
+
+        let mut conn = self.pool.acquire().await?;
+        let message =
+            messages::insert(&mut conn, channel_id, &author.id, &author.username, content).await?;
+
+        // Deliberately no `content` field: PLAN §11. The ids are enough to
+        // find the row in a database the host can already read.
+        tracing::debug!(
+            message_id = %message.id,
+            channel_id = %channel_id,
+            author_id = %author.id,
+            "message stored"
+        );
+        Ok(message)
+    }
+
+    /// A page of history, newest first, ending just before `before`.
+    pub async fn backfill(
+        &self,
+        channel_id: &str,
+        before: Option<&str>,
+        limit: u32,
+    ) -> Result<Vec<he_proto::Message>> {
+        limits::validate_backfill_limit(limit)?;
+        channels::require(&self.pool, channel_id).await?;
+        messages::backfill(&self.pool, channel_id, before, limit).await
+    }
+
     pub async fn user_by_username(&self, username: &str) -> Result<Option<User>> {
         Ok(auth::find_by_username(&self.pool, username)
             .await?
@@ -346,11 +408,13 @@ fn rate_limit_keys(endpoint_id: &iroh::EndpointId, username: Option<&str>) -> Ve
     keys
 }
 
-/// Reads the single `server_meta` row, creating it on a first run.
+/// Reads the single `server_meta` row, creating it on a first run. The `bool`
+/// says whether this run created it, which is when a new space needs its
+/// first channel.
 async fn load_or_create_identity(
     pool: &SqlitePool,
     name_if_new: &str,
-) -> Result<(ServerIdentity, String)> {
+) -> Result<(ServerIdentity, String, bool)> {
     if let Some(row) = sqlx::query!("SELECT name, secret_key FROM server_meta WHERE id = 1")
         .fetch_optional(pool)
         .await?
@@ -359,7 +423,7 @@ async fn load_or_create_identity(
             .secret_key
             .try_into()
             .map_err(|_| ServerError::CorruptIdentity)?;
-        return Ok((ServerIdentity::from_bytes(bytes), row.name));
+        return Ok((ServerIdentity::from_bytes(bytes), row.name, false));
     }
 
     let identity = ServerIdentity::generate();
@@ -374,7 +438,7 @@ async fn load_or_create_identity(
     .execute(pool)
     .await?;
 
-    Ok((identity, name_if_new.to_owned()))
+    Ok((identity, name_if_new.to_owned(), true))
 }
 
 #[cfg(test)]

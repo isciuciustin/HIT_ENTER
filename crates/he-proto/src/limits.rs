@@ -18,6 +18,20 @@ pub const PASSWORD_MAX_BYTES: usize = 1024;
 pub const MESSAGE_MAX_CHARS: usize = 4000;
 pub const CHANNEL_NAME_MAX_CHARS: usize = 64;
 
+/// Longest id accepted from the wire. Ours are UUIDv7 (36 characters); the cap
+/// exists so that a hostile id cannot be used to build a huge query string or
+/// a huge log line.
+pub const ID_MAX_BYTES: usize = 64;
+
+/// A send nonce is chosen by the client and echoed back untouched. It is never
+/// stored, so it only has to be long enough to be unique within one client.
+pub const NONCE_MAX_BYTES: usize = 64;
+
+/// Default and maximum page size for `backfill`. The maximum is what stops one
+/// request from asking the server to read a whole channel into memory.
+pub const BACKFILL_DEFAULT_LIMIT: u32 = 50;
+pub const BACKFILL_MAX_LIMIT: u32 = 200;
+
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum ValidationError {
     #[error("username must be {USERNAME_MIN_CHARS}-{USERNAME_MAX_CHARS} characters")]
@@ -36,6 +50,14 @@ pub enum ValidationError {
     ChannelNameEmpty,
     #[error("channel name must be at most {CHANNEL_NAME_MAX_CHARS} characters")]
     ChannelNameTooLong,
+    #[error("identifier is empty, too long, or not an identifier")]
+    IdInvalid,
+    #[error("nonce must be 1-{NONCE_MAX_BYTES} bytes")]
+    NonceInvalid,
+    #[error("backfill limit must be 1-{BACKFILL_MAX_LIMIT}")]
+    BackfillLimit,
+    #[error("an invite must allow at least one use")]
+    InviteUses,
 }
 
 /// Lowercased form used as the uniqueness key for accounts.
@@ -86,6 +108,35 @@ pub fn validate_channel_name(name: &str) -> Result<(), ValidationError> {
     }
     if name.chars().count() > CHANNEL_NAME_MAX_CHARS {
         return Err(ValidationError::ChannelNameTooLong);
+    }
+    Ok(())
+}
+
+/// Checks an id that arrived from the wire.
+///
+/// Queries are parameterised, so this is not about injection — it is about
+/// refusing to carry a megabyte of attacker-chosen text through the server on
+/// the way to a `WHERE` clause that will not match anything anyway.
+pub fn validate_id(id: &str) -> Result<(), ValidationError> {
+    if id.is_empty()
+        || id.len() > ID_MAX_BYTES
+        || !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+    {
+        return Err(ValidationError::IdInvalid);
+    }
+    Ok(())
+}
+
+pub fn validate_nonce(nonce: &str) -> Result<(), ValidationError> {
+    if nonce.is_empty() || nonce.len() > NONCE_MAX_BYTES {
+        return Err(ValidationError::NonceInvalid);
+    }
+    Ok(())
+}
+
+pub fn validate_backfill_limit(limit: u32) -> Result<(), ValidationError> {
+    if limit == 0 || limit > BACKFILL_MAX_LIMIT {
+        return Err(ValidationError::BackfillLimit);
     }
     Ok(())
 }
@@ -160,6 +211,43 @@ mod tests {
         assert_eq!(
             validate_message_content(&"x".repeat(MESSAGE_MAX_CHARS + 1)),
             Err(ValidationError::MessageTooLong)
+        );
+    }
+
+    #[test]
+    fn ids_must_look_like_ids() {
+        assert!(validate_id("0199c1f8-7c3a-7a1e-9f0b-6d2f4c8a1b2c").is_ok());
+        assert_eq!(validate_id(""), Err(ValidationError::IdInvalid));
+        assert_eq!(
+            validate_id(&"a".repeat(ID_MAX_BYTES + 1)),
+            Err(ValidationError::IdInvalid)
+        );
+        // Not because of injection — queries are parameterised — but because
+        // nothing downstream should have to think about it.
+        assert_eq!(validate_id("1' OR '1'='1"), Err(ValidationError::IdInvalid));
+    }
+
+    #[test]
+    fn backfill_pages_are_bounded() {
+        assert!(validate_backfill_limit(BACKFILL_DEFAULT_LIMIT).is_ok());
+        assert!(validate_backfill_limit(BACKFILL_MAX_LIMIT).is_ok());
+        assert_eq!(
+            validate_backfill_limit(0),
+            Err(ValidationError::BackfillLimit)
+        );
+        assert_eq!(
+            validate_backfill_limit(BACKFILL_MAX_LIMIT + 1),
+            Err(ValidationError::BackfillLimit)
+        );
+    }
+
+    #[test]
+    fn nonces_are_bounded() {
+        assert!(validate_nonce("n1").is_ok());
+        assert_eq!(validate_nonce(""), Err(ValidationError::NonceInvalid));
+        assert_eq!(
+            validate_nonce(&"n".repeat(NONCE_MAX_BYTES + 1)),
+            Err(ValidationError::NonceInvalid)
         );
     }
 

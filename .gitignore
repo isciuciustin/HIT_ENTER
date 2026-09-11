@@ -16,6 +16,11 @@ src-tauri/gen/
 *.db-shm
 *.db-wal
 /data
+/he-data
+
+# Device keys. `he-cli` writes ./he-cli.key by default, and it is a private key:
+# whoever has it is that enrolled device.
+*.key
 
 # Editors / OS
 .DS_Store

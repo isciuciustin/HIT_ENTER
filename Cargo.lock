@@ -1881,6 +1881,7 @@ dependencies = [
  "anyhow",
  "he-client",
  "he-proto",
+ "iroh",
  "tokio",
  "tracing-subscriber",
 ]
@@ -1890,10 +1891,12 @@ name = "he-client"
 version = "0.0.0"
 dependencies = [
  "he-proto",
+ "he-server",
  "iroh",
  "serde",
  "serde_json",
  "sqlx",
+ "tempfile",
  "thiserror 2.0.20",
  "tokio",
  "tracing",
@@ -1907,6 +1910,7 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.20",
+ "tokio",
 ]
 
 [[package]]
@@ -1933,6 +1937,7 @@ name = "he-serverd"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "he-proto",
  "he-server",
  "tokio",
  "tracing",

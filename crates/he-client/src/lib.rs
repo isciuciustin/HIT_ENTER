@@ -1,7 +1,20 @@
 //! The HIT_ENTER client: dialing servers and mirroring their messages locally.
 //!
-//! M0 status: the crate exists and its dependencies resolve. Connection
-//! management arrives in M2, the mirror database in M3.
+//! M2 status: [`Client`] binds an iroh endpoint, [`Session`] holds one
+//! logged-in connection to one server, and [`DeviceIdentity`] is the key a
+//! server enrols. The local mirror (`mirror.db`) arrives in M3.
+//!
+//! **The host's own client is not special.** It dials its own server's
+//! `EndpointId` through exactly this code, and iroh resolves that to a
+//! loopback path by itself (PLAN §2.1).
+
+pub mod conn;
+pub mod error;
+pub mod keys;
+
+pub use conn::{Client, Session};
+pub use error::{ClientError, Result};
+pub use keys::DeviceIdentity;
 
 /// How a connection to a server is currently carrying traffic.
 ///
@@ -24,6 +37,34 @@ impl ConnectionPath {
     /// Whether messages can be sent right now.
     pub fn is_usable(self) -> bool {
         matches!(self, Self::Direct | Self::Relayed)
+    }
+}
+
+/// Reads the live path status off an open connection.
+///
+/// A connection typically opens through a relay and then *upgrades* to a
+/// direct path once hole punching succeeds, without dropping — so this is a
+/// snapshot of a value that changes, and the UI polls or watches it rather
+/// than recording it once at connect time (PLAN §4, §6).
+pub fn path_of(conn: &iroh::endpoint::Connection) -> ConnectionPath {
+    let paths = conn.paths();
+    // The selected path is the one carrying application data. A connection
+    // with both open is direct, and saying "relayed" because a relay path
+    // still exists would tell the user their network is worse than it is.
+    for path in paths.iter() {
+        if path.is_selected() {
+            return if path.is_relay() {
+                ConnectionPath::Relayed
+            } else {
+                ConnectionPath::Direct
+            };
+        }
+    }
+    if paths.is_empty() {
+        ConnectionPath::Connecting
+    } else {
+        // Paths exist but none is selected yet: still settling.
+        ConnectionPath::Connecting
     }
 }
 

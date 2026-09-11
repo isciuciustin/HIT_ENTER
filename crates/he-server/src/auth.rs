@@ -249,6 +249,36 @@ pub(crate) async fn find_by_id(pool: &SqlitePool, user_id: &str) -> Result<Optio
     }))
 }
 
+/// Every account on the server, in the shape other members are allowed to see.
+///
+/// Note what the query does not select: `password_hash`. The wire type has
+/// nowhere to put it, which is the cheapest access control available.
+pub(crate) async fn list_members(pool: &SqlitePool) -> Result<Vec<he_proto::Member>> {
+    let rows = sqlx::query_as!(
+        he_proto::Member,
+        r#"SELECT id            AS "id!",
+                  username      AS "username!",
+                  display_name,
+                  is_owner      AS "is_owner!: bool"
+           FROM users ORDER BY username_ci"#,
+    )
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
+}
+
+impl User {
+    /// The same account, as the wire describes it.
+    pub fn as_member(&self) -> he_proto::Member {
+        he_proto::Member {
+            id: self.id.clone(),
+            username: self.username.clone(),
+            display_name: self.display_name.clone(),
+            is_owner: self.is_owner,
+        }
+    }
+}
+
 pub(crate) async fn owner_exists(pool: &SqlitePool) -> Result<bool> {
     let row = sqlx::query_scalar!("SELECT EXISTS(SELECT 1 FROM users WHERE is_owner = 1)")
         .fetch_one(pool)

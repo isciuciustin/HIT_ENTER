@@ -7,7 +7,8 @@ Username + password auth only. No cloud, no bots, no telemetry, no E2EE.
 
 **The full architecture and milestone plan is in [`docs/PLAN.md`](docs/PLAN.md).
 Read it before starting non-trivial work.** The wire protocol is in
-`docs/PROTOCOL.md` once M2 lands.
+[`docs/PROTOCOL.md`](docs/PROTOCOL.md) — it describes what `hit-enter/0`
+carries today, and changing a `he-proto` type updates it in the same commit.
 
 ## Tech stack
 
@@ -21,6 +22,8 @@ Read it before starting non-trivial work.** The wire protocol is in
 
 ```
 crates/he-proto/    wire types + framing + validation — shared, no I/O
+                    (except the off-by-default `io` feature: the async driver
+                    for the frame codec, generic over tokio traits, no sockets)
 crates/he-server/   iroh protocol handler, SQLite, auth — no Tauri dependency
 crates/he-client/   dialing, connection mgmt, local message mirror
 crates/he-serverd/  headless server binary
@@ -56,6 +59,11 @@ web/                Svelte frontend
   host key. Losing it kills every invite ticket ever issued.
 - Types that cross the wire live in `he-proto` and nowhere else. Changing one
   updates `docs/PROTOCOL.md` in the same commit, and bumps the ALPN if breaking.
+- **A frame that is the last one on a stream must be flushed before the
+  connection is dropped.** Returning from `ProtocolHandler::accept` drops the
+  connection, and a QUIC close discards data the peer has not acknowledged — so
+  a rejection arrives as "connection lost" instead. `accept::send_final` waits
+  on `SendStream::stopped`; use it.
 - `cargo clippy -- -D warnings` must pass. No `unwrap()`/`expect()` outside tests
   and `main()`.
 - Migrations are append-only. Never edit one that has shipped.
@@ -103,6 +111,23 @@ cargo clippy --workspace -- -D warnings
 cargo fmt --all
 cd web && npm run dev            # frontend only
 ```
+
+Two processes talking, end to end — the M2 demo, and the fastest way to check
+the protocol still works:
+
+```bash
+he-serverd --owner justin            # once: creates the owner account, then exits
+he-serverd --invite --max-uses 5     # prints an invite code and the EndpointId
+he-serverd                           # serve; ^C to stop
+
+export HE_SERVER=<endpoint-id>
+he-cli --invite <code> --username alice info   # registers; enrols this device
+he-cli send general "hit enter"                # no password: the device key is the login
+he-cli watch                                   # events, in another terminal
+```
+
+Passwords come from `HE_PASSWORD` or stdin, never from an argument — `ps` shows
+arguments to every account on the machine.
 
 After adding or editing a `sqlx::query!`, refresh the checked-in query cache
 (needs `cargo install sqlx-cli --no-default-features --features sqlite,rustls`):

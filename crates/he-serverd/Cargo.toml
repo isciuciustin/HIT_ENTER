@@ -13,8 +13,11 @@ name = "he-serverd"
 path = "src/main.rs"
 
 [dependencies]
+he-proto = { workspace = true }
 he-server = { workspace = true }
-tokio = { workspace = true }
+# `signal` so that ^C shuts the router down cleanly instead of dropping the
+# endpoint out from under live sessions.
+tokio = { workspace = true, features = ["signal"] }
 anyhow = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }

@@ -15,6 +15,7 @@ path = "src/main.rs"
 [dependencies]
 he-client = { workspace = true }
 he-proto = { workspace = true }
+iroh = { workspace = true }
 tokio = { workspace = true }
 anyhow = { workspace = true }
 tracing-subscriber = { workspace = true }
