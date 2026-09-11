@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM cached_channels WHERE endpoint_id = ?1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "f637eb54d686d9c869cfe7f4171a09d781ddbf9662a5dc27479c283aa60832de"
+}

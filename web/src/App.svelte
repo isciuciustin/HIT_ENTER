@@ -1,51 +1,84 @@
 <script lang="ts">
-  import { invoke } from "@tauri-apps/api/core";
+  import { chat } from "./lib/chat.svelte";
+  import ChannelList from "./components/ChannelList.svelte";
+  import Composer from "./components/Composer.svelte";
+  import InviteDialog from "./components/InviteDialog.svelte";
+  import JoinDialog from "./components/JoinDialog.svelte";
+  import MessagePane from "./components/MessagePane.svelte";
+  import ServerRail from "./components/ServerRail.svelte";
+  import StatusDot from "./components/StatusDot.svelte";
 
-  type AppInfo = {
-    version: string;
-    protocol: string;
-    protocol_version: number;
-  };
+  let ready = $state(false);
+  let fatal = $state<string | null>(null);
+  let showJoin = $state(false);
+  let showInvite = $state(false);
 
-  // Svelte 5 runes. `$state` for reactive locals, no `let` reactivity magic.
-  let info = $state<AppInfo | null>(null);
-  let error = $state<string | null>(null);
-
-  // Proves the frontend <-> Rust bridge is wired, which is M0's real test.
-  invoke<AppInfo>("app_info")
-    .then((v) => (info = v))
-    .catch((e) => (error = String(e)));
+  chat
+    .init()
+    .then(() => (ready = true))
+    .catch((e) => (fatal = String(e)));
 </script>
 
-<main class="flex h-full flex-col items-center justify-center gap-6 px-8 text-center">
-  <h1 class="text-5xl font-bold tracking-tight">
-    HIT<span class="text-[var(--color-accent)]">_</span>ENTER
-  </h1>
+{#if fatal}
+  <main class="grid h-full place-items-center px-8 text-center">
+    <div>
+      <h1 class="text-2xl font-bold">HIT<span class="text-[var(--color-accent)]">_</span>ENTER</h1>
+      <p class="mt-3 max-w-md text-sm text-red-400">{fatal}</p>
+    </div>
+  </main>
+{:else if !ready}
+  <main class="grid h-full place-items-center">
+    <p class="text-sm text-neutral-600">opening your mirror…</p>
+  </main>
+{:else if chat.servers.length === 0}
+  <!-- Nothing to show is a real state, not an empty grid: a brand new install
+       has no spaces and needs one instruction, not four empty panels. -->
+  <main class="grid h-full place-items-center px-8 text-center">
+    <div class="max-w-sm">
+      <h1 class="text-4xl font-bold tracking-tight">
+        HIT<span class="text-[var(--color-accent)]">_</span>ENTER
+      </h1>
+      <p class="mt-3 text-sm text-neutral-400">
+        You are not in any spaces yet. Join one with an address and an invite
+        code, or run <span class="text-neutral-300">he-serverd</span> to host your own.
+      </p>
+      <button
+        onclick={() => (showJoin = true)}
+        class="mt-5 rounded bg-[var(--color-accent)] px-4 py-2 text-sm font-semibold text-black"
+      >
+        join a space
+      </button>
+      <p class="mt-6 break-all font-mono text-[11px] text-neutral-700">
+        this device: {chat.deviceId}
+      </p>
+    </div>
+  </main>
+{:else}
+  <div class="flex h-full">
+    <ServerRail onAdd={() => (showJoin = true)} />
+    <ChannelList onInvite={() => (showInvite = true)} />
 
-  <p class="max-w-md text-sm text-neutral-400">
-    Self-hosted, local-first group chat. Your server, your disk, your messages.
-  </p>
+    <main class="flex min-w-0 flex-1 flex-col">
+      <header
+        class="flex items-center justify-between border-b border-[var(--color-edge)] px-4 py-2.5"
+      >
+        <h1 class="truncate text-sm font-semibold">
+          <span class="text-neutral-600">#</span>{chat.activeChannelName}
+        </h1>
+        <div class="flex items-center gap-3 text-xs text-neutral-500">
+          <StatusDot status={chat.activeStatus} label />
+        </div>
+      </header>
 
-  <div
-    class="rounded-lg border border-[var(--color-edge)] bg-[var(--color-panel)] px-5 py-4 text-left text-xs"
-  >
-    {#if error}
-      <p class="text-red-400">bridge error: {error}</p>
-    {:else if info}
-      <dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1">
-        <dt class="text-neutral-500">version</dt>
-        <dd>{info.version}</dd>
-        <dt class="text-neutral-500">protocol</dt>
-        <dd>{info.protocol}</dd>
-        <dt class="text-neutral-500">rev</dt>
-        <dd>{info.protocol_version}</dd>
-      </dl>
-    {:else}
-      <p class="text-neutral-500">connecting to backend…</p>
-    {/if}
+      <MessagePane />
+      <Composer />
+    </main>
   </div>
+{/if}
 
-  <p class="text-xs text-neutral-600">
-    M0 skeleton — see <span class="text-neutral-500">docs/PLAN.md</span>
-  </p>
-</main>
+{#if showJoin}
+  <JoinDialog onClose={() => (showJoin = false)} />
+{/if}
+{#if showInvite}
+  <InviteDialog onClose={() => (showInvite = false)} />
+{/if}

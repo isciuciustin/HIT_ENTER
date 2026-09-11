@@ -5,8 +5,9 @@
 An open-source, self-hosted group chat. You run the server. Your messages live on
 your disk. Nobody can suspend you from a computer you own.
 
-> Status: early development. Two processes can now hold a conversation over the
-> network — there is no user interface on it yet. See the
+> Status: early development, and it is a chat app now — server rail, channels,
+> scrollback, and a composer that sends the instant you hit enter. Hosting from
+> inside the app, invite links and LAN discovery are next. See the
 > [build plan](docs/PLAN.md) and the [wire protocol](docs/PROTOCOL.md).
 
 ## What it is
@@ -78,9 +79,9 @@ Rust (`iroh`, `tokio`, SQLite) · Tauri v2 · Svelte 5 + Vite + TailwindCSS
 
 ## Building
 
-The app shell runs and the network underneath it works; there is no chat *in*
-the window yet. Start with [`docs/PLAN.md`](docs/PLAN.md) — it is the
-architecture and the milestone list.
+Start with [`docs/PLAN.md`](docs/PLAN.md) — it is the architecture and the
+milestone list. [`docs/TESTING.md`](docs/TESTING.md) is how to run and poke at
+all of it locally.
 
 ```bash
 cargo tauri dev              # the desktop app
@@ -99,6 +100,13 @@ cargo run -p he-serverd                    # serve
 # in another terminal
 cargo run -p he-cli -- --server <endpoint-id> --invite <code> --username friend info
 cargo run -p he-cli -- --server <endpoint-id> send general "hit enter"
+```
+
+Or join it from the app. Two windows on one machine need two data directories,
+because the directory is what holds the device key:
+
+```bash
+HE_DATA_DIR=/tmp/alice cargo tauri dev
 ```
 
 ## License

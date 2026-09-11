@@ -1,0 +1,86 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT endpoint_id, name, relay_url, username, added_at, last_seen\n             FROM servers WHERE endpoint_id = ?1",
+  "describe": {
+    "columns": [
+      {
+        "name": "endpoint_id",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "servers",
+            "name": "endpoint_id"
+          }
+        }
+      },
+      {
+        "name": "name",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "servers",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "name": "relay_url",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "servers",
+            "name": "relay_url"
+          }
+        }
+      },
+      {
+        "name": "username",
+        "ordinal": 3,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "servers",
+            "name": "username"
+          }
+        }
+      },
+      {
+        "name": "added_at",
+        "ordinal": 4,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "servers",
+            "name": "added_at"
+          }
+        }
+      },
+      {
+        "name": "last_seen",
+        "ordinal": 5,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "servers",
+            "name": "last_seen"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "417fd05f837eb0b03327eb659938ad71c80b3230afe8238844074231f00f0921"
+}

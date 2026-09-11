@@ -9,6 +9,8 @@ Username + password auth only. No cloud, no bots, no telemetry, no E2EE.
 Read it before starting non-trivial work.** The wire protocol is in
 [`docs/PROTOCOL.md`](docs/PROTOCOL.md) — it describes what `hit-enter/0`
 carries today, and changing a `he-proto` type updates it in the same commit.
+[`docs/TESTING.md`](docs/TESTING.md) is how to run the suite, drive the
+protocol by hand with `he-cli`, and get two app windows talking.
 
 ## Tech stack
 
@@ -25,10 +27,10 @@ crates/he-proto/    wire types + framing + validation — shared, no I/O
                     (except the off-by-default `io` feature: the async driver
                     for the frame codec, generic over tokio traits, no sockets)
 crates/he-server/   iroh protocol handler, SQLite, auth — no Tauri dependency
-crates/he-client/   dialing, connection mgmt, local message mirror
+crates/he-client/   dialing, connection mgmt, local message mirror (mirror.db)
 crates/he-serverd/  headless server binary
 crates/he-cli/      debug client (there is no curl for a QUIC protocol)
-src-tauri/          Tauri shell: commands, tray, lifecycle
+src-tauri/          Tauri shell: commands, event pump, lifecycle, capabilities
 web/                Svelte frontend
 ```
 
@@ -59,6 +61,14 @@ web/                Svelte frontend
   host key. Losing it kills every invite ticket ever issued.
 - Types that cross the wire live in `he-proto` and nowhere else. Changing one
   updates `docs/PROTOCOL.md` in the same commit, and bumps the ALPN if breaking.
+- **The mirror is written before the UI is told.** A message on screen but not
+  on disk makes "everything is on your disk" false for the last thing anyone
+  said. `src-tauri/src/events.rs` does disk first, screen second; keep it that
+  way.
+- **Tauri v2 denies frontend APIs by default.** Anything the window calls
+  beyond `invoke` needs a permission in `src-tauri/capabilities/default.json` —
+  `event.listen` already bit us once, and the symptom is a runtime error in the
+  webview, not a build failure.
 - **A frame that is the last one on a stream must be flushed before the
   connection is dropped.** Returning from `ProtocolHandler::accept` drops the
   connection, and a QUIC close discards data the peer has not acknowledged — so
@@ -68,11 +78,15 @@ web/                Svelte frontend
   and `main()`.
 - Migrations are append-only. Never edit one that has shipped.
 - **SQL is checked at compile time.** `sqlx::query!` macros verify every query
-  against the real schema. The cached results live in `.sqlx/` at the workspace
-  root and are checked in, so a normal build needs no database; CI sets
-  `SQLX_OFFLINE=true` so a stale cache fails the build instead of silently
-  reaching for one. Adding or changing a query means regenerating it — see
-  Commands.
+  against the real schema. There are **two schemas and two caches**: the
+  server's in `crates/he-server/.sqlx`, the client mirror's in
+  `crates/he-client/.sqlx`, each checked in next to the migrations it belongs
+  to. A normal build needs no database; CI sets `SQLX_OFFLINE=true` so a stale
+  cache fails the build instead of silently reaching for one. Adding or
+  changing a query means regenerating that crate's cache — see Commands. Do
+  **not** run `cargo sqlx prepare --workspace`: one `DATABASE_URL` cannot
+  describe both schemas, and it would check the client's queries against the
+  server's tables.
 
 ## iroh gotchas
 
@@ -112,6 +126,10 @@ cargo fmt --all
 cd web && npm run dev            # frontend only
 ```
 
+Running two app windows on one machine — the M3 demo — needs a shared Vite and
+a separate `HE_DATA_DIR` each, because the data directory holds the device key.
+The recipe and the reasons are in [`docs/TESTING.md`](docs/TESTING.md).
+
 Two processes talking, end to end — the M2 demo, and the fastest way to check
 the protocol still works:
 
@@ -129,18 +147,26 @@ he-cli watch                                   # events, in another terminal
 Passwords come from `HE_PASSWORD` or stdin, never from an argument — `ps` shows
 arguments to every account on the machine.
 
-After adding or editing a `sqlx::query!`, refresh the checked-in query cache
-(needs `cargo install sqlx-cli --no-default-features --features sqlite,rustls`):
+After adding or editing a `sqlx::query!`, refresh that crate's checked-in query
+cache (needs `cargo install sqlx-cli --no-default-features --features
+sqlite,rustls`). Two crates, two schemas, two databases, two caches:
 
 ```bash
+# the server's schema
 export DATABASE_URL="sqlite://$PWD/target/he-server-dev.db"
 sqlx database create
 sqlx migrate run --source crates/he-server/migrations
-cargo sqlx prepare --workspace -- --all-targets   # writes .sqlx/, commit it
+(cd crates/he-server && cargo sqlx prepare)   # writes crates/he-server/.sqlx
+
+# the client mirror's schema
+export DATABASE_URL="sqlite://$PWD/target/he-mirror-dev.db"
+sqlx database create
+sqlx migrate run --source crates/he-client/migrations
+(cd crates/he-client && cargo sqlx prepare)   # writes crates/he-client/.sqlx
 ```
 
-The dev database under `target/` is scratch — delete it and re-run the two
-`sqlx` commands whenever a new migration lands.
+Commit the `.sqlx` directories. The dev databases under `target/` are scratch —
+delete one and re-run its two `sqlx` commands whenever a new migration lands.
 
 ## Scope discipline
 

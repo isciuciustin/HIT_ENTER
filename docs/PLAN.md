@@ -208,6 +208,7 @@ hit_enter/
 └── docs/
     ├── PLAN.md                 # this file
     ├── PROTOCOL.md             # the wire, in detail — kept current with he-proto
+    ├── TESTING.md              # running the suite, he-cli, and two app windows
     └── SELF_HOSTING.md         # written during M6, incl. self-hosted relay
 ```
 
@@ -297,6 +298,9 @@ CREATE TABLE server_meta (              -- single row, id = 1
 > storage in M6.
 
 Client database (`mirror.db`), one per user profile:
+
+Shipped in M3 with one addition to this sketch: a `cached_channels` table, so
+the channel rail renders with the network off.
 
 ```sql
 CREATE TABLE servers (                  -- every space this client knows
@@ -603,12 +607,51 @@ Four things worth knowing before M3 builds on this:
 - **`he-proto` grew an off-by-default `io` feature** for the async driver of
   the frame codec (§7). The default build is still I/O-free and runtime-free.
 
-### M3 — It looks like a chat app
+### M3 — It looks like a chat app ✅ done
 Svelte client: server rail, channel list, message pane, composer. Optimistic send
 with nonce reconciliation. Virtualized scrollback with `backfill`. Local mirror
 writes.
 **Done when:** two app windows hold a conversation, and closing and reopening one
 shows history from disk with the network off.
+
+Shipped: `he-client::Mirror` over `mirror.db` — the §8 schema plus a
+`cached_channels` table the sketch did not have, because a message pane with no
+channel rail is not an app you can open on a train. `src-tauri` grew the bridge:
+one device key and one mirror per instance, a session map, an event pump per
+connected server, and twelve commands. A Svelte 5 client with a server rail,
+channel list, windowed message pane, composer, join and invite dialogs, and the
+§6 connection indicator. 94 tests, clippy clean, and both halves of the
+done-when verified against two real windows and a real `he-serverd`.
+
+Five things worth knowing before M4:
+
+- **The mirror answers first, always.** `history` and `channels` read the local
+  database and never touch the network; `sync_channel` is the separate,
+  explicit call that can block on one. The UI paints from the first pair and
+  tops up with the second. Mixing them would be how the app learns to spin when
+  the train enters a tunnel.
+- **Disk before screen.** The event pump writes a message to the mirror and
+  only then emits it to the UI. The other order loses the last thing anyone
+  said if the app closes a millisecond later.
+- **There are now two sqlx schemas**, the server's and the mirror's, each with
+  its own dev database and its own checked-in `.sqlx` next to its migrations.
+  `cargo sqlx prepare --workspace` is no longer the right command — one
+  `DATABASE_URL` cannot describe both.
+- **Tauri v2 denies frontend APIs by default.** `event.listen` needs
+  `core:event:allow-listen` in `src-tauri/capabilities/default.json`. It failed
+  at runtime in the webview, not at build time, which is the kind of thing that
+  reaches a user.
+- **`HE_DATA_DIR` is what makes two instances two devices.** Sharing a data
+  directory means sharing a device key, and the server would see one device
+  with one enrolment.
+
+What "virtualized scrollback" means here, precisely: **loading** is paged —
+fifty at a time from the mirror, reaching for `backfill` only when the mirror
+runs dry — and **rendering** is windowed, with only the newest ~120 loaded
+messages in the DOM above a spacer sized from the measured average row height.
+Scrolling back to the bottom shrinks the window again. The spacer is an
+estimate, so the scrollbar is approximate while scrolled up; measuring every
+row is the M7 problem, when a channel is big enough for anyone to notice.
 
 ### M4 — Self-hosting, for real
 Server toggle in the UI. iroh secret key generation and persistence. Ticket

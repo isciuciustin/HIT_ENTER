@@ -421,3 +421,122 @@ async fn an_invite_minted_over_the_wire_works() {
 
     harness.shutdown().await;
 }
+
+#[tokio::test]
+async fn the_mirror_answers_after_the_server_is_gone() {
+    // The M3 claim, tested without a GUI: everything the client saw is on its
+    // own disk, and reading it back does not involve a network at all.
+    let harness = Harness::start().await;
+    let client = harness.client().await;
+    let mut session = harness.register(&client, "justin").await;
+    let channel = session.ready().channels[0].clone();
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let mirror_path = dir.path().join("mirror.db");
+    let mirror = he_client::Mirror::open(&mirror_path).await.expect("mirror");
+
+    // What the app does on a successful handshake.
+    mirror
+        .upsert_server(
+            &harness.addr.id.to_string(),
+            &session.ready().server_name,
+            &session.ready().user.username,
+            None,
+        )
+        .await
+        .expect("upsert");
+    mirror
+        .replace_channels(&harness.addr.id.to_string(), &session.ready().channels)
+        .await
+        .expect("channels");
+
+    for line in ["first", "second", "third"] {
+        session.send_message(&channel.id, line).await.expect("send");
+        // What the event pump does: disk first, screen second.
+        match next_event(&mut session).await {
+            ServerFrame::Message { message, .. } => mirror
+                .record_message(&harness.addr.id.to_string(), &message)
+                .await
+                .expect("mirror"),
+            other => panic!("expected a message event, got {other:?}"),
+        }
+    }
+
+    let server_key = harness.addr.id.to_string();
+    session.close().await;
+    // The space is now gone: the process is down and the endpoint is unbound.
+    harness.shutdown().await;
+
+    // Reopened cold, as a restarted app would.
+    drop(mirror);
+    let reopened = he_client::Mirror::open(&mirror_path).await.expect("reopen");
+
+    let channels = reopened.channels(&server_key).await.expect("channels");
+    assert_eq!(channels.len(), 1, "the rail renders with the network off");
+
+    let history = reopened
+        .messages(&server_key, &channel.id, None, 50)
+        .await
+        .expect("history");
+    assert_eq!(
+        history
+            .iter()
+            .rev()
+            .map(|m| m.content.as_str())
+            .collect::<Vec<_>>(),
+        ["first", "second", "third"],
+        "the whole conversation, from disk, with nothing listening"
+    );
+    assert_eq!(history[0].author_name, "justin");
+}
+
+#[tokio::test]
+async fn a_backfill_page_overlapping_live_events_does_not_duplicate() {
+    // The normal case on every reconnect: the client already saw some of what
+    // the server is about to hand it back.
+    let harness = Harness::start().await;
+    let client = harness.client().await;
+    let mut session = harness.register(&client, "justin").await;
+    let channel = session.ready().channels[0].id.clone();
+    let server_key = harness.addr.id.to_string();
+
+    let mirror = he_client::Mirror::in_memory().await.expect("mirror");
+    mirror
+        .upsert_server(&server_key, "Test Space", "justin", None)
+        .await
+        .expect("upsert");
+
+    for line in ["one", "two"] {
+        session.send_message(&channel, line).await.expect("send");
+        match next_event(&mut session).await {
+            ServerFrame::Message { message, .. } => mirror
+                .record_message(&server_key, &message)
+                .await
+                .expect("record"),
+            other => panic!("expected a message event, got {other:?}"),
+        }
+    }
+
+    // Now backfill the same two, as a reconnect would.
+    let page = session
+        .backfill(&channel, None, 50)
+        .await
+        .expect("backfill");
+    assert_eq!(page.len(), 2);
+    mirror
+        .record_messages(&server_key, &page)
+        .await
+        .expect("record page");
+
+    assert_eq!(
+        mirror
+            .message_count(&server_key, &channel)
+            .await
+            .expect("count"),
+        2,
+        "the same message twice is one message"
+    );
+
+    session.close().await;
+    harness.shutdown().await;
+}

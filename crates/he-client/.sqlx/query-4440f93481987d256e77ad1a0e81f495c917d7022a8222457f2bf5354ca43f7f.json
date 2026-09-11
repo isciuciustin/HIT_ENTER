@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT channel_id, last_id FROM sync_state WHERE endpoint_id = ?1",
+  "describe": {
+    "columns": [
+      {
+        "name": "channel_id",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "sync_state",
+            "name": "channel_id"
+          }
+        }
+      },
+      {
+        "name": "last_id",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "sync_state",
+            "name": "last_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "4440f93481987d256e77ad1a0e81f495c917d7022a8222457f2bf5354ca43f7f"
+}

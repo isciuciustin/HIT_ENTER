@@ -1,0 +1,62 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id, name, topic, position FROM cached_channels\n             WHERE endpoint_id = ?1 ORDER BY position, id",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "cached_channels",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "name",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "cached_channels",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "name": "topic",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "cached_channels",
+            "name": "topic"
+          }
+        }
+      },
+      {
+        "name": "position",
+        "ordinal": 3,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "cached_channels",
+            "name": "position"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "2d3b709de2b0bbd1773433e07a1f4b59719af55ce9dbf182c3a9f08867f77353"
+}

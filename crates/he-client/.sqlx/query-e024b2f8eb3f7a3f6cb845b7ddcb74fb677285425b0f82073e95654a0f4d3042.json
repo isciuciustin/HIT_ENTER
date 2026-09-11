@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT OR REPLACE INTO outbox (nonce, endpoint_id, channel_id, content, created_at)\n             VALUES (?1, ?2, ?3, ?4, ?5)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 5
+    },
+    "nullable": []
+  },
+  "hash": "e024b2f8eb3f7a3f6cb845b7ddcb74fb677285425b0f82073e95654a0f4d3042"
+}

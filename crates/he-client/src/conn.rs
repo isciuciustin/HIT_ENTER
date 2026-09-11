@@ -85,7 +85,10 @@ impl Client {
 pub struct Session {
     conn: Connection,
     ready: Ready,
-    events: mpsc::Receiver<ServerFrame>,
+    /// `None` once [`Session::take_events`] has handed the stream to someone
+    /// else — the app shell pumps events into the UI from its own task while
+    /// the session itself stays shared and `&self`-only for requests.
+    events: Option<mpsc::Receiver<ServerFrame>>,
     reader: JoinHandle<()>,
 }
 
@@ -114,7 +117,7 @@ impl Session {
         Ok(Self {
             conn,
             ready,
-            events,
+            events: Some(events),
             reader,
         })
     }
@@ -134,9 +137,23 @@ impl Session {
         crate::path_of(&self.conn)
     }
 
-    /// The next event from the server, or `None` once the session has ended.
+    /// The next event from the server, or `None` once the session has ended
+    /// or the stream has been taken by [`Session::take_events`].
     pub async fn next_event(&mut self) -> Option<ServerFrame> {
-        self.events.recv().await
+        match self.events.as_mut() {
+            Some(events) => events.recv().await,
+            None => None,
+        }
+    }
+
+    /// Takes the event stream out of the session, once.
+    ///
+    /// Reading events needs `&mut`, and running requests needs only `&`. A UI
+    /// wants both at the same time from different tasks, so it takes the
+    /// receiver into a pump and shares the rest of the session. Returns `None`
+    /// on a second call.
+    pub fn take_events(&mut self) -> Option<mpsc::Receiver<ServerFrame>> {
+        self.events.take()
     }
 
     /// Runs one RPC on its own bi-stream.
@@ -220,10 +237,16 @@ impl Session {
     /// `he-proto` for it.
     pub const BACKFILL_LIMIT: u32 = limits::BACKFILL_DEFAULT_LIMIT;
 
-    /// Closes the connection and stops reading events.
-    pub async fn close(self) {
+    /// Closes the connection and stops reading events, without consuming the
+    /// session — so a shared `Arc<Session>` can be hung up on.
+    pub fn disconnect(&self) {
         self.conn.close(0u32.into(), b"bye");
         self.reader.abort();
+    }
+
+    /// Closes the connection and stops reading events.
+    pub async fn close(self) {
+        self.disconnect();
     }
 }
 

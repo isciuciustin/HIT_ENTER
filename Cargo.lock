@@ -2046,6 +2046,7 @@ dependencies = [
  "he-client",
  "he-proto",
  "he-server",
+ "iroh",
  "serde",
  "serde_json",
  "tauri",
@@ -2053,6 +2054,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]

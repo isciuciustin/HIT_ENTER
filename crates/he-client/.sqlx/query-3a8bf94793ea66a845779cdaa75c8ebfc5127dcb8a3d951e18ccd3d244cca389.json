@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO cached_channels (endpoint_id, id, name, topic, position)\n                 VALUES (?1, ?2, ?3, ?4, ?5)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 5
+    },
+    "nullable": []
+  },
+  "hash": "3a8bf94793ea66a845779cdaa75c8ebfc5127dcb8a3d951e18ccd3d244cca389"
+}

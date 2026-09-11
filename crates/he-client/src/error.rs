@@ -44,6 +44,12 @@ pub enum ClientError {
 
     #[error("{0}")]
     Io(#[from] std::io::Error),
+
+    #[error("mirror database error: {0}")]
+    Db(#[from] sqlx::Error),
+
+    #[error("mirror migration failed: {0}")]
+    Migrate(#[from] sqlx::migrate::MigrateError),
 }
 
 impl ClientError {

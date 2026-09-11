@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT OR REPLACE INTO cached_messages\n             (endpoint_id, id, channel_id, author_id, author_name, content, edited_at, deleted_at)\n         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 8
+    },
+    "nullable": []
+  },
+  "hash": "087886ad7cb612772ba4afa23e7293761180e24febe6513577114b3df19f8b88"
+}

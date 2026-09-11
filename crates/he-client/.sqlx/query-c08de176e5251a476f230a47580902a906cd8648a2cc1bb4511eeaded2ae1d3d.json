@@ -1,0 +1,98 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id            AS \"id!\",\n                      channel_id    AS \"channel_id!\",\n                      author_id     AS \"author_id!\",\n                      author_name   AS \"author_name!\",\n                      content       AS \"content!\",\n                      edited_at,\n                      deleted_at\n               FROM cached_messages\n               WHERE endpoint_id = ?1\n                 AND channel_id = ?2\n                 AND (?3 = '' OR id < ?3)\n               ORDER BY id DESC\n               LIMIT ?4",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "cached_messages",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "channel_id!",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "cached_messages",
+            "name": "channel_id"
+          }
+        }
+      },
+      {
+        "name": "author_id!",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "cached_messages",
+            "name": "author_id"
+          }
+        }
+      },
+      {
+        "name": "author_name!",
+        "ordinal": 3,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "cached_messages",
+            "name": "author_name"
+          }
+        }
+      },
+      {
+        "name": "content!",
+        "ordinal": 4,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "cached_messages",
+            "name": "content"
+          }
+        }
+      },
+      {
+        "name": "edited_at",
+        "ordinal": 5,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "cached_messages",
+            "name": "edited_at"
+          }
+        }
+      },
+      {
+        "name": "deleted_at",
+        "ordinal": 6,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "cached_messages",
+            "name": "deleted_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "c08de176e5251a476f230a47580902a906cd8648a2cc1bb4511eeaded2ae1d3d"
+}

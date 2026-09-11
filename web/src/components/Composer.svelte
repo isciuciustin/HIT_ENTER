@@ -1,0 +1,79 @@
+<script lang="ts">
+  import { chat } from "../lib/chat.svelte";
+
+  // The cap comes from `he_proto::limits` over the bridge, so the composer and
+  // the server can never disagree about what is too long.
+  const MESSAGE_MAX_CHARS = $derived(chat.limits.message_max_chars);
+
+  let draft = $state("");
+  let box = $state<HTMLTextAreaElement | null>(null);
+
+  const tooLong = $derived(draft.length > MESSAGE_MAX_CHARS);
+  const canSend = $derived(draft.trim().length > 0 && !tooLong);
+
+  async function submit() {
+    if (!canSend) return;
+    const content = draft;
+    // Cleared first: the bubble is already on screen by the time the send
+    // returns, and leaving the text in the box would make it look unsent.
+    draft = "";
+    resize();
+    await chat.send(content);
+  }
+
+  function onKeydown(event: KeyboardEvent) {
+    // Enter sends. Shift+Enter is a newline. The app is called HIT_ENTER.
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      void submit();
+    }
+  }
+
+  function resize() {
+    if (!box) return;
+    box.style.height = "auto";
+    box.style.height = `${Math.min(box.scrollHeight, 200)}px`;
+  }
+</script>
+
+<div class="border-t border-[var(--color-edge)] px-4 py-3">
+  <div
+    class="flex items-end gap-2 rounded-lg border bg-[var(--color-panel)] px-3 py-2
+      {tooLong ? 'border-red-500/60' : 'border-[var(--color-edge)]'}"
+  >
+    <textarea
+      bind:this={box}
+      bind:value={draft}
+      oninput={resize}
+      onkeydown={onKeydown}
+      rows="1"
+      disabled={!chat.activeChannel}
+      placeholder={chat.activeChannel
+        ? `message #${chat.activeChannelName}`
+        : "no channel selected"}
+      class="max-h-48 flex-1 resize-none bg-transparent text-sm text-neutral-100 placeholder:text-neutral-600 focus:outline-none disabled:cursor-not-allowed"
+    ></textarea>
+    <button
+      onclick={submit}
+      disabled={!canSend}
+      class="rounded px-2 py-1 text-xs font-semibold text-[var(--color-accent)] transition hover:bg-white/5 disabled:text-neutral-700 disabled:hover:bg-transparent"
+    >
+      send
+    </button>
+  </div>
+
+  <div class="mt-1 flex justify-between px-1 text-[11px] text-neutral-600">
+    <span>
+      {#if chat.activeStatus === "offline"}
+        offline — messages are saved and sent when you reconnect
+      {:else}
+        enter to send · shift+enter for a newline
+      {/if}
+    </span>
+    {#if draft.length > MESSAGE_MAX_CHARS - 500}
+      <span class={tooLong ? "text-red-400" : ""}>
+        {draft.length}/{MESSAGE_MAX_CHARS}
+      </span>
+    {/if}
+  </div>
+</div>

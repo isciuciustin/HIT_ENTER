@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM servers WHERE endpoint_id = ?1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "29f11ad6e51c9d736f4833e00eee3a6c2122b73f49795a19531f3ef379595d98"
+}

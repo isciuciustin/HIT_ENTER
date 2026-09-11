@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO sync_state (endpoint_id, channel_id, last_id)\n         VALUES (?1, ?2, ?3)\n         ON CONFLICT (endpoint_id, channel_id) DO UPDATE SET\n             last_id = MAX(sync_state.last_id, excluded.last_id)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "f39fd7de127c49a2bdce514c8cbbe6254b64cc288d5e95e08b48e004b0c38829"
+}

@@ -1,8 +1,9 @@
 //! The HIT_ENTER client: dialing servers and mirroring their messages locally.
 //!
-//! M2 status: [`Client`] binds an iroh endpoint, [`Session`] holds one
-//! logged-in connection to one server, and [`DeviceIdentity`] is the key a
-//! server enrols. The local mirror (`mirror.db`) arrives in M3.
+//! [`Client`] binds an iroh endpoint, [`Session`] holds one logged-in
+//! connection to one server, [`DeviceIdentity`] is the key a server enrols,
+//! and [`Mirror`] is the local copy of everything this client has ever seen —
+//! which is what makes the app work with the network off.
 //!
 //! **The host's own client is not special.** It dials its own server's
 //! `EndpointId` through exactly this code, and iroh resolves that to a
@@ -11,10 +12,12 @@
 pub mod conn;
 pub mod error;
 pub mod keys;
+pub mod mirror;
 
 pub use conn::{Client, Session};
 pub use error::{ClientError, Result};
 pub use keys::DeviceIdentity;
+pub use mirror::{Mirror, MirroredServer, Queued};
 
 /// How a connection to a server is currently carrying traffic.
 ///
