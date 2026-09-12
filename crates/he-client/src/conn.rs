@@ -11,7 +11,7 @@
 
 use he_proto::io::{read_frame, write_frame};
 use he_proto::rpc::{Auth, Hello, Ready, Request, Response};
-use he_proto::{FrameError, Message, ServerFrame, limits};
+use he_proto::{FrameError, Message, NetworkConfig, ServerFrame, limits};
 use iroh::endpoint::Connection;
 use iroh::{Endpoint, EndpointAddr};
 use tokio::sync::mpsc;
@@ -33,10 +33,18 @@ pub struct Client {
 }
 
 impl Client {
-    /// Binds an endpoint using n0's default relays and discovery — a
-    /// documented, replaceable convenience (PLAN §4), made configurable in M4.
-    pub async fn bind(identity: &DeviceIdentity) -> Result<Self> {
-        let endpoint = Endpoint::builder(iroh::endpoint::presets::N0)
+    /// Binds an endpoint with this device's key and these relay and discovery
+    /// settings.
+    ///
+    /// The settings come from `he_proto::NetworkConfig` rather than from a
+    /// preset because a host configures *both* of its endpoints from one
+    /// settings file, and the two must not be able to disagree about which
+    /// relays exist (PLAN §4).
+    pub async fn bind(identity: &DeviceIdentity, config: &NetworkConfig) -> Result<Self> {
+        let builder = config
+            .apply(Endpoint::builder(iroh::endpoint::presets::Empty))
+            .map_err(|err| ClientError::Connect(err.to_string()))?;
+        let endpoint = builder
             .secret_key(identity.secret_key().clone())
             .bind()
             .await
@@ -57,6 +65,28 @@ impl Client {
     /// This device's public identity — what a server enrols.
     pub fn endpoint_id(&self) -> iroh::EndpointId {
         self.endpoint.id()
+    }
+
+    /// This endpoint's own address, hints included.
+    ///
+    /// For a client that is only ever dialling out this is a curiosity; for
+    /// the same process hosting a space it is what goes into an invite link
+    /// (PLAN §5), and it changes as relays and interfaces come and go.
+    pub fn addr(&self) -> EndpointAddr {
+        self.endpoint.addr()
+    }
+
+    /// Waits until this endpoint has reached a relay, or gives up after
+    /// `timeout`.
+    ///
+    /// An [`Self::addr`] read before this has no relay in it, and an invite
+    /// link minted from that address can only be joined from the same LAN —
+    /// which is the difference between "a friend in another city joins" and
+    /// "it worked on my machine".
+    pub async fn wait_online(&self, timeout: std::time::Duration) -> bool {
+        tokio::time::timeout(timeout, self.endpoint.online())
+            .await
+            .is_ok()
     }
 
     /// Dials a server and completes the handshake.

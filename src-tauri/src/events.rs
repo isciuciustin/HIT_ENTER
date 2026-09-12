@@ -22,6 +22,11 @@ use tokio::sync::mpsc;
 pub const MESSAGE_EVENT: &str = "he://message";
 /// The connection changed state — including a silent relay→direct upgrade.
 pub const CONNECTION_EVENT: &str = "he://connection";
+/// The space this machine hosts started, stopped, or was rebound.
+pub const HOST_EVENT: &str = "he://host";
+/// A `hitenter://` link arrived from the desktop — the user clicked an invite
+/// somewhere else and this window is what opened.
+pub const LINK_EVENT: &str = "he://link";
 
 #[derive(Debug, Clone, Serialize)]
 pub struct MessageEvent {
@@ -53,6 +58,24 @@ pub fn describe(path: ConnectionPath) -> &'static str {
         ConnectionPath::Connecting => "connecting",
         ConnectionPath::Offline => "offline",
     }
+}
+
+/// Tells the window that hosting changed, without saying how.
+///
+/// The frontend asks `host_status` for the details rather than having them
+/// pushed: there is exactly one shape of that answer, and duplicating it into
+/// an event payload is how the two drift apart.
+pub fn emit_host(app: &AppHandle) {
+    let _ = app.emit(HOST_EVENT, ());
+}
+
+/// Hands a `hitenter://` link to the window.
+///
+/// Nothing is parsed here and nothing is dialled: the frontend opens the join
+/// dialog with it, and the user decides. A link that joined a space on arrival
+/// would make clicking a URL enough to enrol this device somewhere.
+pub fn emit_link(app: &AppHandle, link: &str) {
+    let _ = app.emit(LINK_EVENT, link);
 }
 
 pub fn emit_connection(app: &AppHandle, server: &str, status: &'static str) {

@@ -44,7 +44,7 @@ use he_proto::{Password, limits};
 use iroh::SecretKey;
 use sqlx::SqlitePool;
 
-pub use accept::{ChatProtocol, Limits, Session, bind_endpoint, serve, serve_on};
+pub use accept::{ChatProtocol, Limits, Session, bind_endpoint, invite_link, serve, serve_on};
 pub use auth::User;
 pub use devices::Device;
 pub use error::{Result, ServerError};

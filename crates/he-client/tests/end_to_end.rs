@@ -15,7 +15,7 @@ use std::time::Duration;
 
 use he_client::{Client, ClientError, Session};
 use he_proto::rpc::{Auth, ErrorCode};
-use he_proto::{Password, ServerFrame};
+use he_proto::{InviteLink, Password, ServerFrame};
 use he_server::{Limits, Server};
 use iroh::endpoint::presets;
 use iroh::protocol::Router;
@@ -28,6 +28,7 @@ const PATIENCE: Duration = Duration::from_secs(10);
 struct Harness {
     server: Arc<Server>,
     router: Router,
+    endpoint: Endpoint,
     addr: EndpointAddr,
     invite: String,
     _dir: tempfile::TempDir,
@@ -59,15 +60,22 @@ impl Harness {
 
         let endpoint = loopback(server.identity().secret_key().clone()).await;
         let addr = direct_addr(&endpoint);
-        let router = he_server::serve_on(endpoint, server.clone(), Limits::default());
+        let router = he_server::serve_on(endpoint.clone(), server.clone(), Limits::default());
 
         Self {
             server,
             router,
+            endpoint,
             addr,
             invite,
             _dir: dir,
         }
+    }
+
+    /// The invite link a host would paste into a chat message (PLAN §5),
+    /// minted from the real endpoint by the shipping code.
+    fn invite_link(&self) -> InviteLink {
+        he_server::invite_link(&self.endpoint, Some(self.invite.clone()))
     }
 
     /// A fresh client with its own device key — a different machine, as far as
@@ -538,5 +546,147 @@ async fn a_backfill_page_overlapping_live_events_does_not_duplicate() {
     );
 
     session.close().await;
+    harness.shutdown().await;
+}
+
+// ---- M4: joining by link --------------------------------------------------
+
+#[tokio::test]
+async fn a_pasted_invite_link_is_enough_to_join() {
+    // The M4 claim, minus the two cities: everything a joiner needs is in one
+    // string, and the string is produced by the host's own endpoint rather
+    // than assembled by hand (PLAN §5).
+    let harness = Harness::start().await;
+    let link = harness.invite_link();
+    let pasted = link.to_string();
+
+    // Round-trips through the text a chat client would carry.
+    let parsed: InviteLink = pasted.parse().expect("a readable link");
+    assert_eq!(
+        parsed.endpoint_id(),
+        harness.server.endpoint_id().to_string()
+    );
+    assert_eq!(parsed.code(), Some(harness.invite.as_str()));
+
+    let client = harness.client().await;
+    let session = client
+        .connect(
+            parsed.addr().clone(),
+            Auth::Register {
+                invite: parsed.code().expect("a code").to_owned(),
+                username: "alice".into(),
+                password: Password::new("correct horse"),
+            },
+        )
+        .await
+        .expect("join from the link alone");
+
+    assert_eq!(session.ready().user.username, "alice");
+    assert_eq!(session.ready().server_name, "Test Space");
+
+    session.close().await;
+    harness.shutdown().await;
+}
+
+#[tokio::test]
+async fn a_link_carries_the_address_hints_the_endpoint_knows() {
+    // A link with no hints still joins — discovery resolves the key — but it
+    // joins *slowly*, which is the failure nobody reports because the app
+    // merely feels bad. The hints are the whole reason a ticket is not just an
+    // EndpointId.
+    let harness = Harness::start().await;
+    let link = harness.invite_link();
+
+    let hinted: Vec<_> = link.addr().ip_addrs().collect();
+    assert!(
+        hinted.iter().any(|addr| addr.ip().is_loopback()),
+        "the link should carry the socket the endpoint is actually on, got {hinted:?}"
+    );
+
+    harness.shutdown().await;
+}
+
+#[tokio::test]
+async fn a_second_device_joins_with_an_address_only_link_and_a_password() {
+    // The other half of the link's job: pointing a *second machine of your
+    // own* at a space, where there is no invite involved and the password
+    // enrols the device (PLAN §3).
+    let harness = Harness::start().await;
+
+    let first = harness.client().await;
+    let laptop = harness.register(&first, "justin").await;
+    let user_id = laptop.ready().user.id.clone();
+    laptop.close().await;
+
+    let address_only = InviteLink::address_only(harness.invite_link().addr().clone());
+    assert_eq!(address_only.code(), None);
+    let parsed: InviteLink = address_only
+        .to_string()
+        .parse()
+        .expect("an address-only link is still a link");
+
+    let phone = harness.client().await;
+    let session = phone
+        .connect(
+            parsed.addr().clone(),
+            Auth::Password {
+                username: "justin".into(),
+                password: Password::new("correct horse"),
+            },
+        )
+        .await
+        .expect("a password enrols a second device");
+    assert_eq!(session.ready().user.id, user_id, "same account, new device");
+    assert!(session.ready().enrolled);
+
+    // Two devices, one account — which is the thing `Auth::Device` needs a
+    // username to disambiguate.
+    let devices = harness
+        .server
+        .devices_for_user(&user_id)
+        .await
+        .expect("devices");
+    assert_eq!(devices.len(), 2);
+
+    session.close().await;
+    harness.shutdown().await;
+}
+
+#[tokio::test]
+async fn a_link_from_a_different_space_does_not_open_this_one() {
+    // A link is self-verifying because the address *is* a public key: pointing
+    // one at the wrong server does not reach a different server, it reaches
+    // nothing (PLAN §5).
+    let harness = Harness::start().await;
+    let stranger = SecretKey::generate().public();
+    let elsewhere = InviteLink::new(
+        EndpointAddr::from_parts(stranger, harness.invite_link().addr().addrs.iter().cloned()),
+        Some(harness.invite.clone()),
+    );
+
+    let client = harness.client().await;
+    let refused = tokio::time::timeout(
+        PATIENCE,
+        client.connect(
+            elsewhere.addr().clone(),
+            Auth::Register {
+                invite: harness.invite.clone(),
+                username: "mallory".into(),
+                password: Password::new("correct horse"),
+            },
+        ),
+    )
+    .await;
+
+    match refused {
+        // Either it could not reach a peer holding that key, or it timed out
+        // trying. What must not happen is a session on *this* server.
+        Ok(Err(_)) | Err(_) => {}
+        Ok(Ok(session)) => panic!(
+            "connected to {} with a link for a different key",
+            session.ready().server_name
+        ),
+    }
+
     harness.shutdown().await;
 }

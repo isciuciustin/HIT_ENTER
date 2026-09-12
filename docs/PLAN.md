@@ -653,7 +653,7 @@ Scrolling back to the bottom shrinks the window again. The spacer is an
 estimate, so the scrollbar is approximate while scrolled up; measuring every
 row is the M7 problem, when a channel is big enough for anyone to notice.
 
-### M4 — Self-hosting, for real
+### M4 — Self-hosting, for real ✅ done
 Server toggle in the UI. iroh secret key generation and persistence. Ticket
 generation + `hitenter://` deep-link handling. Device enrollment flow. Connection
 status indicator (§6). mDNS discovery for LAN. Relay/discovery config surfaced in
@@ -661,6 +661,63 @@ settings.
 **Done when:** a friend on a different ISP, in a different city, joins your
 laptop via a link you pasted into a chat — **and neither of you configured a
 router.** *This is the milestone the whole project exists for.*
+
+Shipped: `he-proto::ticket` — the `hitenter://join?t=…&c=…` format from §5, as
+the one type both sides parse, documented in `docs/PROTOCOL.md` §8. A ticket
+carries the space's `EndpointId` plus the relay and direct addresses it knew
+about *itself* when the link was minted, so a first dial is fast and a stale
+link still works because discovery re-resolves the key. `he-proto::net` —
+`NetworkConfig`, the sovereignty ladder as a struct, behind a second
+off-by-default feature so the default build of the crate stays runtime-free.
+`src-tauri` grew `host.rs` and `settings.rs`: a space in the app's data
+directory, its own endpoint, a `settings.json`, and seven commands. A Svelte
+host panel, a network settings pane, and a join dialog that takes a pasted
+link and fills itself in. 121 tests, clippy clean.
+
+Five things worth knowing before M5:
+
+- **The host is two endpoints in one process, and that is the point.** The
+  space has its own key — the one links point at, the one that must survive a
+  reinstall — and the host's client keeps the device key it already had. The
+  host's client then *dials the space by its `EndpointId`*, with the owner's
+  password, exactly as a stranger's client does (§2.1). Hosting adds no code
+  path to the connection: the owner's own client exercises the handshake, the
+  enrolment, the fan-out and the mirror on every single run, so a bug in any of
+  them is the host's bug first.
+- **Closing a space disconnects its owner too, so reopening has to reconnect
+  them.** Correct — the server it was talking to went away — but without the
+  rejoin the host is left looking at their own space marked offline with no
+  way back but restarting the app. The same applies after a settings change
+  rebinds the endpoint.
+- **Relay and discovery settings are one struct for both endpoints.** A host
+  configures the endpoint it dials out of and the endpoint it serves on from
+  one file, and two copies of "apply this config" would let those disagree —
+  which shows up as a space reachable from the internet but not from the
+  machine hosting it. Client settings need a restart to take effect (the
+  endpoint is bound at startup and holds every open session); the space is
+  rebound on the spot, because it already has an explicit on/off switch.
+- **Single-instance is scoped to the data directory, not the machine.** A
+  clicked link on Linux and Windows starts a second copy of the app, and that
+  copy has to hand the URL to the window already open. But two processes with
+  *different* `HE_DATA_DIR`s are two devices and must run side by side, which
+  is the two-window recipe in `docs/TESTING.md`. A machine-wide lock silently
+  broke it. The real invariant is one process per data directory.
+- **`navigator.clipboard.writeText` does not work in WebKitGTK**, and it fails
+  *silently* — the button says "copied" and the clipboard stays empty. An
+  invite link that cannot be copied is a space nobody can join, so copying
+  goes through `tauri-plugin-clipboard-manager`.
+
+Answering §15 question 4: **default to n0's relays and say so**. The hosting
+panel and the settings pane both name them as n0's, describe them as
+best-effort, and put "your own relay" one radio button away. Forcing a choice
+at first host would make the zero-config path a wall for the one user who has
+no opinion yet, which is every first-time user.
+
+**What is not proven:** the "different ISP, different city" half of the
+done-when. Everything up to it is verified — the whole loop runs over real
+iroh endpoints, and two app instances on one machine joined by link alone — but
+hole punching across two real NATs, and the relay fallback when it fails, needs
+two machines on two networks. Do that before M6 calls anything shippable.
 
 ### M5 — Survives contact with reality
 Reconnect with `resume`. Offline `outbox` drain. Edit/delete. Member list +

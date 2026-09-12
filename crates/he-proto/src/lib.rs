@@ -4,24 +4,35 @@
 //! single place a type that crosses the wire may be defined — see
 //! `docs/PLAN.md` §7.
 //!
-//! The one exception is [`io`], behind the off-by-default `io` feature: the
-//! async driver for [`frame`]'s codec, generic over [`tokio::io`] traits and
-//! innocent of sockets. It lives here because writing a length-prefix loop
-//! twice is how the two sides of a protocol learn to disagree. A consumer that
-//! wants only the types builds without the feature and gets no runtime.
+//! Two modules are exceptions, both behind off-by-default features and both
+//! for the same reason — writing the thing twice is how the two sides of a
+//! protocol learn to disagree:
+//!
+//! - [`io`] (`io`) is the async driver for [`frame`]'s codec, generic over
+//!   [`tokio::io`] traits and innocent of sockets;
+//! - [`net`]'s `apply` (`net`) turns a [`net::NetworkConfig`] into a
+//!   configured iroh endpoint builder, which a host needs for *both* of its
+//!   endpoints.
+//!
+//! A consumer that wants only the types builds without either and gets no
+//! runtime. [`ticket`] needs no feature: an address is not a connection.
 
 pub mod event;
 pub mod frame;
 #[cfg(feature = "io")]
 pub mod io;
 pub mod limits;
+pub mod net;
 pub mod rpc;
 pub mod secret;
+pub mod ticket;
 
 pub use event::{Channel, Member, Message, ServerFrame};
 pub use frame::FrameError;
+pub use net::{NetworkConfig, Relays};
 pub use rpc::{Auth, ErrorCode, Hello, ProtocolError, Ready, Request, Response};
 pub use secret::Password;
+pub use ticket::{InviteLink, LinkError};
 
 /// ALPN identifying the HIT_ENTER protocol to iroh.
 ///

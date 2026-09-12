@@ -9,7 +9,7 @@ repository.workspace = true
 authors.workspace = true
 
 [dependencies]
-he-proto = { workspace = true, features = ["io"] }
+he-proto = { workspace = true, features = ["io", "net"] }
 iroh = { workspace = true }
 tokio = { workspace = true }
 sqlx = { workspace = true }

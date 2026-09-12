@@ -24,8 +24,10 @@ protocol by hand with `he-cli`, and get two app windows talking.
 
 ```
 crates/he-proto/    wire types + framing + validation — shared, no I/O
-                    (except the off-by-default `io` feature: the async driver
-                    for the frame codec, generic over tokio traits, no sockets)
+                    (except two off-by-default features: `io`, the async driver
+                    for the frame codec, generic over tokio traits and innocent
+                    of sockets; and `net`, which turns a `NetworkConfig` into a
+                    configured iroh endpoint builder)
 crates/he-server/   iroh protocol handler, SQLite, auth — no Tauri dependency
 crates/he-client/   dialing, connection mgmt, local message mirror (mirror.db)
 crates/he-serverd/  headless server binary
@@ -69,6 +71,21 @@ web/                Svelte frontend
   beyond `invoke` needs a permission in `src-tauri/capabilities/default.json` —
   `event.listen` already bit us once, and the symptom is a runtime error in the
   webview, not a build failure.
+- **The space's key and the device's key are different keys.** A host runs two
+  iroh endpoints in one process: the space's (`server.db`'s
+  `server_meta.secret_key`, what invite links point at) and the client's
+  (`device.key`, what a server enrols). Never show one where the other belongs,
+  and never let the host's client skip the network to reach its own server.
+- **`navigator.clipboard.writeText` does not work in WebKitGTK**, and it fails
+  silently. Copy through `tauri-plugin-clipboard-manager` (`copyText` in
+  `web/src/lib/api.ts`).
+- **Single-instance is scoped to `HE_DATA_DIR`, not the machine.** One process
+  per data directory is the real invariant; a machine-wide lock silently breaks
+  the two-window recipe in `docs/TESTING.md`.
+- **A modal needs a focus trap.** Dialogs go inside
+  `web/src/components/Dialog.svelte`, which traps Tab, recaptures focus after a
+  re-render drops it, and closes on Escape. Without it Tab walks onto the page
+  behind the backdrop, where the user cannot see what is selected.
 - **A frame that is the last one on a stream must be flushed before the
   connection is dropped.** Returning from `ProtocolHandler::accept` drops the
   connection, and a QUIC close discards data the peer has not acknowledged — so
@@ -119,6 +136,7 @@ and release packaging needs it in the `.desktop` `Exec=` line (tracked in M6).
 ```bash
 cargo tauri dev                  # run the desktop app
 cargo run -p he-serverd          # run a headless server (./he-data, override with --data-dir)
+                                 # --lan / --relay <URL> / --no-dns / --no-mdns
 cargo run -p he-cli -- --help    # debug client
 cargo test --workspace           # all tests
 cargo clippy --workspace -- -D warnings
@@ -135,14 +153,16 @@ the protocol still works:
 
 ```bash
 he-serverd --owner justin            # once: creates the owner account, then exits
-he-serverd --invite --max-uses 5     # prints an invite code and the EndpointId
+he-serverd --invite --max-uses 5     # prints a code, the EndpointId, and a join link
 he-serverd                           # serve; ^C to stop
 
-export HE_SERVER=<endpoint-id>
-he-cli --invite <code> --username alice info   # registers; enrols this device
+export HE_SERVER='hitenter://join?t=…&c=…'     # the link carries both halves
+he-cli --username alice info                   # registers; enrols this device
 he-cli send general "hit enter"                # no password: the device key is the login
 he-cli watch                                   # events, in another terminal
 ```
+
+`HE_SERVER` also takes a bare `EndpointId` or an `endpoint…` ticket.
 
 Passwords come from `HE_PASSWORD` or stdin, never from an argument — `ps` shows
 arguments to every account on the machine.

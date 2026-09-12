@@ -10,6 +10,25 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { writeText } from "@tauri-apps/plugin-clipboard-manager";
+
+/**
+ * Puts text on the system clipboard.
+ *
+ * Not `navigator.clipboard.writeText`: WebKitGTK rejects it, and it rejects it
+ * *silently*, so the button says "copied" and the clipboard stays empty. An
+ * invite link that cannot be copied is a space nobody can join, so this goes
+ * through the OS. Returns whether it worked, so a caller can say so honestly.
+ */
+export async function copyText(text: string): Promise<boolean> {
+  try {
+    await writeText(text);
+    return true;
+  } catch (e) {
+    console.error("could not write to the clipboard", e);
+    return false;
+  }
+}
 
 export type Channel = {
   id: string;
@@ -58,6 +77,65 @@ export type AppInfo = {
   limits: Limits;
 };
 
+/** Which relays to use when a direct path cannot be punched (PLAN §4). */
+export type Relays =
+  | { mode: "n0" }
+  | { mode: "custom"; urls: string[] }
+  | { mode: "disabled" };
+
+export type NetworkConfig = {
+  relays: Relays;
+  n0_discovery: boolean;
+  mdns_discovery: boolean;
+};
+
+export type SettingsView = {
+  network: NetworkConfig;
+  /** Built from the same struct in Rust, never reassembled here. */
+  summary: string;
+  self_contained: boolean;
+  data_dir: string;
+  settings_path: string;
+};
+
+export type SettingsSaved = {
+  settings: SettingsView;
+  /** The client endpoint was bound at startup and holds every open session. */
+  restart_required: boolean;
+  host_restarted: boolean;
+};
+
+/** The space this machine serves, or could serve. */
+export type HostStatus = {
+  space_exists: boolean;
+  running: boolean;
+  auto_start: boolean;
+  /** The *space's* key — not this device's. Separate keys, separate lives. */
+  endpoint_id?: string;
+  space_name: string;
+  owner?: string;
+  link?: string;
+  reachable_remotely: boolean;
+  data_dir: string;
+};
+
+export type SpaceCreated = { host: HostStatus; server: ServerSummary };
+
+export type Invite = {
+  code: string;
+  /** The whole invite, and what to paste into a chat message (PLAN §5). */
+  link: string;
+  reachable_remotely: boolean;
+};
+
+export type ParsedLink = {
+  endpoint_id: string;
+  code?: string;
+  relay_url?: string;
+  known: boolean;
+  is_own_space: boolean;
+};
+
 export type Sent = { nonce: string; delivered: boolean };
 
 export type PendingMessage = {
@@ -85,9 +163,14 @@ export const api = {
 
   listServers: () => invoke<ServerSummary[]>("list_servers"),
 
-  /** First join, or enrolling this device on an existing account. */
+  /**
+   * First join, or enrolling this device on an existing account.
+   *
+   * `address` is whatever the user pasted — a `hitenter://` link, a ticket, or
+   * a bare EndpointId. A link carries its own invite code; `invite` overrides.
+   */
   joinServer: (args: {
-    endpointId: string;
+    address: string;
     username: string;
     password: string;
     invite?: string;
@@ -134,10 +217,26 @@ export const api = {
     endpointId: string;
     expiresIn?: number;
     maxUses?: number;
-  }) => invoke<string>("create_invite", args),
+  }) => invoke<Invite>("create_invite", args),
 
   pendingMessages: (endpointId: string) =>
     invoke<PendingMessage[]>("pending_messages", { endpointId }),
+
+  /** Pure parsing: nothing is dialled and nothing is stored. */
+  parseLink: (text: string) => invoke<ParsedLink>("parse_link", { text }),
+
+  hostStatus: () => invoke<HostStatus>("host_status"),
+
+  /** Creates a space on this machine and joins it over the network. */
+  createSpace: (args: { name: string; username: string; password: string }) =>
+    invoke<SpaceCreated>("create_space", args),
+
+  startHosting: () => invoke<HostStatus>("start_hosting"),
+  stopHosting: () => invoke<HostStatus>("stop_hosting"),
+
+  networkSettings: () => invoke<SettingsView>("network_settings"),
+  setNetworkSettings: (network: NetworkConfig) =>
+    invoke<SettingsSaved>("set_network_settings", { network }),
 };
 
 export type MessageEvent = {
@@ -156,3 +255,16 @@ export const onConnection = (
   cb: (e: ConnectionEvent) => void,
 ): Promise<UnlistenFn> =>
   listen<ConnectionEvent>("he://connection", (e) => cb(e.payload));
+
+/** Hosting started, stopped, or was rebound. Details come from `hostStatus`. */
+export const onHost = (cb: () => void): Promise<UnlistenFn> =>
+  listen<null>("he://host", () => cb());
+
+/**
+ * A `hitenter://` link arrived from the desktop.
+ *
+ * It opens the join dialog and nothing else — a link that joined on arrival
+ * would make clicking a URL enough to enrol this device somewhere.
+ */
+export const onLink = (cb: (link: string) => void): Promise<UnlistenFn> =>
+  listen<string>("he://link", (e) => cb(e.payload));

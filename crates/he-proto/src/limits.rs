@@ -23,6 +23,12 @@ pub const CHANNEL_NAME_MAX_CHARS: usize = 64;
 /// a huge log line.
 pub const ID_MAX_BYTES: usize = 64;
 
+/// An invite code is a bearer credential typed or pasted by a human, and the
+/// server is the only thing that can say whether one is *real* — in constant
+/// time, so that trying is not an oracle. This cap only refuses what could
+/// never be a code, before it is carried any further.
+pub const INVITE_CODE_MAX_BYTES: usize = 64;
+
 /// A send nonce is chosen by the client and echoed back untouched. It is never
 /// stored, so it only has to be long enough to be unique within one client.
 pub const NONCE_MAX_BYTES: usize = 64;
@@ -58,6 +64,8 @@ pub enum ValidationError {
     BackfillLimit,
     #[error("an invite must allow at least one use")]
     InviteUses,
+    #[error("invite code is empty, too long, or not an invite code")]
+    InviteCodeInvalid,
 }
 
 /// Lowercased form used as the uniqueness key for accounts.
@@ -130,6 +138,25 @@ pub fn validate_id(id: &str) -> Result<(), ValidationError> {
 pub fn validate_nonce(nonce: &str) -> Result<(), ValidationError> {
     if nonce.is_empty() || nonce.len() > NONCE_MAX_BYTES {
         return Err(ValidationError::NonceInvalid);
+    }
+    Ok(())
+}
+
+/// Checks the *shape* of an invite code, never its validity.
+///
+/// Formatting is tolerated — a code is read aloud, retyped, and pasted out of
+/// chat messages, so `K7QP-2M4X-9WTZ`, `k7qp 2m4x 9wtz` and a stray underscore
+/// all have to survive. The server canonicalises and compares in constant
+/// time; this is only the bound that keeps a megabyte of attacker-chosen text
+/// out of a query and a log line.
+pub fn validate_invite_code(code: &str) -> Result<(), ValidationError> {
+    if code.is_empty()
+        || code.len() > INVITE_CODE_MAX_BYTES
+        || !code
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | ' '))
+    {
+        return Err(ValidationError::InviteCodeInvalid);
     }
     Ok(())
 }
@@ -248,6 +275,27 @@ mod tests {
         assert_eq!(
             validate_nonce(&"n".repeat(NONCE_MAX_BYTES + 1)),
             Err(ValidationError::NonceInvalid)
+        );
+    }
+
+    #[test]
+    fn invite_codes_are_bounded_but_forgiving_about_formatting() {
+        for code in ["K7QP-2M4X-9WTZ", "k7qp2m4x9wtz", "K7QP 2M4X 9WTZ"] {
+            assert!(validate_invite_code(code).is_ok(), "rejected {code}");
+        }
+        assert_eq!(
+            validate_invite_code(""),
+            Err(ValidationError::InviteCodeInvalid)
+        );
+        assert_eq!(
+            validate_invite_code(&"A".repeat(INVITE_CODE_MAX_BYTES + 1)),
+            Err(ValidationError::InviteCodeInvalid)
+        );
+        // A code goes into a URL query string without escaping, so anything
+        // that would need escaping is not a code.
+        assert_eq!(
+            validate_invite_code("K7QP&c=other"),
+            Err(ValidationError::InviteCodeInvalid)
         );
     }
 

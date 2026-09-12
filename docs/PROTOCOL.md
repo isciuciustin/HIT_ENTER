@@ -209,6 +209,12 @@ Both request fields are optional: no `expires_in` never expires, no `max_uses`
 is unlimited. Any account may invite; the row records who did, which is what
 the owner's "revoke invite" tool (M6) works from.
 
+The response carries the code alone, because the server cannot know where the
+client should tell people to look: only the process that owns the space's
+endpoint knows its own relay and direct addresses. A client turns the code into
+a link (§8) using the address it dialled — with hints if it is the host, and
+with the bare key otherwise, which discovery resolves.
+
 ---
 
 ## 6. Limits
@@ -226,7 +232,14 @@ validates because it can never trust a client.
 | channel name | 1–64 characters |
 | id | 1–64 characters of `[a-zA-Z0-9-]` |
 | nonce | 1–64 bytes |
+| invite code | 1–64 bytes of `[a-zA-Z0-9]`, `-`, `_` or space; formatting ignored |
 | backfill `limit` | 1–200, default 50 |
+
+An invite code's *shape* is checked by both sides; whether it is **real** is
+answered only by the server, in constant time, so that trying is not an oracle.
+Formatting is deliberately forgiving — a code is read aloud, retyped and pasted
+out of chat messages, so `K7QP-2M4X-9WTZ`, `k7qp2m4x9wtz` and one with a stray
+space are the same code.
 
 The server also caps, globally and before anyone has proved who they are:
 live connections, handshakes in flight (lower, because a handshake can cost
@@ -263,7 +276,70 @@ for its entire journey by QUIC + TLS 1.3, including past any relay.
 
 ---
 
-## 8. Not yet on the wire
+## 8. Invite links
+
+Not a frame — a link is the one string a person sends another person, and it is
+what a client turns into the address it dials and the `invite` it puts in a
+`hello`. It lives in `he-proto` (`ticket.rs`) because both sides need it and
+neither may own it (PLAN §5).
+
+```
+hitenter://join?t=<iroh endpoint ticket>&c=K7QP-2M4X-9WTZ
+```
+
+| | |
+|---|---|
+| `t` | an iroh `EndpointTicket`: the space's `EndpointId`, plus the relay and direct addresses it knew about **itself** when the link was minted |
+| `c` | the registration code, gating account creation (§4, PLAN §11). **Optional** |
+
+Both values are restricted to characters that need no percent-encoding, so a
+link survives being pasted through a chat client. `hitenter:join?…` — one
+slash — parses identically, because which form comes back depends on the chat
+client. An **unknown parameter is ignored**, so a link from a newer version
+still joins rather than failing to parse.
+
+### What the two halves are for
+
+- **Without `c`** the link is an address and nothing else: enough to point a
+  second machine *of your own* at a space, where the password enrols the device
+  and no invite is involved (PLAN §3). Not enough for a stranger to register.
+- **With `c`** it is a complete invite: everything needed to find the space and
+  be allowed in.
+
+### Hints go stale; the key does not
+
+The addresses inside `t` are a snapshot of where the space was reachable when
+the link was made. They make the first connection fast. When they are wrong,
+discovery re-resolves from the `EndpointId` and the link still works — just
+more slowly. **Mint a fresh link rather than storing one.**
+
+A link minted before the hosting endpoint has reached a relay carries only
+local addresses, which is the difference between "a friend in another city
+joins" and "it worked on my machine". `he-serverd --invite` and the desktop
+app both wait, briefly and boundedly, for a relay before printing one.
+
+### There is nothing to verify
+
+The address **is** an ed25519 public key. A link that has been tampered with
+does not point at an impostor's server; it points at a key nobody holds, or at
+no readable ticket at all. There is no fingerprint for two people to compare
+and nothing to pin (PLAN §5).
+
+### What a client accepts
+
+A client is liberal about what it reads, because the alternative is telling
+somebody who pasted the two halves of an invite that their invite is not a
+link. `InviteLink::parse_relaxed` takes:
+
+- a whole `hitenter://join?…` link;
+- a bare `endpoint…` ticket, optionally followed by a code;
+- a bare `EndpointId`, optionally followed by a code.
+
+It is strict about what it *writes*: the canonical form above, always.
+
+---
+
+## 9. Not yet on the wire
 
 `hit-enter/0` carries exactly what is documented above. These are specified in
 PLAN §9 and land in later milestones; a client must not send them and a server

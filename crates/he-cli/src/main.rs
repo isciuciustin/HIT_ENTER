@@ -13,15 +13,16 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use he_client::{Client, DeviceIdentity, Session};
+use he_proto::net::Relays;
 use he_proto::rpc::Auth;
-use he_proto::{Password, ServerFrame};
-use iroh::{EndpointAddr, EndpointId};
+use he_proto::{InviteLink, NetworkConfig, Password, ServerFrame};
+use iroh::EndpointAddr;
 
 const USAGE: &str = "\
 he-cli — HIT_ENTER debug client
 
 USAGE:
-    he-cli --server <ENDPOINT_ID> [OPTIONS] <COMMAND>
+    he-cli --server <ADDRESS> [OPTIONS] <COMMAND>
 
 COMMANDS:
     info                        Connect, print what the server said, disconnect
@@ -31,14 +32,24 @@ COMMANDS:
     invite [--max-uses N]       Mint an invite code
 
 OPTIONS:
-    -s, --server <ENDPOINT_ID>  Who to dial      [env: HE_SERVER]
+    -s, --server <ADDRESS>      Who to dial      [env: HE_SERVER]
     -k, --key <PATH>            Device key file  [default: ./he-cli.key]
     -u, --username <NAME>       Log in as this account
     -i, --invite <CODE>         Register with this invite code
         --addr <IP:PORT>        Skip discovery and dial this socket directly
         --max-uses <N>          With `invite` [default: 1]
         --expires-in <S>        With `invite` [default: never]
+        --relay <URL>           Use this relay instead of n0's. Repeat for several.
+        --no-relay              No relay at all
+        --no-dns                Do not use n0's DNS for discovery
+        --no-mdns               Do not announce on the local network
+        --lan                   Shorthand for --no-relay --no-dns
     -h, --help                  Print this message
+
+ADDRESS
+    An EndpointId, an `endpoint…` ticket, or a whole `hitenter://join?…` link.
+    A link also carries the invite code, so `--server <link>` alone is enough
+    for a first join — `--invite` overrides what the link says.
 
 AUTHENTICATION
     With neither --invite nor --username, the device key is the whole login and
@@ -52,13 +63,14 @@ CHANNELS
 ";
 
 struct Args {
-    server: EndpointId,
+    server: InviteLink,
     key: PathBuf,
     username: Option<String>,
     invite: Option<String>,
     addr: Option<std::net::SocketAddr>,
     max_uses: Option<i64>,
     expires_in: Option<u64>,
+    network: NetworkConfig,
     command: Command,
 }
 
@@ -78,6 +90,10 @@ fn parse_args() -> Result<Option<Args>> {
     let mut addr = None;
     let mut max_uses = None;
     let mut expires_in = None;
+    let mut relays: Vec<String> = Vec::new();
+    let mut no_relay = false;
+    let mut no_dns = false;
+    let mut no_mdns = false;
     let mut rest: Vec<String> = Vec::new();
     let mut args = std::env::args().skip(1);
 
@@ -117,6 +133,14 @@ fn parse_args() -> Result<Option<Args>> {
                         .context("--expires-in must be a number of seconds")?,
                 )
             }
+            "--relay" => relays.push(args.next().context("--relay needs a URL")?),
+            "--no-relay" => no_relay = true,
+            "--no-dns" => no_dns = true,
+            "--no-mdns" => no_mdns = true,
+            "--lan" => {
+                no_relay = true;
+                no_dns = true;
+            }
             other if other.starts_with('-') => {
                 bail!("unrecognised option {other:?}\n\n{USAGE}")
             }
@@ -146,18 +170,34 @@ fn parse_args() -> Result<Option<Args>> {
     };
 
     let server = server.context("--server is required (or set HE_SERVER)")?;
-    let server: EndpointId = server
-        .parse()
-        .context("--server must be an EndpointId, as printed by he-serverd")?;
+    let server = InviteLink::parse_relaxed(&server)
+        .context("--server must be an EndpointId, a ticket, or a hitenter:// link")?;
+
+    if no_relay && !relays.is_empty() {
+        bail!("--relay and --no-relay ask for opposite things");
+    }
 
     Ok(Some(Args {
+        // An explicit --invite wins over one carried by the link, so that a
+        // stale link can be reused with a fresh code.
+        invite: invite.or_else(|| server.code().map(str::to_owned)),
         server,
         key: key.unwrap_or_else(|| PathBuf::from("./he-cli.key")),
         username,
-        invite,
         addr,
         max_uses,
         expires_in,
+        network: NetworkConfig {
+            relays: if no_relay {
+                Relays::Disabled
+            } else if relays.is_empty() {
+                Relays::N0
+            } else {
+                Relays::Custom { urls: relays }
+            },
+            n0_discovery: !no_dns,
+            mdns_discovery: !no_mdns,
+        },
         command,
     }))
 }
@@ -213,13 +253,16 @@ async fn main() -> Result<()> {
     let identity = DeviceIdentity::load_or_create(&args.key)?;
     eprintln!("device id : {}", identity.endpoint_id());
 
-    let client = Client::bind(&identity).await?;
+    let client = Client::bind(&identity, &args.network).await?;
 
-    // A bare EndpointId is resolved by discovery. `--addr` skips that, which
-    // is how you test on a LAN with the internet unplugged.
+    // A bare EndpointId is resolved by discovery; a link carries its own
+    // hints. `--addr` skips both, which is how you test on a LAN with the
+    // internet unplugged.
     let addr = match args.addr {
-        Some(socket) => EndpointAddr::from_parts(args.server, [iroh::TransportAddr::Ip(socket)]),
-        None => EndpointAddr::new(args.server),
+        Some(socket) => {
+            EndpointAddr::from_parts(args.server.addr().id, [iroh::TransportAddr::Ip(socket)])
+        }
+        None => args.server.addr().clone(),
     };
 
     let mut session = client.connect(addr, auth_for(&args)?).await?;
@@ -258,7 +301,13 @@ async fn main() -> Result<()> {
             let code = session
                 .create_invite(args.expires_in, args.max_uses.or(Some(1)))
                 .await?;
+            // The code alone is half an invite. The other half is where to
+            // send it, and a link carries both (PLAN §5).
             println!("{code}");
+            println!(
+                "{}",
+                InviteLink::new(args.server.addr().clone(), Some(code))
+            );
         }
     }
 

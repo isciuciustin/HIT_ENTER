@@ -13,12 +13,23 @@ authors.workspace = true
 # its PLAN §7 property — wire types with no I/O and no runtime — for a consumer
 # that wants only the types. `he-server` and `he-client` both turn it on.
 io = ["dep:tokio"]
+# Turning a `NetworkConfig` into a configured iroh endpoint builder. Off by
+# default for the same reason: it pulls in the whole transport. The config
+# *type* is always available, so a crate that only reads settings needs
+# neither this nor iroh.
+net = ["dep:iroh", "dep:iroh-mdns-address-lookup"]
 
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, optional = true, features = ["io-util"] }
+# Addresses and tickets, not connections: both are pure types and neither
+# brings a runtime, which is why `ticket` needs no feature (PLAN §7).
+iroh-base = { workspace = true }
+iroh-tickets = { workspace = true }
+iroh = { workspace = true, optional = true }
+iroh-mdns-address-lookup = { workspace = true, optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["io-util", "macros", "rt"] }

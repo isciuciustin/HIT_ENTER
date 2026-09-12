@@ -27,7 +27,7 @@ use std::time::Duration;
 
 use he_proto::io::{read_frame, write_frame};
 use he_proto::rpc::{Auth, ErrorCode, Hello, ProtocolError, Ready, Request, Response};
-use he_proto::{FrameError, Message, ServerFrame};
+use he_proto::{FrameError, InviteLink, Message, NetworkConfig, ServerFrame};
 use iroh::endpoint::{Connection, RecvStream, SendStream};
 use iroh::protocol::{AcceptError, ProtocolHandler, Router};
 use iroh::{Endpoint, EndpointId};
@@ -431,11 +431,15 @@ async fn pump_events(
 
 /// Binds an iroh endpoint carrying this server's identity.
 ///
-/// Uses n0's defaults for relays and discovery: a documented, replaceable
-/// convenience, never a dependency on us (PLAN §4). M4 makes both
-/// configurable.
-pub async fn bind_endpoint(server: &Server) -> Result<Endpoint> {
-    Endpoint::builder(iroh::endpoint::presets::N0)
+/// Relays and discovery come from `config` rather than a preset, because a
+/// host runs a client out of the same process and both have to agree about
+/// which relays exist (PLAN §4). The defaults are n0's — a documented,
+/// replaceable convenience, never a dependency on us.
+pub async fn bind_endpoint(server: &Server, config: &NetworkConfig) -> Result<Endpoint> {
+    let builder = config
+        .apply(Endpoint::builder(iroh::endpoint::presets::Empty))
+        .map_err(|err| ServerError::Endpoint(err.to_string()))?;
+    builder
         .secret_key(server.identity().secret_key().clone())
         .alpns(vec![he_proto::ALPN.to_vec()])
         .bind()
@@ -455,9 +459,24 @@ pub fn serve_on(endpoint: Endpoint, server: Arc<Server>, limits: Limits) -> Rout
 }
 
 /// Binds an endpoint and serves the protocol on it. The common case.
-pub async fn serve(server: Arc<Server>) -> Result<Router> {
-    let endpoint = bind_endpoint(&server).await?;
+pub async fn serve(server: Arc<Server>, config: &NetworkConfig) -> Result<Router> {
+    let endpoint = bind_endpoint(&server, config).await?;
     Ok(serve_on(endpoint, server, Limits::default()))
+}
+
+/// The invite link for a space, minted from the address the endpoint knows it
+/// has *right now*.
+///
+/// The hints — home relay, direct addresses — are what make a first connection
+/// fast, and they go stale. The `EndpointId` inside never does, so a link with
+/// stale hints still resolves through discovery; it just takes longer. Mint a
+/// fresh one rather than storing this string anywhere.
+///
+/// Call [`Endpoint::online`] first if the link is going to a different
+/// network: before the endpoint has reached a relay there is no relay in its
+/// address, and a link without one only works on this LAN.
+pub fn invite_link(endpoint: &Endpoint, code: Option<String>) -> InviteLink {
+    InviteLink::new(endpoint.addr(), code)
 }
 
 /// A handshake that was answered with an `Error` frame. Carries nothing: the

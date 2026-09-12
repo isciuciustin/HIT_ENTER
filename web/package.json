@@ -10,7 +10,8 @@
     "check": "svelte-check --tsconfig ./tsconfig.json"
   },
   "dependencies": {
-    "@tauri-apps/api": "^2.11.1"
+    "@tauri-apps/api": "^2.11.1",
+    "@tauri-apps/plugin-clipboard-manager": "^2.3.3"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^7.3.0",

@@ -14,13 +14,17 @@ import {
   api,
   asError,
   onConnection,
+  onHost,
+  onLink,
   onMessage,
   type Channel,
   type CommandError,
   type ConnectionStatus,
+  type HostStatus,
   type Limits,
   type Message,
   type ServerSummary,
+  type SettingsView,
 } from "./api";
 
 /** A message as the pane renders it. */
@@ -58,12 +62,30 @@ class Chat {
     channel_name_max_chars: 64,
   });
   error = $state<CommandError | null>(null);
+  /** The space this machine serves, or could serve (PLAN §2.1). */
+  host = $state<HostStatus | null>(null);
+  settings = $state<SettingsView | null>(null);
+  /**
+   * A link the desktop handed us, waiting for the user to look at it.
+   *
+   * Parked here rather than acted on: clicking a URL must not be enough to
+   * enrol this device in a stranger's space.
+   */
+  pendingLink = $state<string | null>(null);
   /** True while an older page is in flight, so scrolling cannot ask twice. */
   loadingOlder = $state(false);
   /** False once a page comes back short: there is no more history. */
   hasMoreHistory = $state(true);
   /** How many of `messages` to actually put in the DOM. */
   renderCount = $state(RENDER_WINDOW);
+
+  /** True when the active space is the one this machine is serving. */
+  get activeIsOwnSpace(): boolean {
+    return (
+      this.host?.running === true &&
+      this.host.endpoint_id === this.activeServer
+    );
+  }
 
   get activeServerSummary(): ServerSummary | null {
     return (
@@ -104,7 +126,10 @@ class Chat {
       const server = this.servers.find((s) => s.endpoint_id === e.server);
       if (server) server.connected = e.status !== "offline";
     });
+    await onHost(() => void this.refreshHost());
+    await onLink((link) => (this.pendingLink = link));
 
+    await Promise.all([this.refreshHost(), this.refreshSettings()]);
     await this.refreshServers();
 
     // Reconnect to everything we already belong to. The device key is the
@@ -121,6 +146,46 @@ class Chat {
     this.servers = await api.listServers();
     for (const server of this.servers) {
       this.status[server.endpoint_id] = server.status;
+    }
+  }
+
+  async refreshHost() {
+    this.host = await api.hostStatus();
+  }
+
+  async refreshSettings() {
+    this.settings = await api.networkSettings();
+  }
+
+  /**
+   * Creates a space on this machine and joins it.
+   *
+   * The join goes over iroh like anyone else's would — there is no local
+   * shortcut, which is why the owner's own client exercises the handshake,
+   * the enrolment and the mirror on every run (PLAN §2.1).
+   */
+  async createSpace(args: { name: string; username: string; password: string }) {
+    this.error = null;
+    try {
+      const created = await api.createSpace(args);
+      this.host = created.host;
+      await this.refreshServers();
+      await this.selectServer(created.server.endpoint_id);
+      return true;
+    } catch (e) {
+      this.error = asError(e);
+      return false;
+    }
+  }
+
+  async setHosting(running: boolean) {
+    this.error = null;
+    try {
+      this.host = running ? await api.startHosting() : await api.stopHosting();
+      return true;
+    } catch (e) {
+      this.error = asError(e);
+      return false;
     }
   }
 
@@ -142,7 +207,7 @@ class Chat {
   }
 
   async join(args: {
-    endpointId: string;
+    address: string;
     username: string;
     password: string;
     invite?: string;

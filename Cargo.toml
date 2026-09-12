@@ -25,6 +25,13 @@ he-server = { path = "crates/he-server" }
 he-client = { path = "crates/he-client" }
 
 iroh = "1.1"
+# Address and ticket types, split out of iroh so that `he-proto` can parse an
+# invite link without depending on a transport.
+iroh-base = { version = "1.1", features = ["key"] }
+iroh-tickets = "1.0"
+# mDNS lives outside iroh since 1.0. It is the rung of the sovereignty ladder
+# (PLAN §4) that needs no infrastructure at all.
+iroh-mdns-address-lookup = "0.5"
 tokio = { version = "1.53", features = ["macros", "rt-multi-thread", "sync", "time"] }
 sqlx = { version = "0.9", default-features = false, features = ["sqlite", "runtime-tokio", "macros", "migrate"] }
 argon2 = "0.6"

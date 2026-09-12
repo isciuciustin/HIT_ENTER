@@ -31,17 +31,19 @@ Where the tests are, and what each layer is actually for:
 
 | | tests | what it proves |
 |---|---|---|
-| `he-proto` | 31 | framing, limits, and that no wire type prints a password |
+| `he-proto` | 49 | framing, limits, invite links, network config, and that no wire type prints a password |
 | `he-server` | 39 | registration, login, enrolment, invites, rate limiting — all by direct function call, no socket |
-| `he-client` | 24 | the mirror, the device key, and **11 end-to-end tests over real iroh endpoints** |
+| `he-client` | 28 | the mirror, the device key, and **15 end-to-end tests over real iroh endpoints** |
+| `hit-enter` | 5 | the settings file: defaults, an older version's file, a corrupt one |
 
-> **`cargo test -p he-proto` on its own runs 27, not 31.** The four framing I/O
-> tests live behind the off-by-default `io` feature (PLAN §7), so testing that
-> crate in isolation silently skips them. `--workspace` enables the feature
-> through unification, because `he-server` and `he-client` both ask for it. To
-> run them deliberately: `cargo test -p he-proto --features io`. This is the
-> shape of trap to watch for whenever a crate gains an optional feature —
-> nothing fails, the tests just do not exist.
+> **`cargo test -p he-proto` on its own runs fewer than `--workspace` does.**
+> Some tests live behind the two off-by-default features — `io` for the framing
+> driver, `net` for the endpoint config (PLAN §7) — so testing that crate in
+> isolation silently skips them. `--workspace` enables both through unification,
+> because `he-server` and `he-client` ask for them. To run them deliberately:
+> `cargo test -p he-proto --features io,net`. This is the shape of trap to watch
+> for whenever a crate gains an optional feature — nothing fails, the tests just
+> do not exist.
 
 The end-to-end tests are the interesting ones:
 
@@ -54,9 +56,11 @@ switched off, run a real `he-server` against a real temp SQLite file, and dial
 it over QUIC. No mocks — a mock of a QUIC handshake proves nothing (PLAN §14).
 They need no network and take well under a second.
 
-Two of them are worth knowing by name, because they are the M3 claim:
-`the_mirror_answers_after_the_server_is_gone` and
-`a_backfill_page_overlapping_live_events_does_not_duplicate`.
+Four are worth knowing by name, because they are the M3 and M4 claims:
+`the_mirror_answers_after_the_server_is_gone`,
+`a_backfill_page_overlapping_live_events_does_not_duplicate`,
+`a_pasted_invite_link_is_enough_to_join` and
+`a_link_from_a_different_space_does_not_open_this_one`.
 
 ### After changing a query
 
@@ -78,21 +82,22 @@ print statements.
 # once: create the space and its owner account
 HE_PASSWORD='owner password' cargo run -p he-serverd -- -d /tmp/space --owner justin
 
-# mint an invite — prints the code and the EndpointId, which are both needed to join
+# mint an invite — prints the code, the EndpointId, and a join link carrying both
 cargo run -p he-serverd -- -d /tmp/space --invite --max-uses 5
 
 # serve it; ^C to stop
 cargo run -p he-serverd -- -d /tmp/space
 ```
 
-Then, in another terminal:
+Then, in another terminal. A link is the whole address *and* the invite, so
+`--server <link>` on its own is a first join:
 
 ```bash
-export HE_SERVER=<the endpoint id printed above>
+export HE_SERVER='hitenter://join?t=…&c=…'      # the link printed above
 
 # first contact: the invite creates the account, the password enrols this key
 HE_PASSWORD='alice pw' cargo run -p he-cli -- \
-    --key /tmp/alice.key --invite <CODE> --username alice info
+    --key /tmp/alice.key --username alice info
 
 # every time after that: no password, because the device key is the login
 cargo run -p he-cli -- --key /tmp/alice.key send general "hit enter"
@@ -101,6 +106,28 @@ cargo run -p he-cli -- --key /tmp/alice.key history
 # in a third terminal, watch events arrive live
 cargo run -p he-cli -- --key /tmp/alice.key watch
 ```
+
+`HE_SERVER` also takes a bare `EndpointId` or a bare `endpoint…` ticket, and
+`--invite <CODE>` overrides whatever the link carries — which is how a stale
+link gets reused with a fresh code.
+
+### Testing without the internet
+
+Both binaries take the same relay and discovery flags, because both sides of
+the ladder in PLAN §4 have to be reachable from a terminal:
+
+```bash
+# local network only: no relay, no n0 DNS, mDNS for discovery
+cargo run -p he-serverd -- -d /tmp/space --lan
+cargo run -p he-cli -- --key /tmp/alice.key --lan info
+
+# your own relay instead of n0's (repeat --relay for several)
+cargo run -p he-serverd -- -d /tmp/space --relay https://relay.example.com
+```
+
+`--lan` is `--no-relay --no-dns`; `--no-mdns` turns off the local-network
+announcement as well. The server prints which combination it ended up with on
+startup, so a surprising one is visible rather than inferred.
 
 A second `--key` path is a second machine as far as the server is concerned, so
 that is how you test two members without two computers.
@@ -129,8 +156,10 @@ grep -iE 'password|secret|<some message you sent>' /tmp/serverd.log   # must fin
 
 ## 3. Two app windows
 
-This is the M3 milestone demo: two windows hold a conversation, and closing and
-reopening one shows history from disk with the network off.
+The M3 demo is two windows holding a conversation, and closing and reopening one
+showing history from disk with the network off. The M4 demo adds the half the
+project exists for: one of those windows **hosts** the space, and the other joins
+it with nothing but a pasted link.
 
 ### One window
 
@@ -158,10 +187,17 @@ HE_DATA_DIR=/tmp/alice ./target/debug/hit-enter &
 HE_DATA_DIR=/tmp/bob   ./target/debug/hit-enter &
 ```
 
-**`HE_DATA_DIR` is not optional.** The data directory holds the device key, and
-the device key *is* the identity a server enrols (PLAN §3). Two windows sharing
-one directory are one device with one enrolment, which is not the thing you are
-trying to test.
+**`HE_DATA_DIR` is not optional.** The data directory holds the device key, the
+mirror and — if this instance hosts — the space; the device key *is* the
+identity a server enrols (PLAN §3). Two windows sharing one directory are one
+device with one enrolment, which is not the thing you are trying to test.
+
+It is also what keeps the two windows apart at the process level. A clicked
+`hitenter://` link starts a second copy of the app, so the app holds a
+single-instance lock — but scoped to the **data directory**, not the machine,
+because two data directories are two devices. Without `HE_DATA_DIR` the second
+launch hands its arguments to the first window and exits, which is correct for a
+released app and fatal to this recipe.
 
 `WEBKIT_DISABLE_DMABUF_RENDERER=1` is set by `.cargo/config.toml` for
 `cargo run` and `cargo tauri dev`, but **not** when you execute
@@ -171,6 +207,47 @@ startup with `Gdk-Message: Error 71 (Protocol error)`.
 
 In each window: **+** in the server rail, then paste the EndpointId and the
 invite code from step 2, and pick a username and password.
+
+### Hosting from the app — the M4 demo
+
+In the first window: **host a space** on the empty state, or the house icon at
+the bottom of the server rail. Give it a name, a username and a password.
+
+What happens next is worth understanding, because it is the whole architecture
+in one click (PLAN §2.1):
+
+1. `server.db` is created in that window's data directory, which generates the
+   **space's** identity — a different key from the device key already there.
+2. The owner account is made **locally**. It is the one account an invite
+   cannot gate, so it never crosses the network.
+3. That same window's client then *dials the space by its `EndpointId`* with the
+   owner's password, exactly as a stranger's client would. Watch the log: a
+   `hosting` line, then `password login; device enrolled`, then
+   `session established`. There is no host shortcut and there must never be one.
+
+Then **invite** in the channel list footer, **copy link**, and paste it into the
+second window's join dialog. The dialog parses it as you type: it shows the
+space's address, fills in the invite code, and says so if you are already a
+member or if the link is your own space.
+
+A few things to check that only exist in M4:
+
+- **The space's address is not your device's.** The host panel says so; the
+  settings pane shows the device key separately. Handing out the wrong one is
+  the mistake this wording exists to prevent.
+- **Close the space, then reopen it.** Members drop cleanly rather than timing
+  out, and reopening reconnects the host's own client — if your own space sits
+  at `offline` in your own window, that is the bug.
+- **`settings.json`** next to the mirror. Editing it by hand is supported; a
+  corrupt one must start the app with the defaults, not refuse to open.
+- **Relay and discovery settings.** Changing them rebinds the space on the spot
+  and says plainly that your own connections keep the old settings until you
+  restart — because the client endpoint is bound at startup and holds every open
+  session.
+- **A link with no relay in it.** Mint one immediately after opening a space,
+  before it has reached a relay, and the invite dialog warns that it will only
+  work on your local network. That is the difference between "a friend in
+  another city joins" and "it worked on my machine".
 
 ### What to actually check
 
@@ -197,7 +274,12 @@ sqlite3 /tmp/bob/mirror.db 'select author_name, content from cached_messages ord
 sqlite3 /tmp/bob/mirror.db 'select content from outbox;'          # composed while offline
 sqlite3 /tmp/space/server.db 'select username, is_owner from users;'
 sqlite3 /tmp/space/server.db 'select endpoint_id, revoked_at from devices;'
+cat /tmp/alice/settings.json                                      # relays, discovery, hosting
 ```
+
+A space hosted from the app puts its `server.db` in that instance's data
+directory rather than in a `/tmp/space` of its own, so for the M4 demo the last
+two queries read `/tmp/alice/server.db`.
 
 Both files are `0600`. `server.db` holds `server_meta.secret_key`, which *is*
 the server's identity — treat that file like an SSH host key, and never paste
