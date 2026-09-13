@@ -144,8 +144,11 @@ Enough to paint the whole app without a second round trip. `enrolled` is always
 `true` here — every path into a session enrols the device, which is what makes
 the *next* connection passwordless.
 
-`online` is the ids of the members who have a live session at this instant, and
-`presence` events (§7) keep it current from there. It is a snapshot because
+`online` is the ids of the members who have a live session at this instant —
+**including the reader**, who is online by the time they read the frame. A list
+that named you only when a second device of yours happened to be connected
+would be an inconsistency every client had to paper over. `presence` events
+(§7) keep it current from there. It is a snapshot because
 presence is not stored anywhere: a database row saying "online" would be a lie
 every time the host's machine lost power, and the truth is already in the set
 of open connections.

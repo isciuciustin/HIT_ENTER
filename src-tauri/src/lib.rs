@@ -95,6 +95,7 @@ pub fn run() {
             commands::delete_message,
             commands::typing,
             commands::members,
+            commands::online,
             commands::unread,
             commands::mark_read,
             commands::create_invite,

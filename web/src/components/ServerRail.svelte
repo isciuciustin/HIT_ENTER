@@ -35,6 +35,16 @@
       onclick={() => chat.selectServer(server.endpoint_id)}
     >
       {initials(server.name) || "?"}
+      <!-- A count, not a dot: the rail is the only place a space you are not
+           looking at can tell you anything, so it may as well say how much. -->
+      {#if server.unread > 0 && chat.activeServer !== server.endpoint_id}
+        <span
+          class="absolute -right-1 -top-1 min-w-4 rounded-full bg-[var(--color-accent)] px-1 py-0.5 text-[10px] font-bold leading-none text-black"
+          aria-label="{server.unread} unread"
+        >
+          {server.unread > 99 ? "99+" : server.unread}
+        </span>
+      {/if}
       <span class="absolute -bottom-0.5 -right-0.5">
         <StatusDot status={chat.status[server.endpoint_id] ?? "offline"} />
       </span>

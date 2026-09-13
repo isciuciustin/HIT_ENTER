@@ -19,16 +19,31 @@
 
   <ul class="flex-1 overflow-y-auto p-2">
     {#each chat.channels as channel (channel.id)}
+      {@const unread = chat.unread[channel.id] ?? 0}
       <li>
         <button
-          class="w-full truncate rounded px-2 py-1.5 text-left text-sm transition
+          class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm transition
             {chat.activeChannel === channel.id
             ? 'bg-[var(--color-edge)] text-neutral-100'
-            : 'text-neutral-400 hover:bg-white/5 hover:text-neutral-200'}"
+            : unread > 0
+              ? 'font-semibold text-neutral-100 hover:bg-white/5'
+              : 'text-neutral-400 hover:bg-white/5 hover:text-neutral-200'}"
           onclick={() => chat.selectChannel(channel.id)}
         >
-          <span class="text-neutral-600">#</span>
-          {channel.name}
+          <span class="min-w-0 flex-1 truncate">
+            <span class="text-neutral-600">#</span>
+            {channel.name}
+          </span>
+          <!-- Only on channels you are not looking at. A badge on the open
+               channel would count messages you are reading as unread. -->
+          {#if unread > 0 && chat.activeChannel !== channel.id}
+            <span
+              class="shrink-0 rounded-full bg-[var(--color-accent)] px-1.5 py-0.5 text-[10px] font-bold leading-none text-black"
+              aria-label="{unread} unread"
+            >
+              {unread > 99 ? "99+" : unread}
+            </span>
+          {/if}
         </button>
       </li>
     {:else}

@@ -76,8 +76,13 @@ async fn supervise(
 
     loop {
         let live = Arc::new(session);
+        // Who is here, as of this handshake. Replaced wholesale on every
+        // reconnect: merging would keep members who left while we were away.
+        let online = live.ready().online.clone();
         app.set_live_session(&endpoint_id, live.clone()).await;
+        app.seed_online(&endpoint_id, online.clone()).await;
         events::emit_connection(&app_handle, &endpoint_id, describe(live.path()));
+        events::emit_presence_sync(&app_handle, &endpoint_id, online);
 
         // Before the pump, so that what arrives during the catch-up lands
         // *after* the gap it is filling rather than in the middle of it.
@@ -87,7 +92,7 @@ async fn supervise(
 
         events::pump(
             app_handle.clone(),
-            app.mirror().clone(),
+            Arc::clone(&app),
             live.clone(),
             events,
             endpoint_id.clone(),
@@ -98,6 +103,7 @@ async fn supervise(
         // dialling: a command that runs in the gap should see "offline" and
         // write to the outbox, not hand a message to a dead connection.
         app.clear_live_session(&endpoint_id).await;
+        events::emit_presence_sync(&app_handle, &endpoint_id, Vec::new());
         live.disconnect();
         drop(live);
 

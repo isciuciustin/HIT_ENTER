@@ -821,8 +821,13 @@ async fn reconnecting_costs_the_gap_and_not_the_history() {
 
     // Alice's laptop shuts. Bob keeps talking, and edits something she had.
     alice.close().await;
-    bob.send_message(&channel, "while away").await.expect("send");
-    let ServerFrame::Message { message: missed, .. } = next_chat_event(&mut bob).await else {
+    bob.send_message(&channel, "while away")
+        .await
+        .expect("send");
+    let ServerFrame::Message {
+        message: missed, ..
+    } = next_chat_event(&mut bob).await
+    else {
         panic!("expected the message");
     };
 
@@ -860,7 +865,9 @@ async fn a_resume_reports_a_message_deleted_while_we_were_away() {
     let mut bob = harness.register(&bob_client, "bob").await;
     let channel = alice.ready().channels[0].id.clone();
 
-    bob.send_message(&channel, "regrettable").await.expect("send");
+    bob.send_message(&channel, "regrettable")
+        .await
+        .expect("send");
     let ServerFrame::Message { message, .. } = next_chat_event(&mut bob).await else {
         panic!("expected the message");
     };
@@ -902,10 +909,14 @@ async fn presence_follows_the_account_not_the_connection() {
     let alice_client = harness.client().await;
     let mut alice = harness.register(&alice_client, "alice").await;
 
-    // Alice is the only one here, and she is not told about herself.
-    assert!(
-        !alice.ready().online.contains(&alice.ready().user.id),
-        "the snapshot excludes nobody, but alice already knows she is here"
+    // The reader of a `ready` is online by the time they read it, and the
+    // snapshot says so. The alternative — a list that includes you only when a
+    // second device of yours happens to be connected — is an inconsistency
+    // every client would have to paper over.
+    assert_eq!(
+        alice.ready().online,
+        vec![alice.ready().user.id.clone()],
+        "alice is the only one here, and she is here"
     );
 
     let bob_client = harness.client().await;

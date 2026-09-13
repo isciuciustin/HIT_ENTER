@@ -719,12 +719,71 @@ iroh endpoints, and two app instances on one machine joined by link alone — bu
 hole punching across two real NATs, and the relay fallback when it fails, needs
 two machines on two networks. Do that before M6 calls anything shippable.
 
-### M5 — Survives contact with reality
+### M5 — Survives contact with reality ✅ done
 Reconnect with `resume`. Offline `outbox` drain. Edit/delete. Member list +
 presence. Typing indicators. Unread markers. Direct↔relay path transitions
 handled without dropping state.
 **Done when:** you can switch from wifi to a phone hotspot mid-sentence and lose
 nothing.
+
+Shipped: four requests and four events, all additive, so the ALPN stays at `0`
+— `edit`/`delete` with `edited`/`deleted`, `resume` with `resumed`, `typing`
+with `presence` and `typing`. `Ready` gained an `online` snapshot and
+`ErrorCode` a `FORBIDDEN`. `src-tauri` gained `session.rs`: one supervisor task
+per connected space that owns the session, runs the pump, and on a drop redials
+with backoff and catches up. The client mirror gained read markers, a resume
+mark and a cached roster. A member list with presence, unread badges on both
+the channel list and the server rail, typing under the composer, and edit and
+delete on your own messages. 138 tests, clippy clean.
+
+Six things worth knowing before M6:
+
+- **A delete takes the words with it.** The row survives — every client with
+  the message on screen has to be *told* to take it off — but the content is
+  overwritten with an empty string, in `server.db` and in every `mirror.db`.
+  The host reads this database in plaintext by design (§10), so keeping the
+  text while calling the message deleted would make "deleted" mean "hidden in
+  the app", which is not what anybody clicking it believes.
+- **`resume` needs a timestamp as well as cursors.** A message edited or
+  deleted while a client was away keeps its id, so it is *older* than every
+  cursor and no amount of "give me what is new" would ever mention it — it
+  would sit on the returning screen with its original text for ever. The
+  client sends `since`, the server answers `edited_at >= since OR deleted_at
+  >= since` as well, and the comparison is `>=` because both stamps are whole
+  seconds and a change in the same second as the mark would fall through a `>`.
+- **Presence is live state and is never persisted.** It lives in the network
+  layer, not in `Server` and not in a table, and it is counted per *account*
+  rather than per connection — a member with a laptop and a phone is online
+  until the second of the two goes. A stored "online" would be a lie every
+  time the host's machine lost power. The corollary in the UI: an offline
+  space shows "who is here is unknown", not everybody greyed out, because
+  those are different claims.
+- **"Connected to a space" is a thing the app is responsible for having.** Not
+  an event the user acknowledged once. A dropped session is a gap in it, so
+  the supervisor owns the session rather than the other way round, and `Live`
+  holds a session that is *replaced* underneath it. Everything above it —
+  every command, the whole window — sees `None` during the gap and writes to
+  the outbox, which is the same thing it does when there was never a
+  connection at all. One state, not two.
+- **Delivery is at least once, and PROTOCOL.md §9 says so.** A message stored
+  by the server whose acknowledgement was lost is still in the outbox and is
+  sent again on the next reconnect. The alternative loses words the user
+  typed; this way the failure is a duplicate they can see and delete. The
+  nonce cannot close the gap without the server storing every nonce for as
+  long as a client might retry, which is a table that only grows to prevent
+  something one click already fixes.
+- **A typing indicator has no "stopped" frame, on purpose.** One would be a
+  frame that can be lost, and losing it leaves somebody typing for ever. It is
+  renewed on a throttle and expires on its own, and the throttle and the
+  timeout are one pair of constants in `he-proto::limits` so that the sender's
+  interval cannot drift past the receiver's patience and make the indicator
+  blink.
+
+**Verified by hand as well as by tests:** two app windows and `he-cli` against
+a real `he-serverd`, with the server killed mid-conversation. A message typed
+into the dead connection sat marked `SENDING`; the supervisor noticed the drop,
+reconnected a second later, drained the outbox, and the bubble became a real
+message — with nothing clicked.
 
 ### M6 — Shippable
 Owner tools: kick, ban, revoke device, revoke invite, delete channel. Settings.

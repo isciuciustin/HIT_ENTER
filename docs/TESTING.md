@@ -263,7 +263,71 @@ A few things to check that only exist in M4:
 - **Local-first.** Kill the server and reopen a window: the whole conversation
   renders from disk and the dot settles to offline within ~20s.
 - **The outbox.** Type something while the space is down. The bubble stays
-  `SENDING` and the message is on disk — draining it on reconnect is M5.
+  `SENDING`, the message is on disk, and it is delivered on its own when the
+  space comes back — see the M5 checks below.
+
+### Surviving the network — the M5 demo
+
+The done-when is "switch from wifi to a hotspot mid-sentence and lose nothing",
+and the version of it you can run on one machine is: **kill the server in the
+middle of a conversation and touch nothing**.
+
+```bash
+# with two windows talking to a he-serverd, as above
+pkill -f 'he-serverd --data-dir'         # the space goes away
+# type a message in a window. it sits marked SENDING.
+he-serverd --data-dir ./space            # the space comes back
+```
+
+Within a second or two, with **nothing clicked**:
+
+```
+session dropped; reconnecting  server=e81657dd…
+draining the outbox            server=e81657dd… queued=1
+```
+
+and the `SENDING` bubble becomes a real message. What to check while it happens:
+
+- **Nothing was clicked.** There is no "reconnect" button and there must not
+  be: being connected is a thing the app is responsible for having, not an
+  event the user acknowledged once. If a window sits at `offline` with a live
+  server, the supervisor in `src-tauri/src/session.rs` is the bug.
+- **The gap, not the history.** Send a few messages from `he-cli` while a
+  window is closed, then reopen it. The log says `resumed  missed=3`, not a
+  re-download of the channel. That is `resume` (PROTOCOL.md §5).
+- **Something deleted while you were away.** With a window closed, delete one
+  of its visible messages from `he-cli`. When it reopens, the message becomes
+  `message deleted` — it keeps its id, so the cursor alone could never have
+  found it, and `since` is what does.
+- **Presence is per account, not per connection.** Connect `he-cli` as the
+  same account a window is using: the dot does not change, because that member
+  was already online. It goes grey only when the last of their sessions goes.
+- **Typing.** Type in one window and the other says `alice is typing…` under
+  its composer. Stop, and it disappears on its own after about eight seconds —
+  there is no "stopped typing" frame, because one could be lost and then
+  somebody types for ever.
+- **Unread.** Send to a channel a window is not looking at: a badge appears on
+  the channel and a count on the space in the rail. Click in and it clears.
+  Your own messages never count, and a window that is not focused keeps its
+  badge — coming back to find everything already marked read is the bug that
+  makes an unread count useless.
+- **Edit and delete, on your own messages only.** Hover one: `edit` loads it
+  back into the composer (escape cancels), `delete` leaves a tombstone. Both
+  are refused while offline, deliberately — an edit queued for later would
+  have to be reconciled against whatever happened to the message meanwhile.
+- **A delete really deletes.** After deleting, grep the databases for the
+  words. They are gone from `server.db` *and* from every `mirror.db`; what is
+  left is a row saying something was withdrawn (PROTOCOL.md §5).
+
+```bash
+sqlite3 ./space/server.db "select id, quote(content), deleted_at from messages;"
+grep -c 'the words you deleted' ./space/server.db     # 0
+```
+
+- **Duplicates are possible, and that is the trade.** Delivery is at-least-once
+  (PROTOCOL.md §9). Killing the server in the one-round-trip window between it
+  storing a message and the client hearing so will send that message twice on
+  reconnect. Losing what somebody typed would be worse than showing it twice.
 
 ### Reading the databases directly
 
@@ -272,6 +336,9 @@ Everything is an ordinary SQLite file, which is the point:
 ```bash
 sqlite3 /tmp/bob/mirror.db 'select author_name, content from cached_messages order by id;'
 sqlite3 /tmp/bob/mirror.db 'select content from outbox;'          # composed while offline
+sqlite3 /tmp/bob/mirror.db 'select channel_id, last_read_id from read_state;'   # unread marks
+sqlite3 /tmp/bob/mirror.db 'select * from sync_marks;'            # the `since` a resume sends
+sqlite3 /tmp/bob/mirror.db 'select username, is_owner from cached_members;'     # roster, offline
 sqlite3 /tmp/space/server.db 'select username, is_owner from users;'
 sqlite3 /tmp/space/server.db 'select endpoint_id, revoked_at from devices;'
 cat /tmp/alice/settings.json                                      # relays, discovery, hosting

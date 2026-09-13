@@ -156,7 +156,9 @@ impl Fanout {
                 deleted_at,
             },
             Self::Presence { origin, .. } if origin == Some(connection_id) => return None,
-            Self::Presence { user_id, online, .. } => ServerFrame::Presence { user_id, online },
+            Self::Presence {
+                user_id, online, ..
+            } => ServerFrame::Presence { user_id, online },
             Self::Typing { origin, .. } if origin == connection_id => return None,
             Self::Typing {
                 channel_id,
@@ -435,13 +437,22 @@ impl ChatProtocol {
     }
 
     async fn ready_for(&self, user: &User) -> Result<Ready> {
+        // The reader of this frame is online by the time they read it, so say
+        // so — the alternative is a list that includes you only when a second
+        // device of yours happens to be connected, which is the sort of
+        // inconsistency a client would have to paper over for ever.
+        let mut online = self.presence.online();
+        if !online.contains(&user.id) {
+            online.push(user.id.clone());
+        }
+
         Ok(Ready {
             server_name: self.server.name().to_owned(),
             user: user.as_member(),
             channels: self.server.channels().await?,
             members: self.server.members().await?,
             // A snapshot; `Presence` events keep it current from here.
-            online: self.presence.online(),
+            online,
             // Always true here: every path into a session enrols the device,
             // which is what makes the next connection passwordless.
             enrolled: true,

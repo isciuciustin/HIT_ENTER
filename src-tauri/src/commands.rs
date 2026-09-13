@@ -93,6 +93,9 @@ pub struct ServerSummary {
     pub server: MirroredServer,
     pub connected: bool,
     pub status: &'static str,
+    /// Unread across every channel, for the dot on the rail. Read from the
+    /// mirror, so it is right with the network off and right at startup.
+    pub unread: i64,
 }
 
 #[derive(Debug, Serialize)]
@@ -152,11 +155,13 @@ pub async fn list_servers(app: State<'_, Arc<App>>) -> Result<Vec<ServerSummary>
     let mut summaries = Vec::with_capacity(servers.len());
     for server in servers {
         let session = app.session(&server.endpoint_id).await;
+        let unread = app.mirror().unread_total(&server.endpoint_id).await?;
         summaries.push(ServerSummary {
             connected: session.is_some(),
             status: session
                 .map(|s| events::describe(s.path()))
                 .unwrap_or("offline"),
+            unread,
             server,
         });
     }
@@ -318,10 +323,12 @@ async fn open_session(
         .await?
         .ok_or_else(|| CommandError::message("the server vanished between two queries"))?;
 
+    let unread = app.mirror().unread_total(endpoint_id).await?;
     Ok(ServerSummary {
         server,
         connected: true,
         status,
+        unread,
     })
 }
 
@@ -1020,6 +1027,17 @@ pub async fn typing(
         let _ = session.typing(&channel_id).await;
     }
     Ok(())
+}
+
+/// Who has a live session on a space right now, by user id.
+///
+/// Read from process state rather than from the mirror, because presence is
+/// not a thing that can be stored: a row saying "online" would be a lie the
+/// moment this app closed (PLAN §6). An offline space answers with nobody,
+/// which the window renders as "unknown" rather than "everybody is away".
+#[tauri::command]
+pub async fn online(app: State<'_, Arc<App>>, endpoint_id: String) -> Result<Vec<String>> {
+    Ok(app.online(&endpoint_id).await)
 }
 
 /// The cached member list. Never touches the network.

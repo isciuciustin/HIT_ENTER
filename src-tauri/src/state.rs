@@ -7,7 +7,7 @@
 //! app* — where the data directory is, which servers are currently connected,
 //! and how a background task gets an event onto the screen.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -28,6 +28,13 @@ use crate::settings::Settings;
 pub struct Live {
     /// The current connection, or `None` while reconnecting.
     session: Mutex<Option<Arc<Session>>>,
+    /// Who has a live session on that space, by user id.
+    ///
+    /// Seeded from `Ready.online` on every connect and kept current by the
+    /// event pump. Held here rather than in the window because a reconnect
+    /// replaces the whole set, and because the window may be told about a
+    /// space it is not currently looking at (PLAN §6).
+    online: Mutex<HashSet<String>>,
     /// The supervisor: dials, pumps events into the UI, and redials. Spawned
     /// on Tauri's runtime rather than tokio's directly, because that is the
     /// one the app is actually running on. Aborted when the server is
@@ -40,6 +47,7 @@ impl Live {
     pub fn new() -> Self {
         Self {
             session: Mutex::new(None),
+            online: Mutex::new(HashSet::new()),
             supervisor: Mutex::new(None),
         }
     }
@@ -50,6 +58,25 @@ impl Live {
 
     fn set_session(&self, session: Option<Arc<Session>>) {
         *self.lock(&self.session) = session;
+    }
+
+    pub fn online(&self) -> Vec<String> {
+        self.lock(&self.online).iter().cloned().collect()
+    }
+
+    /// Replaces the whole set. A reconnect is the only thing that knows who
+    /// is there *now*, and merging would keep whoever left while we were away.
+    fn seed_online(&self, ids: impl IntoIterator<Item = String>) {
+        *self.lock(&self.online) = ids.into_iter().collect();
+    }
+
+    fn set_online(&self, user_id: &str, online: bool) {
+        let mut set = self.lock(&self.online);
+        if online {
+            set.insert(user_id.to_owned());
+        } else {
+            set.remove(user_id);
+        }
     }
 
     pub fn attach(&self, supervisor: JoinHandle<()>) {
@@ -66,6 +93,9 @@ impl Live {
         if let Some(session) = self.lock(&self.session).take() {
             session.disconnect();
         }
+        // Nobody is reachable through a connection that is gone. Leaving the
+        // set behind would show green dots next to a space that is offline.
+        self.lock(&self.online).clear();
     }
 
     /// A poisoned lock means another thread panicked while holding it. These
@@ -219,6 +249,34 @@ impl App {
     pub async fn clear_live_session(&self, endpoint_id: &str) {
         if let Some(live) = self.sessions.read().await.get(endpoint_id) {
             live.set_session(None);
+            // Presence is a property of an open connection. Between attempts
+            // we do not know who is there, which is not the same as knowing
+            // that nobody is — and the UI says exactly that.
+            live.seed_online([]);
+        }
+    }
+
+    /// Who is online on a server, as far as this process has been told.
+    pub async fn online(&self, endpoint_id: &str) -> Vec<String> {
+        self.sessions
+            .read()
+            .await
+            .get(endpoint_id)
+            .map(|live| live.online())
+            .unwrap_or_default()
+    }
+
+    /// Replaces a server's online set, from a fresh `Ready`.
+    pub async fn seed_online(&self, endpoint_id: &str, ids: impl IntoIterator<Item = String>) {
+        if let Some(live) = self.sessions.read().await.get(endpoint_id) {
+            live.seed_online(ids);
+        }
+    }
+
+    /// Applies one `presence` event.
+    pub async fn set_online(&self, endpoint_id: &str, user_id: &str, online: bool) {
+        if let Some(live) = self.sessions.read().await.get(endpoint_id) {
+            live.set_online(user_id, online);
         }
     }
 

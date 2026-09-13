@@ -18,6 +18,8 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 use tokio::sync::mpsc;
 
+use crate::state::App;
+
 /// A message arrived. `nonce` is present only if *this* client sent it.
 pub const MESSAGE_EVENT: &str = "he://message";
 /// A message was rewritten by its author.
@@ -26,6 +28,8 @@ pub const EDITED_EVENT: &str = "he://edited";
 pub const DELETED_EVENT: &str = "he://deleted";
 /// A member gained or lost their last live session.
 pub const PRESENCE_EVENT: &str = "he://presence";
+/// The whole online set, after a connect or a reconnect.
+pub const PRESENCE_SYNC_EVENT: &str = "he://presence-sync";
 /// Somebody is composing. Expires on its own; see
 /// `he_proto::limits::TYPING_TIMEOUT_SECS`.
 pub const TYPING_EVENT: &str = "he://typing";
@@ -64,6 +68,12 @@ pub struct PresenceEvent {
     pub server: String,
     pub user_id: String,
     pub online: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PresenceSyncEvent {
+    pub server: String,
+    pub online: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -190,14 +200,30 @@ async fn emit_deleted(app: &AppHandle, mirror: &Mirror, server: &str, message: &
     );
 }
 
+/// Announces who is online on a space, wholesale.
+///
+/// Sent after every connect, because a reconnect is the only moment anything
+/// knows who is there *now*: merging into what the window had would keep
+/// whoever left while it was away.
+pub fn emit_presence_sync(app: &AppHandle, server: &str, online: Vec<String>) {
+    let _ = app.emit(
+        PRESENCE_SYNC_EVENT,
+        PresenceSyncEvent {
+            server: server.to_owned(),
+            online,
+        },
+    );
+}
+
 /// Runs one server's event pump until the session ends.
 pub async fn pump(
     app: AppHandle,
-    mirror: Mirror,
+    state: Arc<App>,
     session: Arc<Session>,
     mut events: mpsc::Receiver<ServerFrame>,
     server: String,
 ) {
+    let mirror = state.mirror().clone();
     let mut last_status = describe(session.path());
     emit_connection(&app, &server, last_status);
 
@@ -241,6 +267,11 @@ pub async fn pump(
                 // closed, and a stored "typing" would be one eight seconds
                 // later (PLAN §6).
                 Some(ServerFrame::Presence { user_id, online }) => {
+                    // Process state first, window second — the same ordering
+                    // as disk-before-screen, and for the same reason: a
+                    // command asking who is online must not be able to
+                    // disagree with what the window was just told.
+                    state.set_online(&server, &user_id, online).await;
                     let _ = app.emit(
                         PRESENCE_EVENT,
                         PresenceEvent { server: server.clone(), user_id, online },

@@ -49,15 +49,27 @@ export type Message = {
 
 export type ConnectionStatus = "direct" | "relayed" | "connecting" | "offline";
 
+export type Member = {
+  id: string;
+  username: string;
+  display_name?: string | null;
+  is_owner: boolean;
+};
+
+export type Unread = { channel_id: string; unread: number };
+
 export type ServerSummary = {
   endpoint_id: string;
   name: string;
   relay_url: string | null;
   username: string;
+  user_id: string | null;
   added_at: number;
   last_seen: number | null;
   connected: boolean;
   status: ConnectionStatus;
+  /** Unread across every channel, for the dot on the rail. */
+  unread: number;
 };
 
 /** The shared validation rules, straight from `he_proto::limits`. */
@@ -138,6 +150,16 @@ export type ParsedLink = {
 
 export type Sent = { nonce: string; delivered: boolean };
 
+/**
+ * How long a typing indicator survives without renewal, and how often we may
+ * renew it.
+ *
+ * Mirrors `he_proto::limits`: the throttle has to stay comfortably inside the
+ * timeout or a continuous typist makes the indicator blink.
+ */
+export const TYPING_TIMEOUT_MS = 8_000;
+export const TYPING_THROTTLE_MS = 3_000;
+
 export type PendingMessage = {
   nonce: string;
   channel_id: string;
@@ -213,6 +235,35 @@ export const api = {
     nonce: string;
   }) => invoke<Sent>("send_message", args),
 
+  /** Rewrites one of your own messages. Refused when offline. */
+  editMessage: (args: {
+    endpointId: string;
+    messageId: string;
+    content: string;
+  }) => invoke<void>("edit_message", args),
+
+  /** Withdraws one of your own messages, text and all. */
+  deleteMessage: (args: { endpointId: string; messageId: string }) =>
+    invoke<void>("delete_message", args),
+
+  /** Fire and forget. Silently does nothing offline. */
+  typing: (args: { endpointId: string; channelId: string }) =>
+    invoke<void>("typing", args),
+
+  /** Cached roster. Never touches the network. */
+  members: (endpointId: string) => invoke<Member[]>("members", { endpointId }),
+
+  /** Who has a live session right now. Empty when the space is offline. */
+  online: (endpointId: string) => invoke<string[]>("online", { endpointId }),
+
+  unread: (endpointId: string) => invoke<Unread[]>("unread", { endpointId }),
+
+  markRead: (args: {
+    endpointId: string;
+    channelId: string;
+    messageId: string;
+  }) => invoke<void>("mark_read", args),
+
   createInvite: (args: {
     endpointId: string;
     expiresIn?: number;
@@ -246,10 +297,60 @@ export type MessageEvent = {
   nonce?: string;
 };
 
+export type EditedEvent = { server: string; message: Message };
+
+export type DeletedEvent = {
+  server: string;
+  id: string;
+  channel_id: string;
+  deleted_at: number;
+};
+
+export type PresenceEvent = {
+  server: string;
+  user_id: string;
+  online: boolean;
+};
+
+export type PresenceSyncEvent = { server: string; online: string[] };
+
+export type TypingEvent = {
+  server: string;
+  channel_id: string;
+  user_id: string;
+  username: string;
+};
+
 export type ConnectionEvent = { server: string; status: ConnectionStatus };
 
 export const onMessage = (cb: (e: MessageEvent) => void): Promise<UnlistenFn> =>
   listen<MessageEvent>("he://message", (e) => cb(e.payload));
+
+export const onEdited = (cb: (e: EditedEvent) => void): Promise<UnlistenFn> =>
+  listen<EditedEvent>("he://edited", (e) => cb(e.payload));
+
+export const onDeleted = (cb: (e: DeletedEvent) => void): Promise<UnlistenFn> =>
+  listen<DeletedEvent>("he://deleted", (e) => cb(e.payload));
+
+export const onPresence = (
+  cb: (e: PresenceEvent) => void,
+): Promise<UnlistenFn> =>
+  listen<PresenceEvent>("he://presence", (e) => cb(e.payload));
+
+/**
+ * The whole online set, after a connect or a reconnect.
+ *
+ * Wholesale rather than a diff: a reconnect is the only moment anything knows
+ * who is there *now*, and merging would keep whoever left while we were away.
+ */
+export const onPresenceSync = (
+  cb: (e: PresenceSyncEvent) => void,
+): Promise<UnlistenFn> =>
+  listen<PresenceSyncEvent>("he://presence-sync", (e) => cb(e.payload));
+
+/** Expires on its own after `TYPING_TIMEOUT_MS`; there is no "stopped" event. */
+export const onTyping = (cb: (e: TypingEvent) => void): Promise<UnlistenFn> =>
+  listen<TypingEvent>("he://typing", (e) => cb(e.payload));
 
 export const onConnection = (
   cb: (e: ConnectionEvent) => void,

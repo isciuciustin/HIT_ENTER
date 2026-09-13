@@ -74,6 +74,20 @@
     if (index === 0) return false;
     return list[index - 1].author_name === list[index].author_name;
   }
+
+  /** Whether this message offers the author's own edit and delete buttons. */
+  function isMine(message: UiMessage) {
+    return (
+      !message.pending && !message.deleted_at && message.author_id === chat.myId
+    );
+  }
+
+  async function confirmDelete(message: UiMessage) {
+    // Not a dialog: a delete here is the author withdrawing their own words,
+    // it is one click to say it again, and a modal for it would be in the way
+    // far more often than it would save anybody.
+    await chat.deleteMessage(message);
+  }
 </script>
 
 <div
@@ -95,31 +109,76 @@
   <div bind:this={rows}>
     {#each chat.rendered as message, i (message.id)}
       <div
-        class="group px-1 py-0.5 {sameAuthorAsPrevious(chat.rendered, i)
-          ? ''
-          : 'mt-3'}"
+        class="group relative rounded px-1 py-0.5 transition hover:bg-white/[0.02]
+          {sameAuthorAsPrevious(chat.rendered, i) ? '' : 'mt-3'}
+          {chat.editing?.id === message.id
+          ? 'bg-[var(--color-accent)]/5 ring-1 ring-inset ring-[var(--color-accent)]/30'
+          : ''}"
       >
         {#if !sameAuthorAsPrevious(chat.rendered, i)}
           <div class="text-xs font-semibold text-[var(--color-accent)]">
             {message.author_name}
           </div>
         {/if}
-        <div
-          class="whitespace-pre-wrap break-words text-sm leading-relaxed
-            {message.failed
-            ? 'text-red-400'
-            : message.pending
-              ? 'text-neutral-500'
-              : 'text-neutral-200'}"
-        >
-          {message.content}{#if message.pending}<span
-              class="ml-2 text-[10px] uppercase tracking-wide text-neutral-600"
-              >sending</span
-            >{/if}{#if message.failed}<span
-              class="ml-2 text-[10px] uppercase tracking-wide text-red-500"
-              >not sent</span
-            >{/if}
-        </div>
+
+        {#if message.deleted_at}
+          <!-- A tombstone rather than a gap. The words are gone from the
+               database and from this disk; what is left is the fact that
+               somebody said something and took it back, which is the honest
+               thing to show (PROTOCOL.md §5). -->
+          <div class="text-sm italic leading-relaxed text-neutral-600">
+            message deleted
+          </div>
+        {:else}
+          <div
+            class="whitespace-pre-wrap break-words text-sm leading-relaxed
+              {message.failed
+              ? 'text-red-400'
+              : message.pending
+                ? 'text-neutral-500'
+                : 'text-neutral-200'}"
+          >
+            {message.content}{#if message.edited_at}<span
+                class="ml-1.5 text-[10px] text-neutral-600"
+                title="edited">(edited)</span
+              >{/if}{#if message.pending}<span
+                class="ml-2 text-[10px] uppercase tracking-wide text-neutral-600"
+                >sending</span
+              >{/if}{#if message.failed}<span
+                class="ml-2 text-[10px] uppercase tracking-wide text-red-500"
+                >not sent</span
+              >{/if}
+          </div>
+        {/if}
+
+        {#if isMine(message)}
+          <!-- Only on your own messages, because only their author may change
+               them. Moderating somebody else's is the owner's tool, in M6. -->
+          <div
+            class="absolute right-1 top-0 hidden gap-1 rounded border border-[var(--color-edge)] bg-[var(--color-panel)] px-1 py-0.5 group-hover:flex group-focus-within:flex"
+          >
+            <button
+              onclick={() => chat.beginEdit(message)}
+              disabled={chat.activeStatus === "offline"}
+              class="rounded px-1.5 py-0.5 text-[11px] text-neutral-400 transition hover:text-[var(--color-accent)] disabled:opacity-40 disabled:hover:text-neutral-400"
+              title={chat.activeStatus === "offline"
+                ? "offline — edits need a connection"
+                : "Edit"}
+            >
+              edit
+            </button>
+            <button
+              onclick={() => confirmDelete(message)}
+              disabled={chat.activeStatus === "offline"}
+              class="rounded px-1.5 py-0.5 text-[11px] text-neutral-400 transition hover:text-red-400 disabled:opacity-40 disabled:hover:text-neutral-400"
+              title={chat.activeStatus === "offline"
+                ? "offline — deletions need a connection"
+                : "Delete"}
+            >
+              delete
+            </button>
+          </div>
+        {/if}
       </div>
     {/each}
   </div>

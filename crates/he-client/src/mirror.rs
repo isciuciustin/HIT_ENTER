@@ -484,6 +484,16 @@ impl Mirror {
         Ok(())
     }
 
+    /// Everything unread on a server, for the dot on the server rail.
+    pub async fn unread_total(&self, endpoint_id: &str) -> Result<i64> {
+        Ok(self
+            .unread(endpoint_id)
+            .await?
+            .into_iter()
+            .map(|(_, count)| count)
+            .sum())
+    }
+
     /// Unread counts per channel, for the badge in the rail.
     ///
     /// Your own messages never count: a badge that goes up when *you* say
