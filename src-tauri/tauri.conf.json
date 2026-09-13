@@ -40,7 +40,20 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "category": "SocialNetworking",
+    "shortDescription": "Self-hosted group chat over a peer-to-peer network",
+    "longDescription": "Open-source, self-hosted, local-first group chat. You run the server on your own machine with no port forwarding, and every message is stored in plain text on your disk and on every member's. No cloud, no bots, no telemetry.",
+    "publisher": "HIT_ENTER contributors",
+    "licenseFile": "../LICENSE-MIT",
+    "linux": {
+      "deb": {
+        "desktopTemplate": "linux/hit-enter.desktop"
+      },
+      "rpm": {
+        "desktopTemplate": "linux/hit-enter.desktop"
+      }
+    }
   },
   "plugins": {
     "deep-link": {

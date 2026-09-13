@@ -1,114 +1,163 @@
 # HIT_ENTER
 
-**Messaging app of the century!**
+**Open-source group chat you host yourself, on a computer you already own.**
 
-An open-source, self-hosted group chat. You run the server. Your messages live on
-your disk. Nobody can suspend you from a computer you own.
+No server to rent. No port to forward. No account with anybody — including us,
+because there is no us. Your messages live on your disk, in a file you can open.
 
-> Status: early development, and it is a chat app now — server rail, channels,
-> scrollback, and a composer that sends the instant you hit enter. Hosting from
-> inside the app, invite links and LAN discovery are next. See the
-> [build plan](docs/PLAN.md) and the [wire protocol](docs/PROTOCOL.md).
+> **Status: pre-1.0.** Everything described here works and is tested. What is
+> not done is the long tail: attachments, replies, reactions and search are
+> [M7](docs/PLAN.md#m7--the-nice-things). The builds are not code-signed yet.
 
-## What it is
+---
 
-- **Self-hosted, with no port forwarding.** Flip a switch in the app and your
-  laptop is hosting a space your friends can join from anywhere. No router
-  config, no VPS, no dynamic-DNS, no account with us — there is no "us".
-- **Local-first, in plain text.** Every message is stored on the host *and*
-  mirrored to every member's client, in an ordinary SQLite file you can open and
-  read yourself. Your history is yours: greppable, backup-able, searchable
-  offline, and not locked behind a key you can lose.
-- **Simple auth.** A username and a password. No email, no phone number, no
-  OAuth, no recovery questions about your first pet. After the first login your
-  device is enrolled and you are never asked again.
-- **Invite links.** Share one link; your friends are in.
-- **No bloat.** No bots, no app platform, no nitro, no ads, no telemetry.
+## Get it
 
-## How it works
+Download from [Releases](../../releases) — the desktop app for Linux, macOS and
+Windows, and `he-serverd` for machines with no desktop.
 
-One application is both the client and the server. Most people just run the
-client and join someone else's space. Anyone who wants to host flips the server
-on — their own client then dials it exactly like any other member, so there is no
-privileged "host mode" to go wrong.
+The builds are **not signed**, so macOS will say the developer cannot be
+verified and Windows SmartScreen will warn you. Each release has a
+`SHA256SUMS`. On macOS, open it the first time with **right click → Open**.
 
-Networking is handled by [**iroh**](https://www.iroh.computer/). Servers are
-addressed by a **public key**, not an IP address, so:
+Or build it: [below](#building-it-yourself).
 
-- Connections are established by **hole punching** straight through home routers.
-  Nobody forwards a port.
-- A server can change wifi networks, ISPs, or cities and its invite links keep
-  working.
-- Every connection is **QUIC + TLS 1.3** encrypted and authenticated by that key,
-  so an invite link is self-verifying — there is no certificate to check and no
-  way to be silently redirected to an impostor.
+## Host a space in about a minute
 
-When two machines sit behind networks that refuse to be punched through (some
-mobile and ISP setups), traffic falls back to a **relay**. That is slower, but it
-is still **end-to-end encrypted — a relay can never read your messages**, it only
-forwards them. The default relays are run by iroh's authors on a best-effort
-basis; you can point the app at your own, or stay entirely on your LAN where no
-outside infrastructure is involved at all.
+1. Open HIT_ENTER and click **host a space**.
+2. Give it a name, and pick a username and password for yourself.
+3. Click **invite**, then **copy link**.
+4. Paste that link to a friend.
 
-Servers are independent: your account on your friend's space is *theirs*, and no
-central service holds your credentials.
+That is genuinely all of it. Your laptop is now serving a space your friends
+can join from another city, and neither of you touched a router.
 
-## What is and isn't private
+When you close your laptop the space goes down and comes back when you open it.
+Everyone keeps their own copy of the conversation in the meantime.
 
-Being straight about this matters more than sounding secure:
+The long version, including running it headless and running your own relay, is
+in **[docs/SELF_HOSTING.md](docs/SELF_HOSTING.md)**.
 
-- **Your password is hashed** (Argon2id), never stored in a readable form. Nobody
-  can recover it — not an attacker with the database, not the person hosting.
-- **Everything on the wire is encrypted** (QUIC + TLS 1.3). Your ISP, the café
-  wifi, and any relay that forwards your traffic see ciphertext and nothing else.
-- **Your messages are stored in plain text**, and **the person hosting a space
-  can read every message in it.** There is no end-to-end encryption.
+## Join someone's space
 
-That last point is a deliberate choice, not a missing feature. It is what makes
-instant offline search, real moderation, and one-file backups possible, and it
-means there is no encryption key you can lose and take your history with it. It
-is also the same trust model as any self-hosted forum or IRC server — and it is
-what Discord does too, minus the company that owns the disk.
+Click the link they sent you, or paste it into **+** in the server rail. Pick a
+username and password — accounts are per-space, so this one is new — and you
+are in.
+
+After that first login this machine is **enrolled**, and you are never asked for
+the password again on it. The password only exists to enrol a new machine.
+
+---
+
+## Why it works without a port forward
+
+Networking is [iroh](https://www.iroh.computer/). A space is addressed by a
+**public key** rather than an IP address, which buys three things at once:
+
+- **Hole punching.** Two machines behind ordinary home routers negotiate a
+  direct path between them. Nobody forwards a port, and no UPnP is involved.
+- **Addresses can change.** Move house, change ISP, switch from wifi to a
+  hotspot mid-sentence — the invite links still work and open connections heal
+  instead of dropping.
+- **Nothing to verify.** The address *is* the key. A tampered invite link points
+  at a key nobody holds, not at an impostor, so there is no fingerprint for two
+  people to compare and no certificate to check.
+
+When two networks refuse to be punched through — some mobile and ISP setups do
+— traffic falls back to a **relay**. That is slower, and it is still end-to-end
+encrypted: a relay forwards bytes it cannot read. The app shows you which path
+you are on, because relayed is *working*, not broken.
+
+The default relays are run by iroh's authors on a best-effort basis. You can
+point the app at [your own](docs/SELF_HOSTING.md#running-your-own-relay), or
+stay on your LAN where no outside infrastructure is involved at all.
+
+## What is and is not private
+
+Being straight about this matters more than sounding secure.
+
+| | |
+|---|---|
+| Your password | **Hashed** (Argon2id). No code path here turns one back into a password — not for an attacker with the database, not for the person hosting. |
+| Everything on the wire | **Encrypted** (QUIC + TLS 1.3). Your ISP, the café wifi and any relay see ciphertext. |
+| Your messages at rest | **Plain text.** The person hosting a space can read every message in it. |
+
+That last row is a decision, not a missing feature. It is what makes instant
+offline search, real moderation and one-file backups possible, and it means
+there is no encryption key you can lose and take your history with you. It is
+the same trust model as any self-hosted forum or IRC server — and the same one
+Discord has, minus the company that owns the disk.
 
 **So: join spaces hosted by people you trust.** If you are worried about someone
 with physical access to your own machine, turn on full-disk encryption.
 
-## Tech stack
+## What it does not have
 
-Rust (`iroh`, `tokio`, SQLite) · Tauri v2 · Svelte 5 + Vite + TailwindCSS
+Saying no is most of the design:
 
-## Building
+- no bots, webhooks, or app platform
+- no voice or video
+- no roles beyond **owner** and **member**
+- no central directory, no global accounts, no service we operate
+- no telemetry, no analytics, no crash reporting, no phoning home at all
 
-Start with [`docs/PLAN.md`](docs/PLAN.md) — it is the architecture and the
-milestone list. [`docs/TESTING.md`](docs/TESTING.md) is how to run and poke at
-all of it locally.
+---
 
-```bash
-cargo tauri dev              # the desktop app
-cargo run -p he-serverd      # a headless server: creates ./he-data, prints its EndpointId
-cargo test --workspace       # everything
-```
+## Building it yourself
 
-To watch two processes talk to each other over iroh, addressed by nothing but a
-public key:
-
-```bash
-cargo run -p he-serverd -- --owner you     # make the owner account
-cargo run -p he-serverd -- --invite        # print an invite code and the EndpointId
-cargo run -p he-serverd                    # serve
-
-# in another terminal
-cargo run -p he-cli -- --server <endpoint-id> --invite <code> --username friend info
-cargo run -p he-cli -- --server <endpoint-id> send general "hit enter"
-```
-
-Or join it from the app. Two windows on one machine need two data directories,
-because the directory is what holds the device key:
+You need [Rust](https://rustup.rs/), [Node](https://nodejs.org/) 20+, and the
+[Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) for your
+platform.
 
 ```bash
-HE_DATA_DIR=/tmp/alice cargo tauri dev
+git clone https://github.com/isciuciustin/HIT_ENTER
+cd HIT_ENTER
+cargo install tauri-cli --version "^2" --locked
+cargo tauri dev
 ```
+
+Other things you will want:
+
+```bash
+cargo run -p he-serverd      # a headless space in ./he-data
+cargo run -p he-cli -- --help  # poke the protocol by hand
+cargo test --workspace       # 145 tests, no mocks in the ones that matter
+```
+
+**On Linux**, WebKitGTK's dmabuf renderer and the proprietary NVIDIA driver do
+not get along, and the symptom is a window that never appears. The app sets
+`WEBKIT_DISABLE_DMABUF_RENDERER=1` for itself, so this should not bite you — if
+you are launching the binary through something exotic and get
+`Gdk-Message: Error 71`, that variable is the fix.
+
+### The documentation
+
+- **[docs/PLAN.md](docs/PLAN.md)** — the architecture and the milestone list.
+  Start here; it explains *why* before it explains what.
+- **[docs/PROTOCOL.md](docs/PROTOCOL.md)** — the exact bytes that cross a
+  connection.
+- **[docs/SELF_HOSTING.md](docs/SELF_HOSTING.md)** — hosting, backups, relays,
+  and what to do when something is wrong.
+- **[docs/TESTING.md](docs/TESTING.md)** — running the suite, driving the
+  protocol by hand, and getting two windows talking.
+
+### Layout
+
+```
+crates/he-proto/    wire types, framing, validation — shared, no I/O
+crates/he-server/   protocol handler, SQLite, auth — no Tauri dependency
+crates/he-client/   dialing, connection management, the local mirror
+crates/he-serverd/  headless server binary
+crates/he-cli/      debug client (there is no curl for a QUIC protocol)
+src-tauri/          the desktop shell: commands, events, lifecycle
+web/                the Svelte frontend
+```
+
+Rust · [iroh](https://www.iroh.computer/) · SQLite · Tauri v2 · Svelte 5
 
 ## License
 
-TBD — will be an OSI-approved open source license before the first release.
+MIT ([LICENSE-MIT](LICENSE-MIT)) or Apache-2.0
+([LICENSE-APACHE](LICENSE-APACHE)), at your option.
+
+Contributions are understood to be offered under the same terms.

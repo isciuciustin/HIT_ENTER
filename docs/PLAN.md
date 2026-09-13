@@ -785,7 +785,7 @@ into the dead connection sat marked `SENDING`; the supervisor noticed the drop,
 reconnected a second later, drained the outbox, and the bubble became a real
 message — with nothing clicked.
 
-### M6 — Shippable
+### M6 — Shippable ✅ done, except signing
 Owner tools: kick, ban, revoke device, revoke invite, delete channel. Settings.
 Keyboard shortcuts. `docs/SELF_HOSTING.md` **including running your own iroh
 relay**. Signed builds for Linux/macOS/Windows. `hit_enter-serverd` released
@@ -799,6 +799,57 @@ startup on Wayland + proprietary NVIDIA drivers with `Gdk-Message: Error 71
 break a large share of Linux desktops. Found the hard way during M0.
 **Done when:** someone who is not you hosts a space for their friends from the
 README alone.
+
+Shipped: eight owner-tool requests and three events, all additive, so the ALPN
+stays at `0`. `docs/SELF_HOSTING.md`. A rewritten README that opens with how to
+host rather than with what the project is. `LICENSE-MIT` and `LICENSE-APACHE`.
+A tag-driven release workflow producing `.deb`, `.rpm`, `.AppImage`, `.dmg`,
+`.msi` and `.exe` bundles plus `he-serverd` for four targets, with
+`SHA256SUMS`. 145 tests, clippy clean.
+
+Six things worth knowing:
+
+- **Every owner tool is authorised on the server.** These are reachable only
+  over a socket, so a hidden button is a courtesy and the refusal is the
+  security boundary. There is a test for each of them being refused, and
+  writing those tests is what found that a member could list anybody's
+  devices.
+- **Kick and ban are different, and the UI has to say so.** A kick revokes
+  every device and leaves the password working; a ban also refuses the
+  password. The difference is not recoverable from the verbs, so each button
+  sits beside a sentence saying what it actually does — and every destructive
+  action takes a second click that names its cost rather than asking "are you
+  sure?", which only teaches people to click yes.
+- **Neither may target the owner, and the last channel cannot be deleted.**
+  Both are the same shape of bug: an action that leaves the space running with
+  no way to use it and no way back but the database.
+- **Tauri's stock Linux `.desktop` is wrong for this app in two ways.** It has
+  no `%u`, so a clicked invite link launches the app *without the link* — and
+  invite links are the entire distribution mechanism. And it does not set
+  `WEBKIT_DISABLE_DMABUF_RENDERER=1`. The custom template fixes both; the
+  binary also sets the variable for itself, which is what covers AppImage, a
+  raw `./hit-enter`, and any bundle target added later.
+- **`server_meta.secret_key` is the one irreplaceable thing**, and
+  `SELF_HOSTING.md` says so before it says anything about relays. Losing it is
+  not "restore from backup", it is "every invite ever issued is dead and
+  everybody rejoins a new space".
+- **The relay's config was written from the crate, not from memory.** The
+  first draft of `SELF_HOSTING.md` put `https_bind_addr` at the top level of
+  `relay.toml`; it lives under `[tls]`. iroh's surface moves, and §13's rule
+  about checking docs.rs rather than memory applies to its sibling crates too.
+
+**What is not done: signed builds.** Code signing needs an Apple Developer ID
+and a Windows Authenticode certificate — things that cost money and belong to a
+person rather than to a repository. The release workflow produces unsigned
+bundles and `SHA256SUMS`, and the README and the release notes say plainly that
+macOS and Windows will warn, and why. Adding signing later is two secrets and
+two steps in `release.yml` and changes nothing else.
+
+**Still not proven, from M4:** the "different ISP, different city" half of M4's
+done-when. Everything up to it is verified, but hole punching across two real
+NATs and the relay fallback when it fails needs two machines on two networks.
+Do it before tagging a release, because it is the one claim the README makes
+that nothing in CI can check.
 
 ### M7 — The nice things
 Attachments — evaluate `iroh-blobs`, which gives content-addressed, resumable,

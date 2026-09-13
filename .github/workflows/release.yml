@@ -1,0 +1,227 @@
+name: Release
+
+# Tag-driven. `git tag v0.1.0 && git push --tags` is the whole process.
+#
+# **These builds are not signed.** macOS will show Gatekeeper's "cannot be
+# opened because the developer cannot be verified" and Windows will show
+# SmartScreen; the README says so, and so do the release notes this workflow
+# writes. Signing needs certificates that cost money and belong to a person,
+# not to a repository — adding them later means adding secrets and two steps,
+# and changes nothing else here.
+on:
+  push:
+    tags: ["v*"]
+  # Buildable on demand, so a packaging change can be proved before it is
+  # tagged. Nothing is published from a manual run.
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  SQLX_OFFLINE: "true"
+
+jobs:
+  # The desktop app, bundled per platform by Tauri.
+  app:
+    name: app (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux
+            runs-on: ubuntu-22.04
+            # 22.04 rather than latest: the glibc a binary is *built* against
+            # is the oldest it will run on, and building on the newest Ubuntu
+            # quietly drops every distro older than it.
+            args: ""
+          - name: macos-arm
+            runs-on: macos-14
+            args: "--target aarch64-apple-darwin"
+          - name: macos-intel
+            runs-on: macos-13
+            args: "--target x86_64-apple-darwin"
+          - name: windows
+            runs-on: windows-latest
+            args: ""
+    runs-on: ${{ matrix.runs-on }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Linux dependencies
+        if: matrix.name == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libsoup-3.0-dev \
+            libjavascriptcoregtk-4.1-dev \
+            patchelf
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.name == 'macos-arm' && 'aarch64-apple-darwin' || matrix.name == 'macos-intel' && 'x86_64-apple-darwin' || '' }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.name }}
+
+      # Not declared anywhere in the repo, so CI has to fetch it. `--locked`
+      # so a transitive release does not change what a tag builds.
+      - name: Install the Tauri CLI
+        run: cargo install tauri-cli --version "^2" --locked
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - run: npm ci
+        working-directory: web
+
+      # No signing keys and no updater configured, so nothing is set here.
+      # Adding signing later is two secrets and two steps; it changes nothing
+      # else in this file.
+      - name: Build the app
+        run: cargo tauri build ${{ matrix.args }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: app-${{ matrix.name }}
+          path: |
+            target/**/release/bundle/deb/*.deb
+            target/**/release/bundle/rpm/*.rpm
+            target/**/release/bundle/appimage/*.AppImage
+            target/**/release/bundle/dmg/*.dmg
+            target/**/release/bundle/msi/*.msi
+            target/**/release/bundle/nsis/*.exe
+          if-no-files-found: error
+
+  # The headless server, released alongside (PLAN §12, M6). A space on a
+  # cupboard laptop should not need a desktop to run.
+  serverd:
+    name: he-serverd (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x86_64
+            runs-on: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+          # For a space on a Raspberry Pi, which docs/SELF_HOSTING.md suggests.
+          # `ubuntu-22.04-arm` is free for public repositories; on a private
+          # one this job is the first thing to drop.
+          - name: linux-aarch64
+            runs-on: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-gnu
+          - name: macos-arm64
+            runs-on: macos-14
+            target: aarch64-apple-darwin
+          - name: windows-x86_64
+            runs-on: windows-latest
+            target: x86_64-pc-windows-msvc
+    runs-on: ${{ matrix.runs-on }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: serverd-${{ matrix.name }}
+
+      # `he-serverd` has no frontend, but the workspace contains a crate whose
+      # build script wants one to exist.
+      - name: Stub frontend dist
+        shell: bash
+        run: mkdir -p web/dist && echo '<!doctype html>' > web/dist/index.html
+
+      - name: Build
+        run: cargo build --release -p he-serverd --target ${{ matrix.target }}
+
+      - name: Package
+        shell: bash
+        run: |
+          mkdir -p dist
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            cp "target/${{ matrix.target }}/release/he-serverd.exe" dist/
+          else
+            cp "target/${{ matrix.target }}/release/he-serverd" dist/
+          fi
+          cp README.md LICENSE-MIT LICENSE-APACHE docs/SELF_HOSTING.md dist/
+          tar -C dist -czf "he-serverd-${{ matrix.name }}.tar.gz" .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: serverd-${{ matrix.name }}
+          path: he-serverd-${{ matrix.name }}.tar.gz
+          if-no-files-found: error
+
+  publish:
+    name: publish
+    needs: [app, serverd]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      # Every bundle lands somewhere different in the tree it came from;
+      # flattening once here means the checksum file and the release have the
+      # same names in them.
+      - name: Collect
+        run: |
+          mkdir -p release
+          find artifacts -type f \
+            \( -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' \
+               -o -name '*.dmg' -o -name '*.msi' -o -name '*.exe' \
+               -o -name '*.tar.gz' \) \
+            -exec cp {} release/ \;
+          cd release && sha256sum * > SHA256SUMS && cat SHA256SUMS
+
+      - name: Release notes
+        run: |
+          cat > notes.md <<'EOF'
+          ## Verifying what you downloaded
+
+          **These builds are not code-signed.** macOS will say the developer
+          cannot be verified and Windows SmartScreen will warn you. That is
+          what an unsigned build looks like; it is not a claim about this one.
+
+          `SHA256SUMS` is attached. It tells you the file arrived intact — not
+          who built it — so check it against this page, which is served over
+          TLS from a host you already trust as much as you trust this project:
+
+          ```
+          sha256sum -c SHA256SUMS --ignore-missing
+          ```
+
+          On macOS, opening it the first time needs
+          **right click → Open**, or:
+
+          ```
+          xattr -d com.apple.quarantine /Applications/HIT_ENTER.app
+          ```
+
+          ## Hosting
+
+          See [docs/SELF_HOSTING.md](docs/SELF_HOSTING.md). `he-serverd` is
+          attached for machines with no desktop.
+          EOF
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: release/*
+          body_path: notes.md
+          draft: true
+          fail_on_unmatched_files: true

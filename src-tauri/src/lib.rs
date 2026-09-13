@@ -20,6 +20,8 @@ pub use commands::{AppInfo, CommandError, HostStatus, ServerSummary};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    disable_dmabuf_renderer_on_linux();
+
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -130,6 +132,37 @@ pub fn run() {
                 }
             }
         });
+}
+
+/// Stops WebKitGTK from killing the window before it opens.
+///
+/// On Wayland with the proprietary NVIDIA driver, WebKitGTK's dmabuf renderer
+/// dies at startup with `Gdk-Message: Error 71 (Protocol error) dispatching to
+/// Wayland display` — no window, no error a user can act on. This was found
+/// the hard way during M0 and is a large share of Linux desktops.
+///
+/// `.cargo/config.toml` sets the variable for `cargo run` and `cargo tauri
+/// dev`, and the packaged `.desktop` file sets it in `Exec=`. Neither covers
+/// an AppImage, a raw `./hit-enter`, or a bundle target added later — so the
+/// binary sets it for itself, which covers every way it can be started.
+///
+/// Only when it is unset: `WEBKIT_DISABLE_DMABUF_RENDERER=0` in the
+/// environment is somebody deliberately asking for the accelerated path, and
+/// overriding that would make the escape hatch a lie.
+fn disable_dmabuf_renderer_on_linux() {
+    #[cfg(target_os = "linux")]
+    {
+        const VAR: &str = "WEBKIT_DISABLE_DMABUF_RENDERER";
+        if std::env::var_os(VAR).is_some() {
+            return;
+        }
+        // SAFETY: `set_var` is unsafe because another thread reading the
+        // environment concurrently is undefined behaviour. This is the first
+        // statement of `run`, which is the first statement of `main`: no
+        // runtime has been started, no thread has been spawned, and the
+        // webview process that reads this variable is not forked until later.
+        unsafe { std::env::set_var(VAR, "1") };
+    }
 }
 
 /// Which "single instance" this process belongs to.
