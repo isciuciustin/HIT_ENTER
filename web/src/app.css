@@ -6,7 +6,7 @@
   --color-panel: #14181d;
   --color-edge: #232a32;
   --color-accent: #3ddc84;
-  --font-mono: ui-monospace, "JetBrains Mono", "Fira Code", monospace;
+  --font-mono: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, monospace;
 }
 
 html,

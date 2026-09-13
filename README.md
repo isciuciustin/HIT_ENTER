@@ -172,3 +172,7 @@ MIT ([LICENSE-MIT](LICENSE-MIT)) or Apache-2.0
 ([LICENSE-APACHE](LICENSE-APACHE)), at your option.
 
 Contributions are understood to be offered under the same terms.
+
+The app bundles [JetBrains Mono](https://github.com/JetBrains/JetBrainsMono),
+© The JetBrains Mono Project Authors, under the
+[SIL Open Font License 1.1](https://openfontlicense.org).
