@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT resumed_at FROM sync_marks WHERE endpoint_id = ?1",
+  "describe": {
+    "columns": [
+      {
+        "name": "resumed_at",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "sync_marks",
+            "name": "resumed_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "183bab63a132346cbecd9f18fb881c9409cdbc97c0e7c98b1ca993569e4f3f70"
+}

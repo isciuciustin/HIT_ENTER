@@ -12,19 +12,47 @@ use crate::accept::Session;
 use crate::error::ServerError;
 use crate::{Server, invite};
 
-/// What a handled [`Request::Send`] produced, for the caller to broadcast.
+/// What a handled request produced: the answer to the caller, and anything
+/// the rest of the space needs to be told about.
 pub(crate) struct Handled {
     pub response: Response,
-    /// Set only by a successful `send`. The nonce goes back to the sender
-    /// alone; the message goes to everyone (PLAN §9).
-    pub broadcast: Option<(Message, String)>,
+    /// Empty for a request that changed nothing anyone else can see.
+    pub fan_out: Vec<Outgoing>,
+}
+
+/// An event this request produced, before it knows which connection it came
+/// from. [`crate::accept`] adds that and turns it into a wire frame — which is
+/// why nothing in this module has to know what a connection is.
+pub(crate) enum Outgoing {
+    Message {
+        message: Message,
+        nonce: String,
+    },
+    Edited {
+        message: Message,
+    },
+    Deleted {
+        id: String,
+        channel_id: String,
+        deleted_at: i64,
+    },
+    Typing {
+        channel_id: String,
+    },
 }
 
 impl Handled {
     fn plain(response: Response) -> Self {
         Self {
             response,
-            broadcast: None,
+            fan_out: Vec::new(),
+        }
+    }
+
+    fn with(response: Response, event: Outgoing) -> Self {
+        Self {
+            response,
+            fan_out: vec![event],
         }
     }
 }
@@ -49,10 +77,7 @@ pub(crate) async fn handle(server: &Server, session: &Session, request: Request)
             // The message itself comes back on the control stream as an
             // event, the same one every other member gets, so there is one
             // code path in the client that renders a message.
-            Ok(message) => Handled {
-                response: Response::Ok,
-                broadcast: Some((message, nonce)),
-            },
+            Ok(message) => Handled::with(Response::Ok, Outgoing::Message { message, nonce }),
             Err(err) => Handled::plain(Response::Error(to_protocol_error(&err))),
         },
 
@@ -64,6 +89,45 @@ pub(crate) async fn handle(server: &Server, session: &Session, request: Request)
             Ok(messages) => Handled::plain(Response::Messages { messages }),
             Err(err) => Handled::plain(Response::Error(to_protocol_error(&err))),
         },
+
+        Request::Edit { id, content } => {
+            match server.edit_message(&session.user, &id, &content).await {
+                Ok(message) => Handled::with(
+                    Response::Ok,
+                    Outgoing::Edited {
+                        message: message.clone(),
+                    },
+                ),
+                Err(err) => Handled::plain(Response::Error(to_protocol_error(&err))),
+            }
+        }
+
+        Request::Delete { id } => match server.delete_message(&session.user, &id).await {
+            Ok((message, deleted_at)) => Handled::with(
+                Response::Ok,
+                Outgoing::Deleted {
+                    id: message.id,
+                    channel_id: message.channel_id,
+                    deleted_at,
+                },
+            ),
+            Err(err) => Handled::plain(Response::Error(to_protocol_error(&err))),
+        },
+
+        Request::Resume { cursors, since } => match server.resume(&cursors, since).await {
+            Ok(resumed) => Handled::plain(Response::Resumed {
+                messages: resumed.messages,
+                truncated: resumed.truncated,
+            }),
+            Err(err) => Handled::plain(Response::Error(to_protocol_error(&err))),
+        },
+
+        // Fire and forget: nothing is stored, and the answer is `ok` whether
+        // anybody was listening or not. A typing indicator that failed is not
+        // something the sender can do anything about.
+        Request::Typing { channel_id } => {
+            Handled::with(Response::Ok, Outgoing::Typing { channel_id })
+        }
 
         Request::Invite {
             expires_in,
@@ -106,7 +170,10 @@ pub(crate) fn to_protocol_error(err: &ServerError) -> ProtocolError {
         ServerError::DeviceNotEnrolled => ErrorCode::DeviceNotEnrolled,
         ServerError::DeviceAmbiguous => ErrorCode::DeviceAmbiguous,
         ServerError::Validation(_) => ErrorCode::Invalid,
-        ServerError::UnknownUser | ServerError::UnknownChannel => ErrorCode::NotFound,
+        ServerError::UnknownUser | ServerError::UnknownChannel | ServerError::UnknownMessage => {
+            ErrorCode::NotFound
+        }
+        ServerError::Forbidden => ErrorCode::Forbidden,
         ServerError::RateLimited { retry_after } => {
             return ProtocolError::rate_limited(retry_after.as_secs().max(1));
         }

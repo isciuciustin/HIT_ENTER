@@ -9,6 +9,8 @@
 //! shortcut and there must never be one: one network path means one code path
 //! to debug (PLAN §2.1).
 
+use std::collections::BTreeMap;
+
 use he_proto::io::{read_frame, write_frame};
 use he_proto::rpc::{Auth, Hello, Ready, Request, Response};
 use he_proto::{FrameError, Message, NetworkConfig, ServerFrame, limits};
@@ -108,6 +110,16 @@ impl Client {
     }
 }
 
+/// What a [`Session::resume`] came back with.
+#[derive(Debug, Clone, Default)]
+pub struct Resumed {
+    /// Oldest first, across every channel: the order to apply them in.
+    pub messages: Vec<Message>,
+    /// Channels whose gap was too big for one answer. Page those with
+    /// [`Session::backfill`] instead of believing the client is caught up.
+    pub truncated: Vec<String>,
+}
+
 /// One logged-in connection to one server.
 ///
 /// Dropping it drops the connection and the task reading its control stream.
@@ -137,7 +149,11 @@ impl Session {
         let ready = match read_frame::<_, ServerFrame>(&mut recv).await? {
             ServerFrame::Ready(ready) => ready,
             ServerFrame::Error(err) => return Err(ClientError::Refused(err)),
-            ServerFrame::Message { .. } => return Err(ClientError::Unexpected("message")),
+            // The handshake answer is `ready` or `error`, exactly once and
+            // before anything else. An event here means the server wrote out
+            // of order, which is a protocol fault and not something to try to
+            // recover from by reading another frame.
+            _ => return Err(ClientError::Unexpected("event before ready")),
         };
 
         // From here the control stream is one-way: events, until it ends.
@@ -241,6 +257,59 @@ impl Session {
             .await?
         {
             Response::Messages { messages } => Ok(messages),
+            _ => Err(ClientError::Unexpected("response")),
+        }
+    }
+
+    /// Rewrites one of our own messages.
+    ///
+    /// The authoritative row comes back on the control stream as an `Edited`
+    /// event, the same one every other member gets — one code path renders a
+    /// message, and one applies a change to it.
+    pub async fn edit_message(&self, id: &str, content: &str) -> Result<()> {
+        self.request(Request::Edit {
+            id: id.to_owned(),
+            content: content.to_owned(),
+        })
+        .await
+        .map(|_| ())
+    }
+
+    /// Withdraws one of our own messages.
+    pub async fn delete_message(&self, id: &str) -> Result<()> {
+        self.request(Request::Delete { id: id.to_owned() })
+            .await
+            .map(|_| ())
+    }
+
+    /// Says that this account is composing. Fire and forget.
+    pub async fn typing(&self, channel_id: &str) -> Result<()> {
+        self.request(Request::Typing {
+            channel_id: channel_id.to_owned(),
+        })
+        .await
+        .map(|_| ())
+    }
+
+    /// Asks for everything missed since these cursors — reconnecting without
+    /// reloading (PLAN §9).
+    ///
+    /// `since` is when this client last finished a sync. Without it a message
+    /// edited or deleted while we were away never comes up: it is older than
+    /// every cursor, so "what is new" cannot find it.
+    pub async fn resume(
+        &self,
+        cursors: BTreeMap<String, String>,
+        since: Option<i64>,
+    ) -> Result<Resumed> {
+        match self.request(Request::Resume { cursors, since }).await? {
+            Response::Resumed {
+                messages,
+                truncated,
+            } => Ok(Resumed {
+                messages,
+                truncated,
+            }),
             _ => Err(ClientError::Unexpected("response")),
         }
     }

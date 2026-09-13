@@ -38,6 +38,34 @@ pub const NONCE_MAX_BYTES: usize = 64;
 pub const BACKFILL_DEFAULT_LIMIT: u32 = 50;
 pub const BACKFILL_MAX_LIMIT: u32 = 200;
 
+/// How many channel cursors one `resume` may carry.
+///
+/// A reconnect names every channel the client has history for, so this is a
+/// bound on how much work a single frame can ask the server to do — one query
+/// per cursor — before the client is told to backfill the ordinary way.
+pub const RESUME_MAX_CHANNELS: usize = 200;
+
+/// Most messages one `resume` will hand back, across every channel.
+///
+/// A client that has been away for a month must not be answered with a month
+/// of history in one frame. Past this the gap is reported as *truncated* and
+/// the channel is filled the paged way, which is what `backfill` is for.
+pub const RESUME_MAX_MESSAGES: u32 = 500;
+
+/// Most messages one channel contributes to a `resume`.
+pub const RESUME_PER_CHANNEL_LIMIT: u32 = BACKFILL_MAX_LIMIT;
+
+/// How long a typing indicator stays on screen without being renewed.
+///
+/// Shared so that the sender's throttle and the receiver's expiry are derived
+/// from one number: a throttle longer than the timeout makes the indicator
+/// flicker, and there is no way to notice that from either side alone.
+pub const TYPING_TIMEOUT_SECS: u64 = 8;
+
+/// How often a client may say it is typing. Comfortably inside
+/// [`TYPING_TIMEOUT_SECS`], so a continuous typist never flickers.
+pub const TYPING_THROTTLE_SECS: u64 = 3;
+
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum ValidationError {
     #[error("username must be {USERNAME_MIN_CHARS}-{USERNAME_MAX_CHARS} characters")]
@@ -66,6 +94,8 @@ pub enum ValidationError {
     InviteUses,
     #[error("invite code is empty, too long, or not an invite code")]
     InviteCodeInvalid,
+    #[error("a resume may name at most {RESUME_MAX_CHANNELS} channels")]
+    ResumeTooManyChannels,
 }
 
 /// Lowercased form used as the uniqueness key for accounts.
@@ -164,6 +194,24 @@ pub fn validate_invite_code(code: &str) -> Result<(), ValidationError> {
 pub fn validate_backfill_limit(limit: u32) -> Result<(), ValidationError> {
     if limit == 0 || limit > BACKFILL_MAX_LIMIT {
         return Err(ValidationError::BackfillLimit);
+    }
+    Ok(())
+}
+
+/// Checks the cursor map a `resume` carries.
+///
+/// Every key is a channel id and every value a message id, both of which end
+/// up in a query, and the map as a whole decides how many queries one frame
+/// costs.
+pub fn validate_resume_cursors<'a>(
+    cursors: impl ExactSizeIterator<Item = (&'a str, &'a str)>,
+) -> Result<(), ValidationError> {
+    if cursors.len() > RESUME_MAX_CHANNELS {
+        return Err(ValidationError::ResumeTooManyChannels);
+    }
+    for (channel_id, last_id) in cursors {
+        validate_id(channel_id)?;
+        validate_id(last_id)?;
     }
     Ok(())
 }
@@ -297,6 +345,31 @@ mod tests {
             validate_invite_code("K7QP&c=other"),
             Err(ValidationError::InviteCodeInvalid)
         );
+    }
+
+    #[test]
+    fn a_resume_is_bounded_in_both_directions() {
+        // Both bounds matter: the number of cursors is the number of queries,
+        // and the number of messages is how much one frame may weigh.
+        let many: Vec<(String, String)> = (0..RESUME_MAX_CHANNELS + 1)
+            .map(|n| (format!("c{n}"), format!("m{n}")))
+            .collect();
+        assert_eq!(
+            validate_resume_cursors(many.iter().map(|(c, m)| (c.as_str(), m.as_str()))),
+            Err(ValidationError::ResumeTooManyChannels)
+        );
+        assert!(validate_resume_cursors([("c1", "m1")].into_iter()).is_ok());
+        assert_eq!(
+            validate_resume_cursors([("c1", "not an id!")].into_iter()),
+            Err(ValidationError::IdInvalid)
+        );
+    }
+
+    #[test]
+    fn a_typing_throttle_is_shorter_than_its_timeout() {
+        // Otherwise the indicator expires between two keystrokes and the
+        // person on the other end watches it blink.
+        const { assert!(TYPING_THROTTLE_SECS < TYPING_TIMEOUT_SECS) };
     }
 
     #[test]

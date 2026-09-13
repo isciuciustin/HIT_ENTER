@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE cached_messages SET content = '', deleted_at = ?1\n             WHERE endpoint_id = ?2 AND id = ?3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "78b84ecea41264703f2b762fd4a87e88e14aeb505cbbb20680be1eb6e08edbe9"
+}

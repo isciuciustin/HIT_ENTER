@@ -34,7 +34,8 @@ use iroh::{Endpoint, EndpointId};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, broadcast};
 
 use crate::error::{Result, ServerError};
-use crate::rpc::{self, to_protocol_error};
+use crate::presence::Presence;
+use crate::rpc::{self, Outgoing, to_protocol_error};
 use crate::{Server, User};
 
 /// Caps that apply before anybody has proved who they are.
@@ -92,25 +93,128 @@ impl Session {
     }
 }
 
-/// A message to fan out, and the nonce that goes back to its sender alone.
+/// Something that happened in the space, on its way to every live session.
+///
+/// Two variants carry an origin connection, for opposite reasons: a `Message`
+/// so its sender — and only its sender — gets its nonce back, and a `Typing`
+/// so its sender is the one connection that does *not* get it.
 #[derive(Debug, Clone)]
-struct Broadcast {
-    message: Message,
-    /// `(connection id, nonce)` of whoever sent it. Only that connection gets
-    /// the nonce; everyone else gets the same event without one, because only
-    /// the sender has an optimistic bubble to reconcile (PLAN §9).
-    origin: (u64, String),
+enum Fanout {
+    Message {
+        message: Message,
+        /// `(connection id, nonce)` of whoever sent it. Only that connection
+        /// gets the nonce; everyone else gets the same event without one,
+        /// because only the sender has an optimistic bubble to reconcile
+        /// (PLAN §9).
+        origin: (u64, String),
+    },
+    Edited {
+        message: Message,
+    },
+    Deleted {
+        id: String,
+        channel_id: String,
+        deleted_at: i64,
+    },
+    Presence {
+        user_id: String,
+        online: bool,
+        /// The connection whose arrival caused it, when one did. That
+        /// connection already knows it is online; a second device on the same
+        /// account does not, and still gets told.
+        origin: Option<u64>,
+    },
+    Typing {
+        channel_id: String,
+        user_id: String,
+        username: String,
+        /// The connection that is typing. It already knows.
+        origin: u64,
+    },
+}
+
+impl Fanout {
+    /// The frame one session should see, or `None` if this event is not for
+    /// that session at all.
+    fn frame_for(self, connection_id: u64) -> Option<ServerFrame> {
+        Some(match self {
+            Self::Message {
+                message,
+                origin: (origin, nonce),
+            } => ServerFrame::Message {
+                message,
+                nonce: (origin == connection_id).then_some(nonce),
+            },
+            Self::Edited { message } => ServerFrame::Edited { message },
+            Self::Deleted {
+                id,
+                channel_id,
+                deleted_at,
+            } => ServerFrame::Deleted {
+                id,
+                channel_id,
+                deleted_at,
+            },
+            Self::Presence { origin, .. } if origin == Some(connection_id) => return None,
+            Self::Presence { user_id, online, .. } => ServerFrame::Presence { user_id, online },
+            Self::Typing { origin, .. } if origin == connection_id => return None,
+            Self::Typing {
+                channel_id,
+                user_id,
+                username,
+                ..
+            } => ServerFrame::Typing {
+                channel_id,
+                user_id,
+                username,
+            },
+        })
+    }
+}
+
+impl Outgoing {
+    /// Stamps an event with the connection that caused it.
+    ///
+    /// The origin is read from the [`Session`], which came from the iroh
+    /// connection — never from anything the client put in the request.
+    fn into_fanout(self, session: &Session) -> Fanout {
+        match self {
+            Self::Message { message, nonce } => Fanout::Message {
+                message,
+                origin: (session.id, nonce),
+            },
+            Self::Edited { message } => Fanout::Edited { message },
+            Self::Deleted {
+                id,
+                channel_id,
+                deleted_at,
+            } => Fanout::Deleted {
+                id,
+                channel_id,
+                deleted_at,
+            },
+            Self::Typing { channel_id } => Fanout::Typing {
+                channel_id,
+                user_id: session.user.id.clone(),
+                username: session.user.username.clone(),
+                origin: session.id,
+            },
+        }
+    }
 }
 
 /// The `hit-enter/0` protocol handler.
 #[derive(Debug, Clone)]
 pub struct ChatProtocol {
     server: Arc<Server>,
-    events: broadcast::Sender<Broadcast>,
+    events: broadcast::Sender<Fanout>,
     limits: Limits,
     connections: Arc<Semaphore>,
     handshakes: Arc<Semaphore>,
     next_id: Arc<AtomicU64>,
+    /// Who is connected, and who is typing. Live state, never persisted —
+    /// see [`crate::presence`].
+    presence: Arc<Presence>,
 }
 
 impl ChatProtocol {
@@ -127,6 +231,7 @@ impl ChatProtocol {
             connections: Arc::new(Semaphore::new(limits.max_connections)),
             handshakes: Arc::new(Semaphore::new(limits.max_handshakes)),
             next_id: Arc::new(AtomicU64::new(1)),
+            presence: Arc::new(Presence::default()),
         }
     }
 
@@ -189,13 +294,43 @@ impl ChatProtocol {
             "session established"
         );
 
+        // Announced *after* the subscription above, so this session is not
+        // told about its own arrival, and before any request is served, so a
+        // member is online from the first frame they could act on.
+        if self.presence.join(&session.user.id) {
+            self.fan_out(Fanout::Presence {
+                user_id: session.user.id.clone(),
+                online: true,
+                origin: Some(id),
+            });
+        }
+
         // The control stream is now one-way: events, until the session ends.
         let pump = tokio::spawn(pump_events(send, events, id));
         let result = self.serve_requests(&conn, &session).await;
         pump.abort();
 
+        if self.presence.leave(&session.user.id, id) {
+            // No origin: the connection that caused this is the one that just
+            // went away, and there is nobody left on it to exclude.
+            self.fan_out(Fanout::Presence {
+                user_id: session.user.id.clone(),
+                online: false,
+                origin: None,
+            });
+        }
+
         tracing::info!(user = %session.user.username, connection = id, "session ended");
         result
+    }
+
+    /// Hands an event to every live session.
+    ///
+    /// A send error means nobody is subscribed, which includes the ordinary
+    /// case where this is the only connection. Nothing here is stored by the
+    /// fan-out, so there is nothing to lose by it going nowhere.
+    fn fan_out(&self, event: Fanout) {
+        let _ = self.events.send(event);
     }
 
     /// Waits for a handshake slot, telling the client to back off rather than
@@ -305,6 +440,8 @@ impl ChatProtocol {
             user: user.as_member(),
             channels: self.server.channels().await?,
             members: self.server.members().await?,
+            // A snapshot; `Presence` events keep it current from here.
+            online: self.presence.online(),
             // Always true here: every path into a session enrols the device,
             // which is what makes the next connection passwordless.
             enrolled: true,
@@ -360,15 +497,21 @@ impl ChatProtocol {
     ) {
         let response = match read_frame::<_, Request>(&mut recv).await {
             Ok(request) => {
+                // Throttled before it is handled, because a typing event costs
+                // the *server* a broadcast to every member and costs the
+                // client nothing to send. A client is the one thing that
+                // cannot be trusted to rate-limit itself.
+                if let Request::Typing { .. } = &request
+                    && !self.presence.may_type(session.id)
+                {
+                    let _ = write_frame(&mut send, &Response::Ok).await;
+                    let _ = send.finish();
+                    return;
+                }
+
                 let handled = rpc::handle(&self.server, session, request).await;
-                if let Some((message, nonce)) = handled.broadcast {
-                    // A send error means nobody is subscribed, which includes
-                    // the case where this is the only connection. The message
-                    // is already stored either way.
-                    let _ = self.events.send(Broadcast {
-                        message,
-                        origin: (session.id, nonce),
-                    });
+                for event in handled.fan_out {
+                    self.fan_out(event.into_fanout(session));
                 }
                 handled.response
             }
@@ -401,26 +544,26 @@ impl ProtocolHandler for ChatProtocol {
 /// dies or the session ends.
 async fn pump_events(
     mut send: SendStream,
-    mut events: broadcast::Receiver<Broadcast>,
+    mut events: broadcast::Receiver<Fanout>,
     connection_id: u64,
 ) {
     loop {
-        let broadcast = match events.recv().await {
-            Ok(broadcast) => broadcast,
+        let event = match events.recv().await {
+            Ok(event) => event,
             Err(broadcast::error::RecvError::Closed) => return,
             Err(broadcast::error::RecvError::Lagged(missed)) => {
-                // This client was too slow and events were dropped. It is not
-                // a reason to disconnect it; M5's `resume` is what closes the
-                // gap properly, and until then a backfill does.
+                // This client was too slow and events were dropped. Not a
+                // reason to disconnect it: `resume` closes the gap on the next
+                // reconnect, and a `backfill` closes it before then.
                 tracing::warn!(connection = connection_id, missed, "session lagged");
                 continue;
             }
         };
 
-        let (origin, nonce) = broadcast.origin;
-        let frame = ServerFrame::Message {
-            message: broadcast.message,
-            nonce: (origin == connection_id).then_some(nonce),
+        // `None` means this event was never for this session — a typing
+        // indicator going back to the person who is typing.
+        let Some(frame) = event.frame_for(connection_id) else {
+            continue;
         };
 
         if write_frame(&mut send, &frame).await.is_err() {
@@ -533,28 +676,95 @@ fn protocol_error_for(err: &FrameError) -> ProtocolError {
 mod tests {
     use super::*;
 
+    fn a_message() -> Message {
+        Message {
+            id: "m1".into(),
+            channel_id: "c1".into(),
+            author_id: "u1".into(),
+            author_name: "justin".into(),
+            content: "hi".into(),
+            edited_at: None,
+            deleted_at: None,
+        }
+    }
+
     #[test]
     fn only_the_sender_gets_its_nonce_back() {
         // The nonce is how *one* client reconciles its optimistic bubble.
         // Sending it to everybody would have every other client swap in a
         // message it never composed.
-        let broadcast = Broadcast {
-            message: Message {
-                id: "m1".into(),
-                channel_id: "c1".into(),
-                author_id: "u1".into(),
-                author_name: "justin".into(),
-                content: "hi".into(),
-                edited_at: None,
-                deleted_at: None,
-            },
+        let event = Fanout::Message {
+            message: a_message(),
             origin: (7, "n1".into()),
         };
 
-        let for_sender = (broadcast.origin.0 == 7).then_some(broadcast.origin.1.clone());
-        let for_others = (broadcast.origin.0 == 8).then_some(broadcast.origin.1);
-        assert_eq!(for_sender.as_deref(), Some("n1"));
-        assert_eq!(for_others, None);
+        let Some(ServerFrame::Message { nonce, .. }) = event.clone().frame_for(7) else {
+            panic!("the sender gets the message");
+        };
+        assert_eq!(nonce.as_deref(), Some("n1"));
+
+        let Some(ServerFrame::Message { nonce, .. }) = event.frame_for(8) else {
+            panic!("everyone else gets the message too");
+        };
+        assert_eq!(nonce, None);
+    }
+
+    #[test]
+    fn nobody_is_told_that_they_themselves_are_typing() {
+        // The sender already knows, and an indicator for yourself is the kind
+        // of bug that only shows up with one window open.
+        let event = Fanout::Typing {
+            channel_id: "c1".into(),
+            user_id: "u1".into(),
+            username: "justin".into(),
+            origin: 7,
+        };
+        assert!(event.clone().frame_for(7).is_none());
+        assert!(matches!(
+            event.frame_for(8),
+            Some(ServerFrame::Typing { .. })
+        ));
+    }
+
+    #[test]
+    fn a_session_is_not_told_that_it_itself_came_online() {
+        // It knows. But a *second* device on the same account does not, and
+        // greying out a member who is reading on their phone would be wrong.
+        let event = Fanout::Presence {
+            user_id: "u1".into(),
+            online: true,
+            origin: Some(7),
+        };
+        assert!(event.clone().frame_for(7).is_none());
+        assert!(matches!(
+            event.frame_for(8),
+            Some(ServerFrame::Presence { online: true, .. })
+        ));
+    }
+
+    #[test]
+    fn presence_and_deletions_reach_every_session_alike() {
+        // Neither has an origin to exclude: a member going offline is news to
+        // everyone, and a withdrawn message has to leave every screen — the
+        // sender's included, because its own optimistic state was the text.
+        for event in [
+            Fanout::Presence {
+                user_id: "u1".into(),
+                online: false,
+                origin: None,
+            },
+            Fanout::Deleted {
+                id: "m1".into(),
+                channel_id: "c1".into(),
+                deleted_at: 1_700_000_000,
+            },
+            Fanout::Edited {
+                message: a_message(),
+            },
+        ] {
+            assert!(event.clone().frame_for(7).is_some());
+            assert!(event.frame_for(8).is_some());
+        }
     }
 
     #[test]

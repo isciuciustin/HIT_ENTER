@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO sync_marks (endpoint_id, resumed_at) VALUES (?1, ?2)\n             ON CONFLICT (endpoint_id) DO UPDATE SET resumed_at = excluded.resumed_at",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "4eab0e3b975d25799d7d3c9e348d254b9238ec58a591e19569cfbd0dd0708a51"
+}

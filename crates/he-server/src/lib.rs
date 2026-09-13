@@ -34,9 +34,11 @@ pub mod devices;
 pub mod error;
 pub mod invite;
 pub mod messages;
+pub mod presence;
 pub mod ratelimit;
 pub mod rpc;
 
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::time::Duration;
 
@@ -377,6 +379,52 @@ impl Server {
             "message stored"
         );
         Ok(message)
+    }
+
+    /// Rewrites a message. Only its author may.
+    ///
+    /// Broadcasting the result is the network layer's job, exactly as with
+    /// [`Server::post_message`]: this call has no idea who is connected.
+    pub async fn edit_message(
+        &self,
+        author: &User,
+        id: &str,
+        content: &str,
+    ) -> Result<he_proto::Message> {
+        let message = messages::edit(&self.pool, &author.id, id, content).await?;
+        // No `content`: PLAN §11. Plaintext in the database is a documented
+        // trust model; plaintext in a log is an accident.
+        tracing::debug!(message_id = %id, author_id = %author.id, "message edited");
+        Ok(message)
+    }
+
+    /// Withdraws a message. Only its author may. Returns the row and when it
+    /// went, so the event can carry a timestamp the client can render.
+    ///
+    /// Owner moderation — deleting somebody *else's* message — is M6's owner
+    /// tooling and deliberately not here.
+    pub async fn delete_message(
+        &self,
+        author: &User,
+        id: &str,
+    ) -> Result<(he_proto::Message, i64)> {
+        let deleted = messages::delete(&self.pool, &author.id, id).await?;
+        tracing::debug!(message_id = %id, author_id = %author.id, "message deleted");
+        Ok(deleted)
+    }
+
+    /// Everything a reconnecting client missed (PLAN §9).
+    ///
+    /// Reconnect is not a reload: the client names the newest id it holds per
+    /// channel and gets back only the gap — plus anything older that was
+    /// edited or deleted since `since`, which a cursor alone can never find.
+    pub async fn resume(
+        &self,
+        cursors: &BTreeMap<String, String>,
+        since: Option<i64>,
+    ) -> Result<messages::Resumed> {
+        limits::validate_resume_cursors(cursors.iter().map(|(c, m)| (c.as_str(), m.as_str())))?;
+        messages::resume(&self.pool, cursors, since).await
     }
 
     /// A page of history, newest first, ending just before `before`.

@@ -73,6 +73,37 @@ pub enum ServerFrame {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         nonce: Option<String>,
     },
+    /// A message was rewritten. Carries the whole row rather than a patch, so
+    /// a client that missed the original still ends up with the right text.
+    Edited { message: Message },
+    /// A message was withdrawn.
+    ///
+    /// Clients are *told* rather than silently skipped, because a message
+    /// already on somebody's screen has to be taken back off it. The content
+    /// is not carried: there is no longer any.
+    Deleted {
+        id: String,
+        channel_id: String,
+        deleted_at: i64,
+    },
+    /// An account gained or lost its last live session.
+    ///
+    /// Per *account*, not per connection: a member with a laptop and a phone
+    /// goes offline when the second of the two disconnects, which is what the
+    /// dot next to their name is claiming.
+    Presence { user_id: String, online: bool },
+    /// Somebody is composing. Never sent back to the connection that said so.
+    ///
+    /// Nothing is stored and nothing is guaranteed to arrive; an indicator
+    /// that missed its renewal expires on its own after
+    /// [`limits::TYPING_TIMEOUT_SECS`](crate::limits::TYPING_TIMEOUT_SECS).
+    Typing {
+        channel_id: String,
+        user_id: String,
+        /// Denormalised for the same reason as `Message::author_name`: the
+        /// indicator has a name to show before any member list has loaded.
+        username: String,
+    },
 }
 
 #[cfg(test)]
@@ -115,11 +146,87 @@ mod tests {
 
     #[test]
     fn frames_round_trip() {
-        let frame = ServerFrame::Error(ProtocolError::rate_limited(30));
-        let bytes = serde_json::to_vec(&frame).expect("serialisable");
-        assert_eq!(
-            serde_json::from_slice::<ServerFrame>(&bytes).expect("parsable"),
-            frame
-        );
+        for frame in [
+            ServerFrame::Error(ProtocolError::rate_limited(30)),
+            ServerFrame::Edited {
+                message: Message {
+                    id: "0199".into(),
+                    channel_id: "c1".into(),
+                    author_id: "u1".into(),
+                    author_name: "justin".into(),
+                    content: "fixed".into(),
+                    edited_at: Some(1_700_000_000),
+                    deleted_at: None,
+                },
+            },
+            ServerFrame::Deleted {
+                id: "0199".into(),
+                channel_id: "c1".into(),
+                deleted_at: 1_700_000_000,
+            },
+            ServerFrame::Presence {
+                user_id: "u1".into(),
+                online: true,
+            },
+            ServerFrame::Typing {
+                channel_id: "c1".into(),
+                user_id: "u1".into(),
+                username: "justin".into(),
+            },
+        ] {
+            let bytes = serde_json::to_vec(&frame).expect("serialisable");
+            assert_eq!(
+                serde_json::from_slice::<ServerFrame>(&bytes).expect("parsable"),
+                frame
+            );
+        }
+    }
+
+    #[test]
+    fn a_deletion_carries_no_content() {
+        // The point of a delete is that the text stops existing. A frame that
+        // carried it would put the withdrawn message into every client's log
+        // and every mirror that applied it naively.
+        let json = serde_json::to_string(&ServerFrame::Deleted {
+            id: "0199".into(),
+            channel_id: "c1".into(),
+            deleted_at: 1_700_000_000,
+        })
+        .expect("serialisable");
+        assert!(!json.contains("content"), "{json}");
+    }
+
+    #[test]
+    fn events_are_stable_strings() {
+        // These `t` values are matched on by deployed clients and written down
+        // in PROTOCOL.md; renaming a variant must not silently rename one.
+        for (frame, expected) in [
+            (
+                ServerFrame::Deleted {
+                    id: "m".into(),
+                    channel_id: "c".into(),
+                    deleted_at: 0,
+                },
+                "deleted",
+            ),
+            (
+                ServerFrame::Presence {
+                    user_id: "u".into(),
+                    online: false,
+                },
+                "presence",
+            ),
+            (
+                ServerFrame::Typing {
+                    channel_id: "c".into(),
+                    user_id: "u".into(),
+                    username: "j".into(),
+                },
+                "typing",
+            ),
+        ] {
+            let json = serde_json::to_value(&frame).expect("serialisable");
+            assert_eq!(json["t"], expected);
+        }
     }
 }

@@ -138,6 +138,20 @@ async fn next_event(session: &mut Session) -> ServerFrame {
         .expect("the session is still open")
 }
 
+/// The next event that is *about the conversation*.
+///
+/// Presence and typing arrive whenever somebody opens a laptop, so a test
+/// asserting on what was said must not be coupled to when that happened —
+/// otherwise adding a second member to a test is enough to break it.
+async fn next_chat_event(session: &mut Session) -> ServerFrame {
+    loop {
+        match next_event(session).await {
+            ServerFrame::Presence { .. } | ServerFrame::Typing { .. } => continue,
+            frame => return frame,
+        }
+    }
+}
+
 #[tokio::test]
 async fn a_client_registers_sends_a_message_and_gets_it_back() {
     let harness = Harness::start().await;
@@ -161,7 +175,7 @@ async fn a_client_registers_sends_a_message_and_gets_it_back() {
         .await
         .expect("send");
 
-    match next_event(&mut session).await {
+    match next_chat_event(&mut session).await {
         ServerFrame::Message {
             message,
             nonce: echoed,
@@ -225,13 +239,13 @@ async fn two_members_see_each_others_messages_but_only_their_own_nonce() {
         .await
         .expect("send");
 
-    match next_event(&mut alice).await {
+    match next_chat_event(&mut alice).await {
         ServerFrame::Message { nonce: echoed, .. } => {
             assert_eq!(echoed.as_deref(), Some(nonce.as_str()))
         }
         other => panic!("expected a message event, got {other:?}"),
     }
-    match next_event(&mut bob).await {
+    match next_chat_event(&mut bob).await {
         ServerFrame::Message {
             message,
             nonce: echoed,
@@ -449,6 +463,7 @@ async fn the_mirror_answers_after_the_server_is_gone() {
             &harness.addr.id.to_string(),
             &session.ready().server_name,
             &session.ready().user.username,
+            Some(&session.ready().user.id),
             None,
         )
         .await
@@ -461,7 +476,7 @@ async fn the_mirror_answers_after_the_server_is_gone() {
     for line in ["first", "second", "third"] {
         session.send_message(&channel.id, line).await.expect("send");
         // What the event pump does: disk first, screen second.
-        match next_event(&mut session).await {
+        match next_chat_event(&mut session).await {
             ServerFrame::Message { message, .. } => mirror
                 .record_message(&harness.addr.id.to_string(), &message)
                 .await
@@ -510,13 +525,13 @@ async fn a_backfill_page_overlapping_live_events_does_not_duplicate() {
 
     let mirror = he_client::Mirror::in_memory().await.expect("mirror");
     mirror
-        .upsert_server(&server_key, "Test Space", "justin", None)
+        .upsert_server(&server_key, "Test Space", "justin", Some("u1"), None)
         .await
         .expect("upsert");
 
     for line in ["one", "two"] {
         session.send_message(&channel, line).await.expect("send");
-        match next_event(&mut session).await {
+        match next_chat_event(&mut session).await {
             ServerFrame::Message { message, .. } => mirror
                 .record_message(&server_key, &message)
                 .await
@@ -688,5 +703,271 @@ async fn a_link_from_a_different_space_does_not_open_this_one() {
         ),
     }
 
+    harness.shutdown().await;
+}
+
+// ---------------------------------------------------------------------------
+// M5: surviving contact with reality
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn an_edit_reaches_everyone_and_a_deletion_takes_the_words_with_it() {
+    let harness = Harness::start().await;
+    let alice_client = harness.client().await;
+    let mut alice = harness.register(&alice_client, "alice").await;
+    let bob_client = harness.client().await;
+    let mut bob = harness.register(&bob_client, "bob").await;
+
+    let channel = alice.ready().channels[0].id.clone();
+    alice.send_message(&channel, "helo").await.expect("send");
+
+    let ServerFrame::Message { message, .. } = next_chat_event(&mut alice).await else {
+        panic!("expected the message back");
+    };
+    next_chat_event(&mut bob).await; // bob sees it too
+
+    alice
+        .edit_message(&message.id, "hello")
+        .await
+        .expect("edit");
+
+    for session in [&mut alice, &mut bob] {
+        match next_chat_event(session).await {
+            ServerFrame::Edited { message } => {
+                assert_eq!(message.content, "hello");
+                assert!(message.edited_at.is_some(), "an edit is stamped as one");
+            }
+            other => panic!("expected an edited event, got {other:?}"),
+        }
+    }
+
+    alice.delete_message(&message.id).await.expect("delete");
+    for session in [&mut alice, &mut bob] {
+        match next_chat_event(session).await {
+            ServerFrame::Deleted { id, .. } => assert_eq!(id, message.id),
+            other => panic!("expected a deleted event, got {other:?}"),
+        }
+    }
+
+    // The point of a delete: the text is gone, not hidden. The host reads this
+    // database in plaintext by design, so anything less would make "deleted"
+    // mean "you cannot see it in the app" (PLAN §10).
+    let history = bob
+        .backfill(&channel, None, Session::BACKFILL_LIMIT)
+        .await
+        .expect("backfill");
+    let stored = history
+        .iter()
+        .find(|m| m.id == message.id)
+        .expect("the tombstone is still there, so clients can be told");
+    assert_eq!(stored.content, "");
+    assert!(stored.deleted_at.is_some());
+
+    alice.close().await;
+    bob.close().await;
+    harness.shutdown().await;
+}
+
+#[tokio::test]
+async fn only_the_author_may_edit_or_delete() {
+    // Moderating somebody else's message is the owner's tool, and it is M6's.
+    // Until then "your own" is the whole of the rule.
+    let harness = Harness::start().await;
+    let alice_client = harness.client().await;
+    let mut alice = harness.register(&alice_client, "alice").await;
+    let bob_client = harness.client().await;
+    let bob = harness.register(&bob_client, "bob").await;
+
+    let channel = alice.ready().channels[0].id.clone();
+    alice.send_message(&channel, "mine").await.expect("send");
+    let ServerFrame::Message { message, .. } = next_chat_event(&mut alice).await else {
+        panic!("expected the message back");
+    };
+
+    let err = bob
+        .edit_message(&message.id, "not yours")
+        .await
+        .expect_err("bob did not write it");
+    assert_eq!(err.code(), Some(ErrorCode::Forbidden), "got {err:?}");
+
+    let err = bob
+        .delete_message(&message.id)
+        .await
+        .expect_err("bob did not write it");
+    assert_eq!(err.code(), Some(ErrorCode::Forbidden), "got {err:?}");
+
+    alice.close().await;
+    bob.close().await;
+    harness.shutdown().await;
+}
+
+#[tokio::test]
+async fn reconnecting_costs_the_gap_and_not_the_history() {
+    // The M5 done-when, in miniature: go away, miss things, come back, and be
+    // handed only what was missed (PLAN §9).
+    let harness = Harness::start().await;
+    let alice_client = harness.client().await;
+    let mut alice = harness.register(&alice_client, "alice").await;
+    let bob_client = harness.client().await;
+    let mut bob = harness.register(&bob_client, "bob").await;
+    let channel = alice.ready().channels[0].id.clone();
+
+    // Something alice sees before she goes away.
+    bob.send_message(&channel, "before").await.expect("send");
+    let ServerFrame::Message { message: seen, .. } = next_chat_event(&mut alice).await else {
+        panic!("expected the message");
+    };
+    next_chat_event(&mut bob).await;
+
+    // Alice's laptop shuts. Bob keeps talking, and edits something she had.
+    alice.close().await;
+    bob.send_message(&channel, "while away").await.expect("send");
+    let ServerFrame::Message { message: missed, .. } = next_chat_event(&mut bob).await else {
+        panic!("expected the message");
+    };
+
+    // Back, on the same device: no password, because the key is the login.
+    let alice = alice_client
+        .connect(harness.addr.clone(), Auth::Device { username: None })
+        .await
+        .expect("reconnect");
+
+    let cursors = std::collections::BTreeMap::from([(channel.clone(), seen.id.clone())]);
+    let resumed = alice.resume(cursors, None).await.expect("resume");
+
+    let ids: Vec<&str> = resumed.messages.iter().map(|m| m.id.as_str()).collect();
+    assert_eq!(
+        ids,
+        vec![missed.id.as_str()],
+        "only the gap: a reconnect is not a reload"
+    );
+    assert!(resumed.truncated.is_empty());
+
+    alice.close().await;
+    bob.close().await;
+    harness.shutdown().await;
+}
+
+#[tokio::test]
+async fn a_resume_reports_a_message_deleted_while_we_were_away() {
+    // A deletion keeps the message's id, so it is *older* than every cursor
+    // and no amount of "what is new" would ever mention it. Without this the
+    // withdrawn message sits on the returning client's screen forever.
+    let harness = Harness::start().await;
+    let alice_client = harness.client().await;
+    let mut alice = harness.register(&alice_client, "alice").await;
+    let bob_client = harness.client().await;
+    let mut bob = harness.register(&bob_client, "bob").await;
+    let channel = alice.ready().channels[0].id.clone();
+
+    bob.send_message(&channel, "regrettable").await.expect("send");
+    let ServerFrame::Message { message, .. } = next_chat_event(&mut bob).await else {
+        panic!("expected the message");
+    };
+    next_chat_event(&mut alice).await;
+    let before_leaving = he_server::db::now_unix();
+
+    alice.close().await;
+    // A deletion is stamped in whole seconds, so a `since` taken in the same
+    // second as the delete must still catch it — which is why the server
+    // compares with `>=`. Sleeping here would only hide that.
+    bob.delete_message(&message.id).await.expect("delete");
+
+    let alice = alice_client
+        .connect(harness.addr.clone(), Auth::Device { username: None })
+        .await
+        .expect("reconnect");
+    let cursors = std::collections::BTreeMap::from([(channel, message.id.clone())]);
+    let resumed = alice
+        .resume(cursors, Some(before_leaving))
+        .await
+        .expect("resume");
+
+    let tombstone = resumed
+        .messages
+        .iter()
+        .find(|m| m.id == message.id)
+        .expect("the deletion has to come back");
+    assert!(tombstone.deleted_at.is_some());
+    assert_eq!(tombstone.content, "");
+
+    alice.close().await;
+    bob.close().await;
+    harness.shutdown().await;
+}
+
+#[tokio::test]
+async fn presence_follows_the_account_not_the_connection() {
+    let harness = Harness::start().await;
+    let alice_client = harness.client().await;
+    let mut alice = harness.register(&alice_client, "alice").await;
+
+    // Alice is the only one here, and she is not told about herself.
+    assert!(
+        !alice.ready().online.contains(&alice.ready().user.id),
+        "the snapshot excludes nobody, but alice already knows she is here"
+    );
+
+    let bob_client = harness.client().await;
+    let bob = harness.register(&bob_client, "bob").await;
+    let bob_id = bob.ready().user.id.clone();
+
+    match next_event(&mut alice).await {
+        ServerFrame::Presence { user_id, online } => {
+            assert_eq!(user_id, bob_id);
+            assert!(online);
+        }
+        other => panic!("expected bob coming online, got {other:?}"),
+    }
+
+    // Bob's `ready` saw alice already there, without waiting for an event.
+    assert!(bob.ready().online.contains(&alice.ready().user.id));
+
+    bob.close().await;
+    match next_event(&mut alice).await {
+        ServerFrame::Presence { user_id, online } => {
+            assert_eq!(user_id, bob_id);
+            assert!(!online);
+        }
+        other => panic!("expected bob going offline, got {other:?}"),
+    }
+
+    alice.close().await;
+    harness.shutdown().await;
+}
+
+#[tokio::test]
+async fn typing_goes_to_everyone_else_and_is_throttled() {
+    let harness = Harness::start().await;
+    let alice_client = harness.client().await;
+    let alice = harness.register(&alice_client, "alice").await;
+    let bob_client = harness.client().await;
+    let mut bob = harness.register(&bob_client, "bob").await;
+    let channel = alice.ready().channels[0].id.clone();
+
+    // Every raw event here, deliberately: the whole assertion is about which
+    // frames arrive and which do not, so nothing may be filtered out first.
+    alice.typing(&channel).await.expect("typing");
+    match next_event(&mut bob).await {
+        ServerFrame::Typing {
+            username, user_id, ..
+        } => {
+            assert_eq!(username, "alice");
+            assert_eq!(user_id, alice.ready().user.id);
+        }
+        other => panic!("expected a typing event, got {other:?}"),
+    }
+
+    // Twice in a row is the client's bug, and the server absorbs it rather
+    // than fanning a frame out to every member for every keystroke.
+    alice.typing(&channel).await.expect("accepted anyway");
+    alice.send_message(&channel, "hi").await.expect("send");
+    match next_event(&mut bob).await {
+        ServerFrame::Message { .. } => {}
+        other => panic!("the second typing event should have been dropped, got {other:?}"),
+    }
+
+    alice.close().await;
+    bob.close().await;
     harness.shutdown().await;
 }

@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO read_state (endpoint_id, channel_id, last_read_id)\n             SELECT endpoint_id, channel_id, MAX(id)\n             FROM cached_messages WHERE endpoint_id = ?1\n             GROUP BY channel_id\n             ON CONFLICT (endpoint_id, channel_id) DO UPDATE SET\n                 last_read_id = MAX(read_state.last_read_id, excluded.last_read_id)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "b24ddcbe8b44703455f1ed2da56d239d6fd22d65b86340d4a179e07d10ad5bc0"
+}

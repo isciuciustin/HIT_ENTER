@@ -14,6 +14,7 @@
 //! `(endpoint_id, id)` is what makes that a no-op rather than a duplicate
 //! bubble.
 
+use std::collections::BTreeMap;
 use std::path::Path;
 
 use he_proto::{Channel, Message};
@@ -37,6 +38,11 @@ pub struct MirroredServer {
     /// Which account this client uses here. Accounts are per-server (PLAN §3),
     /// so this is not a global identity and there is no global one to store.
     pub username: String,
+    /// That account's id on that server, once a handshake has told us.
+    ///
+    /// Needed to answer "is this message mine?" without a name comparison —
+    /// which is what keeps your own messages out of your own unread count.
+    pub user_id: Option<String>,
     pub added_at: i64,
     pub last_seen: Option<i64>,
 }
@@ -114,21 +120,25 @@ impl Mirror {
         endpoint_id: &str,
         name: &str,
         username: &str,
+        user_id: Option<&str>,
         relay_url: Option<&str>,
     ) -> Result<()> {
         let now = now_unix();
         sqlx::query!(
-            "INSERT INTO servers (endpoint_id, name, relay_url, username, added_at, last_seen)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?5)
+            "INSERT INTO servers
+                 (endpoint_id, name, relay_url, username, user_id, added_at, last_seen)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)
              ON CONFLICT (endpoint_id) DO UPDATE SET
                  name      = excluded.name,
                  relay_url = COALESCE(excluded.relay_url, servers.relay_url),
                  username  = excluded.username,
+                 user_id   = COALESCE(excluded.user_id, servers.user_id),
                  last_seen = excluded.last_seen",
             endpoint_id,
             name,
             relay_url,
             username,
+            user_id,
             now,
         )
         .execute(&self.pool)
@@ -139,7 +149,7 @@ impl Mirror {
     pub async fn servers(&self) -> Result<Vec<MirroredServer>> {
         let rows = sqlx::query_as!(
             MirroredServer,
-            "SELECT endpoint_id, name, relay_url, username, added_at, last_seen
+            "SELECT endpoint_id, name, relay_url, username, user_id, added_at, last_seen
              FROM servers ORDER BY added_at",
         )
         .fetch_all(&self.pool)
@@ -150,7 +160,7 @@ impl Mirror {
     pub async fn server(&self, endpoint_id: &str) -> Result<Option<MirroredServer>> {
         let row = sqlx::query_as!(
             MirroredServer,
-            "SELECT endpoint_id, name, relay_url, username, added_at, last_seen
+            "SELECT endpoint_id, name, relay_url, username, user_id, added_at, last_seen
              FROM servers WHERE endpoint_id = ?1",
             endpoint_id,
         )
@@ -211,6 +221,58 @@ impl Mirror {
             Channel,
             "SELECT id, name, topic, position FROM cached_channels
              WHERE endpoint_id = ?1 ORDER BY position, id",
+            endpoint_id,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+
+    // ---- members ----------------------------------------------------------
+
+    /// Replaces the cached member list for a server.
+    ///
+    /// A replace, like the channels, and for the same reason: `Ready` carries
+    /// the whole roster, so there is never a partial one to merge, and an
+    /// account that left has to disappear from here too.
+    pub async fn replace_members(
+        &self,
+        endpoint_id: &str,
+        members: &[he_proto::Member],
+    ) -> Result<()> {
+        let mut tx = self.pool.begin().await?;
+        sqlx::query!(
+            "DELETE FROM cached_members WHERE endpoint_id = ?1",
+            endpoint_id
+        )
+        .execute(&mut *tx)
+        .await?;
+
+        for member in members {
+            sqlx::query!(
+                "INSERT INTO cached_members (endpoint_id, id, username, display_name, is_owner)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                endpoint_id,
+                member.id,
+                member.username,
+                member.display_name,
+                member.is_owner,
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// The cached member list. Answers with the network off.
+    pub async fn members(&self, endpoint_id: &str) -> Result<Vec<he_proto::Member>> {
+        let rows = sqlx::query_as!(
+            he_proto::Member,
+            r#"SELECT id, username, display_name, is_owner AS "is_owner!: bool"
+               FROM cached_members WHERE endpoint_id = ?1
+               ORDER BY is_owner DESC, username COLLATE NOCASE"#,
             endpoint_id,
         )
         .fetch_all(&self.pool)
@@ -283,6 +345,36 @@ impl Mirror {
         Ok(rows)
     }
 
+    /// Applies an edit to a message we may or may not already hold.
+    ///
+    /// The server sends the whole row rather than a patch, so this is the same
+    /// idempotent write as any other message — which means a client that never
+    /// saw the original still ends up with the right text.
+    pub async fn apply_edit(&self, endpoint_id: &str, message: &Message) -> Result<()> {
+        self.record_message(endpoint_id, message).await
+    }
+
+    /// Applies a deletion, taking the text with it.
+    ///
+    /// Blanking the content matters more here than on the server: this file is
+    /// the *user's* copy, and a delete that left the words on their disk would
+    /// make "deleted" mean "hidden" on the one machine they control.
+    ///
+    /// A no-op if the message was never mirrored. There is nothing to withdraw
+    /// and nothing to remember — the next backfill will carry the tombstone.
+    pub async fn apply_delete(&self, endpoint_id: &str, id: &str, deleted_at: i64) -> Result<()> {
+        sqlx::query!(
+            "UPDATE cached_messages SET content = '', deleted_at = ?1
+             WHERE endpoint_id = ?2 AND id = ?3",
+            deleted_at,
+            endpoint_id,
+            id,
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
     /// How many messages are cached for a channel. Used to decide whether the
     /// pane has anything to show before the network answers.
     pub async fn message_count(&self, endpoint_id: &str, channel_id: &str) -> Result<i64> {
@@ -298,8 +390,9 @@ impl Mirror {
 
     // ---- sync state -------------------------------------------------------
 
-    /// Per-channel resume cursors, for M5's `resume` request.
-    pub async fn cursors(&self, endpoint_id: &str) -> Result<Vec<(String, String)>> {
+    /// Per-channel resume cursors: the newest message this client holds in
+    /// each channel, which is exactly what `resume` asks the server about.
+    pub async fn cursors(&self, endpoint_id: &str) -> Result<BTreeMap<String, String>> {
         let rows = sqlx::query!(
             "SELECT channel_id, last_id FROM sync_state WHERE endpoint_id = ?1",
             endpoint_id,
@@ -309,6 +402,115 @@ impl Mirror {
         Ok(rows
             .into_iter()
             .map(|row| (row.channel_id, row.last_id))
+            .collect())
+    }
+
+    /// When this client last finished a sync with a server.
+    ///
+    /// The other half of `resume`: the cursors say what is new, this says how
+    /// far back to look for something that *changed*.
+    pub async fn resumed_at(&self, endpoint_id: &str) -> Result<Option<i64>> {
+        let row = sqlx::query_scalar!(
+            "SELECT resumed_at FROM sync_marks WHERE endpoint_id = ?1",
+            endpoint_id,
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row)
+    }
+
+    /// Records that this client is caught up with a server as of now.
+    ///
+    /// Written *after* everything a resume returned has been stored, never
+    /// before: a mark that ran ahead of the writes would skip whatever the
+    /// crash in between lost.
+    pub async fn mark_resumed(&self, endpoint_id: &str) -> Result<()> {
+        let now = now_unix();
+        sqlx::query!(
+            "INSERT INTO sync_marks (endpoint_id, resumed_at) VALUES (?1, ?2)
+             ON CONFLICT (endpoint_id) DO UPDATE SET resumed_at = excluded.resumed_at",
+            endpoint_id,
+            now,
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    // ---- read markers -----------------------------------------------------
+
+    /// Marks a channel read up to and including `last_read_id`.
+    ///
+    /// Only ever moves forward. Scrolling back through history must not make
+    /// a channel unread again, and two windows on the same account would
+    /// otherwise take turns undoing each other.
+    pub async fn mark_read(
+        &self,
+        endpoint_id: &str,
+        channel_id: &str,
+        last_read_id: &str,
+    ) -> Result<()> {
+        sqlx::query!(
+            "INSERT INTO read_state (endpoint_id, channel_id, last_read_id)
+             VALUES (?1, ?2, ?3)
+             ON CONFLICT (endpoint_id, channel_id) DO UPDATE SET
+                 last_read_id = MAX(read_state.last_read_id, excluded.last_read_id)",
+            endpoint_id,
+            channel_id,
+            last_read_id,
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Marks every channel read up to whatever is currently mirrored.
+    ///
+    /// Called when a space is *joined*, so that arriving somewhere new does
+    /// not light up every channel with a badge counting history the user was
+    /// never party to.
+    pub async fn mark_all_read(&self, endpoint_id: &str) -> Result<()> {
+        sqlx::query!(
+            "INSERT INTO read_state (endpoint_id, channel_id, last_read_id)
+             SELECT endpoint_id, channel_id, MAX(id)
+             FROM cached_messages WHERE endpoint_id = ?1
+             GROUP BY channel_id
+             ON CONFLICT (endpoint_id, channel_id) DO UPDATE SET
+                 last_read_id = MAX(read_state.last_read_id, excluded.last_read_id)",
+            endpoint_id,
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Unread counts per channel, for the badge in the rail.
+    ///
+    /// Your own messages never count: a badge that goes up when *you* say
+    /// something is a badge nobody can ever clear. Deleted messages do not
+    /// count either — there is nothing left to read.
+    pub async fn unread(&self, endpoint_id: &str) -> Result<Vec<(String, i64)>> {
+        let rows = sqlx::query!(
+            r#"SELECT c.id AS "channel_id!", COUNT(m.id) AS "unread!: i64"
+               FROM cached_channels c
+               LEFT JOIN read_state r
+                      ON r.endpoint_id = c.endpoint_id AND r.channel_id = c.id
+               LEFT JOIN cached_messages m
+                      ON m.endpoint_id = c.endpoint_id
+                     AND m.channel_id  = c.id
+                     AND m.deleted_at IS NULL
+                     AND m.id > COALESCE(r.last_read_id, '')
+                     AND m.author_id <> COALESCE(
+                           (SELECT user_id FROM servers WHERE endpoint_id = c.endpoint_id), '')
+               WHERE c.endpoint_id = ?1
+               GROUP BY c.id"#,
+            endpoint_id,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|row| (row.channel_id, row.unread))
             .collect())
     }
 
@@ -453,7 +655,7 @@ mod tests {
     async fn seeded() -> Mirror {
         let mirror = Mirror::in_memory().await.expect("open");
         mirror
-            .upsert_server("server-key", "Test Space", "justin", None)
+            .upsert_server("server-key", "Test Space", "justin", Some("u1"), None)
             .await
             .expect("upsert");
         mirror
@@ -469,7 +671,7 @@ mod tests {
         {
             let mirror = Mirror::open(&path).await.expect("create");
             mirror
-                .upsert_server("server-key", "Test Space", "justin", None)
+                .upsert_server("server-key", "Test Space", "justin", Some("u1"), None)
                 .await
                 .expect("upsert");
             mirror
@@ -584,7 +786,7 @@ mod tests {
             .expect("backfill");
 
         let cursors = mirror.cursors("server-key").await.expect("cursors");
-        assert_eq!(cursors, vec![("c1".to_string(), "m9".to_string())]);
+        assert_eq!(cursors.get("c1").map(String::as_str), Some("m9"));
     }
 
     #[tokio::test]
@@ -657,6 +859,7 @@ mod tests {
                 "server-key",
                 "Renamed Space",
                 "justin",
+                Some("u1"),
                 Some("https://relay"),
             )
             .await

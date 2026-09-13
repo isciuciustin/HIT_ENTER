@@ -25,8 +25,9 @@ use uuid::Uuid;
 
 use crate::events;
 use crate::host;
+use crate::session;
 use crate::settings::Hosting;
-use crate::state::{App, Live};
+use crate::state::App;
 
 /// An error the frontend can act on rather than only display.
 #[derive(Debug, Serialize)]
@@ -199,14 +200,21 @@ pub async fn join_server(
             password: Password::new(password),
         },
     };
-    open_session(
+    let summary = open_session(
         &app_handle,
         &app,
         link.addr().clone(),
         link.relay_url(),
         auth,
     )
-    .await
+    .await?;
+
+    // Arriving somewhere new must not light up every channel with a badge
+    // counting a conversation the user was never part of.
+    app.mirror()
+        .mark_all_read(&summary.server.endpoint_id)
+        .await?;
+    Ok(summary)
 }
 
 /// Reconnects to a space this device is already enrolled on. No password.
@@ -267,38 +275,42 @@ async fn open_session(
     };
 
     let ready = session.ready().clone();
+    let status = events::describe(session.path());
 
     // Write what the handshake told us before anything else can fail: the
-    // channel list is what the rail renders next time, with or without a
-    // network.
+    // channel list and the roster are what the rail renders next time, with or
+    // without a network.
     app.mirror()
         .upsert_server(
             endpoint_id,
             &ready.server_name,
             &ready.user.username,
+            Some(&ready.user.id),
             relay_url.as_deref(),
         )
         .await?;
     app.mirror()
         .replace_channels(endpoint_id, &ready.channels)
         .await?;
+    app.mirror()
+        .replace_members(endpoint_id, &ready.members)
+        .await?;
 
     let events_rx = session
         .take_events()
         .ok_or_else(|| CommandError::message("session event stream was already taken"))?;
-    let session = Arc::new(session);
 
-    let pump = tauri::async_runtime::spawn(events::pump(
+    // The slot is claimed before the supervisor starts, because the first
+    // thing the supervisor does is ask whether the app still wants this space
+    // connected — and the answer has to already be yes.
+    let live = app.register(endpoint_id).await;
+    live.attach(session::spawn(
         app_handle.clone(),
-        app.mirror().clone(),
-        session.clone(),
-        events_rx,
+        Arc::clone(app),
         endpoint_id.to_owned(),
+        session,
+        events_rx,
     ));
-
-    let status = events::describe(session.path());
-    app.insert_session(endpoint_id, Live { session, pump })
-        .await;
 
     let server = app
         .mirror()
@@ -950,4 +962,106 @@ pub struct PendingMessage {
     pub channel_id: String,
     pub content: String,
     pub created_at: i64,
+}
+
+/// Rewrites one of this account's own messages.
+///
+/// The authoritative row comes back as a `he://edited` event — the same one
+/// every other member gets — so there is one code path that applies a change
+/// to a message rather than one for the author and one for everybody else.
+#[tauri::command]
+pub async fn edit_message(
+    app: State<'_, Arc<App>>,
+    endpoint_id: String,
+    message_id: String,
+    content: String,
+) -> Result<()> {
+    he_proto::limits::validate_message_content(&content)
+        .map_err(|err| CommandError::message(err.to_string()))?;
+    let session = app
+        .session(&endpoint_id)
+        .await
+        // Deliberately not queued. An edit composed offline would have to be
+        // reconciled against whatever happened to the message in the meantime,
+        // and "your edit will be applied at some point" is a worse promise
+        // than "you are offline".
+        .ok_or_else(|| CommandError::message("not connected to that space"))?;
+    session.edit_message(&message_id, &content).await?;
+    Ok(())
+}
+
+/// Withdraws one of this account's own messages.
+#[tauri::command]
+pub async fn delete_message(
+    app: State<'_, Arc<App>>,
+    endpoint_id: String,
+    message_id: String,
+) -> Result<()> {
+    let session = app
+        .session(&endpoint_id)
+        .await
+        .ok_or_else(|| CommandError::message("not connected to that space"))?;
+    session.delete_message(&message_id).await?;
+    Ok(())
+}
+
+/// Says that this account is composing in a channel.
+///
+/// Silently does nothing when offline, and the failure of a typing indicator
+/// is never worth telling anyone about: there is nothing the user could do and
+/// nothing was lost.
+#[tauri::command]
+pub async fn typing(
+    app: State<'_, Arc<App>>,
+    endpoint_id: String,
+    channel_id: String,
+) -> Result<()> {
+    if let Some(session) = app.session(&endpoint_id).await {
+        let _ = session.typing(&channel_id).await;
+    }
+    Ok(())
+}
+
+/// The cached member list. Never touches the network.
+#[tauri::command]
+pub async fn members(
+    app: State<'_, Arc<App>>,
+    endpoint_id: String,
+) -> Result<Vec<he_proto::Member>> {
+    Ok(app.mirror().members(&endpoint_id).await?)
+}
+
+/// Unread counts per channel, for the badge in the rail.
+#[derive(Debug, Serialize)]
+pub struct Unread {
+    pub channel_id: String,
+    pub unread: i64,
+}
+
+#[tauri::command]
+pub async fn unread(app: State<'_, Arc<App>>, endpoint_id: String) -> Result<Vec<Unread>> {
+    Ok(app
+        .mirror()
+        .unread(&endpoint_id)
+        .await?
+        .into_iter()
+        .map(|(channel_id, unread)| Unread { channel_id, unread })
+        .collect())
+}
+
+/// Marks a channel read up to and including `message_id`.
+///
+/// Only ever moves forward, in the mirror: scrolling back through history is
+/// not the same as un-reading it.
+#[tauri::command]
+pub async fn mark_read(
+    app: State<'_, Arc<App>>,
+    endpoint_id: String,
+    channel_id: String,
+    message_id: String,
+) -> Result<()> {
+    app.mirror()
+        .mark_read(&endpoint_id, &channel_id, &message_id)
+        .await?;
+    Ok(())
 }

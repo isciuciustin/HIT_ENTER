@@ -27,6 +27,8 @@ USAGE:
 COMMANDS:
     info                        Connect, print what the server said, disconnect
     send <CHANNEL> <TEXT>       Post a message
+    edit <ID> <TEXT>            Rewrite one of your own messages
+    delete <ID>                 Withdraw one of your own messages
     history [CHANNEL]           Print recent messages
     watch                       Print events until ^C
     invite [--max-uses N]       Mint an invite code
@@ -77,6 +79,8 @@ struct Args {
 enum Command {
     Info,
     Send { channel: String, text: String },
+    Edit { id: String, text: String },
+    Delete { id: String },
     History { channel: Option<String> },
     Watch,
     Invite,
@@ -165,6 +169,17 @@ fn parse_args() -> Result<Option<Args>> {
                 }
                 Command::Send { channel, text }
             }
+            "edit" => {
+                let id = tail.first().context("edit needs a message id")?.clone();
+                let text = tail.get(1..).unwrap_or_default().join(" ");
+                if text.is_empty() {
+                    bail!("edit needs the new text");
+                }
+                Command::Edit { id, text }
+            }
+            "delete" => Command::Delete {
+                id: tail.first().context("delete needs a message id")?.clone(),
+            },
             other => bail!("unrecognised command {other:?}\n\n{USAGE}"),
         },
     };
@@ -282,6 +297,14 @@ async fn main() -> Result<()> {
             // has stored it and told us so (PLAN §9).
             await_echo(&mut session, &nonce).await?;
         }
+        Command::Edit { id, text } => {
+            session.edit_message(id, text).await?;
+            println!("edited {id}");
+        }
+        Command::Delete { id } => {
+            session.delete_message(id).await?;
+            println!("deleted {id}");
+        }
         Command::History { channel } => {
             let channel_id = resolve_channel(&session, channel.as_ref())?;
             let messages = session
@@ -290,7 +313,7 @@ async fn main() -> Result<()> {
             // Newest first on the wire; oldest first on a terminal, because
             // that is the direction a conversation reads.
             for message in messages.iter().rev() {
-                println!("{:>12}  {}", message.author_name, message.content);
+                println!("{}  {}", message.id, describe(message));
             }
         }
         Command::Watch => {
@@ -369,12 +392,33 @@ async fn await_echo(session: &mut Session, nonce: &str) -> Result<()> {
     }
 }
 
+/// One line for a message, with a tombstone where a deleted one used to be.
+fn describe(message: &he_proto::Message) -> String {
+    if message.deleted_at.is_some() {
+        return format!("{:>12}  <deleted>", message.author_name);
+    }
+    format!("{:>12}  {}", message.author_name, message.content)
+}
+
 async fn watch(session: &mut Session) {
     while let Some(frame) = session.next_event().await {
         match frame {
             ServerFrame::Message { message, nonce } => {
                 let mine = if nonce.is_some() { " (mine)" } else { "" };
-                println!("{:>12}  {}{}", message.author_name, message.content, mine);
+                println!("{}  {}{}", message.id, describe(&message), mine);
+            }
+            ServerFrame::Edited { message } => {
+                println!("{}  {} (edited)", message.id, describe(&message));
+            }
+            ServerFrame::Deleted { id, channel_id, .. } => {
+                println!("{id}  deleted in {channel_id}");
+            }
+            ServerFrame::Presence { user_id, online } => {
+                let state = if online { "online" } else { "offline" };
+                println!("{user_id} is {state}");
+            }
+            ServerFrame::Typing { username, .. } => {
+                println!("{username} is typing…");
             }
             ServerFrame::Error(err) => {
                 eprintln!("server error: {:?}", err.code);

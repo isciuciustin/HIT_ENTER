@@ -1,0 +1,62 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id, username, display_name, is_owner AS \"is_owner!: bool\"\n               FROM cached_members WHERE endpoint_id = ?1\n               ORDER BY is_owner DESC, username COLLATE NOCASE",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "cached_members",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "username",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "cached_members",
+            "name": "username"
+          }
+        }
+      },
+      {
+        "name": "display_name",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "cached_members",
+            "name": "display_name"
+          }
+        }
+      },
+      {
+        "name": "is_owner!: bool",
+        "ordinal": 3,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "cached_members",
+            "name": "is_owner"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "21fb273e6f619931e5f40889091fcc176ac7d1d37d3d1faa0563f3ffe0dc747f"
+}

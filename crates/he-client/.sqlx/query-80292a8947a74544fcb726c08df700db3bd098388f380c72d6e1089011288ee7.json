@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM cached_members WHERE endpoint_id = ?1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "80292a8947a74544fcb726c08df700db3bd098388f380c72d6e1089011288ee7"
+}

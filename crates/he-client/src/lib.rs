@@ -14,7 +14,7 @@ pub mod error;
 pub mod keys;
 pub mod mirror;
 
-pub use conn::{Client, Session};
+pub use conn::{Client, Resumed, Session};
 pub use error::{ClientError, Result};
 pub use keys::DeviceIdentity;
 pub use mirror::{Mirror, MirroredServer, Queued};

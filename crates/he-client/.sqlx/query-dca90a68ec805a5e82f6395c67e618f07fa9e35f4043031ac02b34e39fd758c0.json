@@ -1,0 +1,33 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT c.id AS \"channel_id!\", COUNT(m.id) AS \"unread!: i64\"\n               FROM cached_channels c\n               LEFT JOIN read_state r\n                      ON r.endpoint_id = c.endpoint_id AND r.channel_id = c.id\n               LEFT JOIN cached_messages m\n                      ON m.endpoint_id = c.endpoint_id\n                     AND m.channel_id  = c.id\n                     AND m.deleted_at IS NULL\n                     AND m.id > COALESCE(r.last_read_id, '')\n                     AND m.author_id <> COALESCE(\n                           (SELECT user_id FROM servers WHERE endpoint_id = c.endpoint_id), '')\n               WHERE c.endpoint_id = ?1\n               GROUP BY c.id",
+  "describe": {
+    "columns": [
+      {
+        "name": "channel_id!",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "cached_channels",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "unread!: i64",
+        "ordinal": 1,
+        "type_info": "Integer",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "dca90a68ec805a5e82f6395c67e618f07fa9e35f4043031ac02b34e39fd758c0"
+}

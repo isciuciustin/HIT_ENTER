@@ -9,7 +9,7 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use he_client::{Client, DeviceIdentity, Mirror, Session};
 use tauri::async_runtime::JoinHandle;
@@ -18,20 +18,67 @@ use tokio::sync::RwLock;
 use crate::host::Host;
 use crate::settings::Settings;
 
-/// One connected server.
+/// One server the app is *supposed* to be connected to.
+///
+/// Not one connection: the session inside is replaced every time the
+/// supervisor reconnects, and is `None` while it is between attempts. That
+/// distinction is the whole point — "connected to this space" is a thing the
+/// app is responsible for having, and a dropped session is a gap in it rather
+/// than the end of it (see `session.rs`).
 pub struct Live {
-    pub session: Arc<Session>,
-    /// The task forwarding this session's events into the UI. Spawned on
-    /// Tauri's runtime rather than tokio's directly, because that is the one
-    /// the app is actually running on. Aborted when the server is
-    /// disconnected, so a stale pump cannot keep writing to a mirror for a
-    /// space the user has left.
-    pub pump: JoinHandle<()>,
+    /// The current connection, or `None` while reconnecting.
+    session: Mutex<Option<Arc<Session>>>,
+    /// The supervisor: dials, pumps events into the UI, and redials. Spawned
+    /// on Tauri's runtime rather than tokio's directly, because that is the
+    /// one the app is actually running on. Aborted when the server is
+    /// disconnected, so a stale supervisor cannot keep writing to the mirror
+    /// for a space the user has left.
+    supervisor: Mutex<Option<JoinHandle<()>>>,
+}
+
+impl Live {
+    pub fn new() -> Self {
+        Self {
+            session: Mutex::new(None),
+            supervisor: Mutex::new(None),
+        }
+    }
+
+    pub fn session(&self) -> Option<Arc<Session>> {
+        self.lock(&self.session).clone()
+    }
+
+    fn set_session(&self, session: Option<Arc<Session>>) {
+        *self.lock(&self.session) = session;
+    }
+
+    pub fn attach(&self, supervisor: JoinHandle<()>) {
+        if let Some(previous) = self.lock(&self.supervisor).replace(supervisor) {
+            previous.abort();
+        }
+    }
+
+    /// Stops supervising and hangs up. Idempotent.
+    fn shutdown(&self) {
+        if let Some(supervisor) = self.lock(&self.supervisor).take() {
+            supervisor.abort();
+        }
+        if let Some(session) = self.lock(&self.session).take() {
+            session.disconnect();
+        }
+    }
+
+    /// A poisoned lock means another thread panicked while holding it. These
+    /// hold a handle and an `Option`, not an invariant anybody reasons about,
+    /// so carrying on beats taking the window down.
+    fn lock<'a, T>(&self, what: &'a Mutex<T>) -> std::sync::MutexGuard<'a, T> {
+        what.lock().unwrap_or_else(|err| err.into_inner())
+    }
 }
 
 impl Drop for Live {
     fn drop(&mut self) {
-        self.pump.abort();
+        self.shutdown();
     }
 }
 
@@ -43,7 +90,7 @@ pub struct App {
     data_dir: PathBuf,
     client: Client,
     mirror: Mirror,
-    sessions: RwLock<HashMap<String, Live>>,
+    sessions: RwLock<HashMap<String, Arc<Live>>>,
     /// The space this machine serves, when it is serving one. A *different*
     /// endpoint from `client`, with a different key — see `host.rs`.
     host: RwLock<Option<Host>>,
@@ -132,31 +179,54 @@ impl App {
         Ok(())
     }
 
-    /// The live session for a server, if it is connected.
+    /// The live session for a server, if one is connected *right now*.
+    ///
+    /// `None` covers two cases a caller should treat the same way: never
+    /// connected, and between reconnect attempts. Both mean "write it to the
+    /// outbox and let the supervisor deliver it".
     pub async fn session(&self, endpoint_id: &str) -> Option<Arc<Session>> {
-        self.sessions
-            .read()
-            .await
-            .get(endpoint_id)
-            .map(|live| live.session.clone())
+        self.sessions.read().await.get(endpoint_id)?.session()
     }
 
-    /// Registers a live session, replacing and tearing down any previous one
-    /// for the same server.
-    pub async fn insert_session(&self, endpoint_id: &str, live: Live) {
-        // The replaced `Live` aborts its own pump on drop, which is what stops
-        // two pumps from writing the same events into the mirror twice.
+    /// Whether the app is supposed to be connected to a server — which is not
+    /// the same as whether it currently is. The supervisor reads this to know
+    /// whether a dropped session is a gap to close or a goodbye.
+    pub async fn is_connected(&self, endpoint_id: &str) -> bool {
+        self.sessions.read().await.contains_key(endpoint_id)
+    }
+
+    /// Claims the slot for a server, replacing and tearing down whatever was
+    /// there. The caller attaches its supervisor to the returned handle.
+    pub async fn register(&self, endpoint_id: &str) -> Arc<Live> {
+        let live = Arc::new(Live::new());
+        // The replaced `Live` aborts its own supervisor on drop, which is what
+        // stops two of them from writing the same events into the mirror.
         self.sessions
             .write()
             .await
-            .insert(endpoint_id.to_owned(), live);
+            .insert(endpoint_id.to_owned(), live.clone());
+        live
     }
 
-    /// Hangs up on a server, if it was connected.
+    /// Points a server's slot at a freshly connected session.
+    pub async fn set_live_session(&self, endpoint_id: &str, session: Arc<Session>) {
+        if let Some(live) = self.sessions.read().await.get(endpoint_id) {
+            live.set_session(Some(session));
+        }
+    }
+
+    /// Marks a server as between connections, without giving up on it.
+    pub async fn clear_live_session(&self, endpoint_id: &str) {
+        if let Some(live) = self.sessions.read().await.get(endpoint_id) {
+            live.set_session(None);
+        }
+    }
+
+    /// Hangs up on a server and stops trying to reach it.
     pub async fn remove_session(&self, endpoint_id: &str) -> bool {
         match self.sessions.write().await.remove(endpoint_id) {
             Some(live) => {
-                live.session.disconnect();
+                live.shutdown();
                 true
             }
             None => false,
@@ -229,7 +299,7 @@ impl App {
     /// Closes everything, for shutdown.
     pub async fn disconnect_all(&self) {
         for (_, live) in self.sessions.write().await.drain() {
-            live.session.disconnect();
+            live.shutdown();
         }
         // The space goes down last: its members include this machine's own
         // client, and hanging up on them before closing their sessions would

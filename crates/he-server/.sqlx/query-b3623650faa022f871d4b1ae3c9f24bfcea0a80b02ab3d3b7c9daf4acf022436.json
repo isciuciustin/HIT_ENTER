@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE messages SET content = '', deleted_at = ?1 WHERE id = ?2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "b3623650faa022f871d4b1ae3c9f24bfcea0a80b02ab3d3b7c9daf4acf022436"
+}

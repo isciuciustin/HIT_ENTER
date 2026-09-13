@@ -13,6 +13,8 @@
 //! connection. A self-declared identity in a message body is the classic way
 //! to build an authentication bypass (PLAN §11).
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 use crate::event::{Channel, Member, Message};
@@ -78,6 +80,13 @@ pub struct Ready {
     pub user: Member,
     pub channels: Vec<Channel>,
     pub members: Vec<Member>,
+    /// Ids of the members who have a live session right now.
+    ///
+    /// A snapshot, and then [`ServerFrame::Presence`](crate::event::ServerFrame::Presence)
+    /// keeps it current. Without it a client that joins a quiet space shows
+    /// everyone offline until somebody happens to reconnect.
+    #[serde(default)]
+    pub online: Vec<String>,
     /// True once this `EndpointId` is enrolled, which after a successful
     /// handshake it always is. Present so a client can tell a first join from
     /// a return visit and offer to name the device.
@@ -111,6 +120,11 @@ pub enum ErrorCode {
     Invalid,
     /// No such channel, message, or user.
     NotFound,
+    /// The account is who it says it is and still may not do that — editing
+    /// somebody else's message, for instance. Distinct from
+    /// [`ErrorCode::NotFound`] because the client can already see the author
+    /// of every message it is looking at, so there is no oracle to protect.
+    Forbidden,
     /// The frame was unreadable, out of order, or the wrong protocol version.
     Protocol,
     /// The server broke. Never carries any detail — the detail is in the
@@ -176,6 +190,28 @@ pub enum Request {
         before: Option<String>,
         limit: u32,
     },
+    /// Rewrite a message. Only its author may.
+    Edit { id: String, content: String },
+    /// Withdraw a message. Only its author may.
+    ///
+    /// A soft delete: the row survives so that every client can be *told*, and
+    /// take a message that is already on somebody's screen back off it. The
+    /// content does not survive — see `docs/PROTOCOL.md` §5.
+    Delete { id: String },
+    /// Catch up after a reconnect, instead of reloading (PLAN §9).
+    Resume {
+        /// The newest message id this client holds, per channel.
+        cursors: BTreeMap<String, String>,
+        /// Unix seconds of the last successful sync. Messages *older* than a
+        /// cursor but edited or deleted since then come back too — otherwise
+        /// a message withdrawn while this client was offline stays on its
+        /// screen forever.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        since: Option<i64>,
+    },
+    /// Say that this account is composing in a channel. Fire and forget:
+    /// nothing is stored and nothing is guaranteed to arrive.
+    Typing { channel_id: String },
     /// Mint an invite code.
     Invite {
         /// Seconds from now; `None` never expires.
@@ -215,6 +251,15 @@ impl Request {
                 }
                 limits::validate_backfill_limit(*limit)
             }
+            Self::Edit { id, content } => {
+                limits::validate_id(id)?;
+                limits::validate_message_content(content)
+            }
+            Self::Delete { id } => limits::validate_id(id),
+            Self::Resume { cursors, .. } => limits::validate_resume_cursors(
+                cursors.iter().map(|(c, m)| (c.as_str(), m.as_str())),
+            ),
+            Self::Typing { channel_id } => limits::validate_id(channel_id),
             Self::Invite { max_uses, .. } => match max_uses {
                 Some(n) if *n < 1 => Err(ValidationError::InviteUses),
                 _ => Ok(()),
@@ -234,6 +279,17 @@ pub enum Response {
     /// A page of history, newest first.
     Messages {
         messages: Vec<Message>,
+    },
+    /// Everything this client missed, in id order across every channel it
+    /// named. Includes older messages that were edited or deleted since
+    /// `since`, which is why it is not just a `backfill` per channel.
+    Resumed {
+        messages: Vec<Message>,
+        /// Channels whose gap was bigger than one answer could carry. The
+        /// client pages those with `backfill` instead of believing it is
+        /// caught up.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        truncated: Vec<String>,
     },
     /// A freshly minted invite code, in display form (`K7QP-2M4X-9WTZ`).
     Invite {

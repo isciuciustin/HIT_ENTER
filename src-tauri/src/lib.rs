@@ -8,6 +8,7 @@
 mod commands;
 mod events;
 mod host;
+mod session;
 mod settings;
 mod state;
 
@@ -90,6 +91,12 @@ pub fn run() {
             commands::history,
             commands::sync_channel,
             commands::send_message,
+            commands::edit_message,
+            commands::delete_message,
+            commands::typing,
+            commands::members,
+            commands::unread,
+            commands::mark_read,
             commands::create_invite,
             commands::pending_messages,
             commands::parse_link,

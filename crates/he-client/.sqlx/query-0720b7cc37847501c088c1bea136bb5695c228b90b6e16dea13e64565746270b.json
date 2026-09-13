@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT endpoint_id, name, relay_url, username, added_at, last_seen\n             FROM servers WHERE endpoint_id = ?1",
+  "query": "SELECT endpoint_id, name, relay_url, username, user_id, added_at, last_seen\n             FROM servers ORDER BY added_at",
   "describe": {
     "columns": [
       {
@@ -48,8 +48,19 @@
         }
       },
       {
-        "name": "added_at",
+        "name": "user_id",
         "ordinal": 4,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "servers",
+            "name": "user_id"
+          }
+        }
+      },
+      {
+        "name": "added_at",
+        "ordinal": 5,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -60,7 +71,7 @@
       },
       {
         "name": "last_seen",
-        "ordinal": 5,
+        "ordinal": 6,
         "type_info": "Integer",
         "origin": {
           "Table": {
@@ -71,16 +82,17 @@
       }
     ],
     "parameters": {
-      "Right": 1
+      "Right": 0
     },
     "nullable": [
       false,
       false,
       true,
       false,
+      true,
       false,
       true
     ]
   },
-  "hash": "417fd05f837eb0b03327eb659938ad71c80b3230afe8238844074231f00f0921"
+  "hash": "0720b7cc37847501c088c1bea136bb5695c228b90b6e16dea13e64565746270b"
 }

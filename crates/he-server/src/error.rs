@@ -67,6 +67,16 @@ pub enum ServerError {
     #[error("no such channel")]
     UnknownChannel,
 
+    #[error("no such message")]
+    UnknownMessage,
+
+    /// Authenticated, and still not allowed: editing somebody else's message,
+    /// for instance. Distinct from a "not found" because the client can
+    /// already see who wrote every message it is looking at, so answering
+    /// honestly gives away nothing it did not have.
+    #[error("not allowed")]
+    Forbidden,
+
     /// Argon2 failed, or a stored PHC string would not parse. Never contains
     /// the password or the hash.
     #[error("password hashing failed")]

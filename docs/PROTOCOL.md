@@ -54,7 +54,7 @@ Every frame, on every stream:
 - A zero length is not a valid frame.
 - JSON while the protocol churns, because a frame can be read off the wire and
   pasted into a bug report. A `postcard` codec goes behind a feature flag once
-  M5 stops changing shapes (PLAN §9).
+  profiling justifies it (PLAN §9).
 
 Every frame is a JSON object with a `"t"` field naming its type. Optional
 fields are **absent**, not `null`.
@@ -74,7 +74,8 @@ held open for the life of the session.
 ```
 client → server:   hello                       (exactly once, first frame)
 server → client:   ready | error               (exactly once, in reply)
-server → client:   message, …                  (events, until the session ends)
+server → client:   message | edited | deleted  (events, until the session ends)
+                   | presence | typing
 ```
 
 After `ready` the client never writes on this stream again.
@@ -85,8 +86,8 @@ One bi-directional stream per RPC. The client writes a request, reads a
 response, and closes:
 
 ```
-client → server:   send | backfill | invite    (exactly one frame)
-server → client:   ok | messages | invite | error
+client → server:   send | edit | delete | backfill | resume | typing | invite
+server → client:   ok | messages | resumed | invite | error
 ```
 
 A refused request does not end the session — one bad RPC is not a reason to
@@ -135,12 +136,19 @@ moment it is most exposed and exactly what transit encryption is protecting
  "user":    {"id":"…","username":"justin","display_name":null,"is_owner":false},
  "channels":[{"id":"…","name":"general","topic":null,"position":0}],
  "members": [{"id":"…","username":"alice","is_owner":true}],
+ "online":  ["…"],
  "enrolled":true}
 ```
 
 Enough to paint the whole app without a second round trip. `enrolled` is always
 `true` here — every path into a session enrols the device, which is what makes
 the *next* connection passwordless.
+
+`online` is the ids of the members who have a live session at this instant, and
+`presence` events (§7) keep it current from there. It is a snapshot because
+presence is not stored anywhere: a database row saying "online" would be a lie
+every time the host's machine lost power, and the truth is already in the set
+of open connections.
 
 ### `error` — server → client
 
@@ -163,6 +171,7 @@ that one request.
 | `RATE_LIMITED` | backing off; `retry_after` is in seconds |
 | `INVALID` | the request broke a rule in §6 |
 | `NOT_FOUND` | no such channel, message or user |
+| `FORBIDDEN` | the account is who it says it is and still may not do that — editing somebody else's message. Distinct from `NOT_FOUND` because a client can already see the author of every message it is looking at, so there is no oracle here to protect |
 | `PROTOCOL` | unreadable frame, wrong order, or wrong `proto` |
 | `INTERNAL` | the server broke. Never carries detail: an error message is an oracle, and the detail belongs in the host's log |
 
@@ -186,6 +195,58 @@ by the server. The client renders optimistically the instant you hit enter,
 tagged with that nonce; the server echoes it on the resulting event and the
 client swaps in the authoritative row. This is why the app feels fast.
 
+### `edit`
+
+```jsonc
+→ {"t":"edit","id":"01a0…","content":"hello"}
+← {"t":"ok"}
+```
+
+**Only the author may edit**, and only a message that has not been deleted.
+Anyone else gets `FORBIDDEN`; a deleted one answers `NOT_FOUND`, because as far
+as everybody else is concerned there is nothing there to rewrite. Moderating
+somebody else's message is the owner's tool and lands in M6.
+
+The result comes back on the **control stream** as an `edited` event — the same
+event every other member gets, so a client has one code path that applies a
+change to a message.
+
+### `delete`
+
+```jsonc
+→ {"t":"delete","id":"01a0…"}
+← {"t":"ok"}
+```
+
+Only the author may, and deleting twice is not an error: a client that missed
+the event and tried again is not wrong.
+
+A **soft** delete. The row survives, because every client with the message on
+screen has to be *told* to take it off — a row that simply vanished would stay
+on every screen that already had it. The **content does not survive**: it is
+overwritten with an empty string in the database, and is absent from the
+`deleted` event. Keeping the text while calling the message deleted would make
+"deleted" mean "hidden", and the host reads this database in plaintext by
+design (PLAN §10) — the only way a delete means anything here is if the words
+are actually gone.
+
+### `typing`
+
+```jsonc
+→ {"t":"typing","channel_id":"…"}
+← {"t":"ok"}
+```
+
+Fire and forget: nothing is stored, and `ok` says the frame was read, not that
+anybody saw it. It fans out as a `typing` event (§7) to every session *except*
+the one that sent it.
+
+Throttled to one per `TYPING_THROTTLE_SECS` **per connection, on the server**,
+and a frame inside the throttle is answered `ok` and dropped. A client is the
+one thing that cannot be trusted to rate-limit itself, and this is the cheapest
+frame to send and one of the more expensive ones to deliver — it is a broadcast
+to every member.
+
 ### `backfill`
 
 ```jsonc
@@ -197,6 +258,33 @@ Newest first. `before` is an exclusive cursor — pass the oldest id you already
 have to page backwards without re-receiving it or skipping one. Omit it to
 start from the newest message. A cursor is just a message id, because ids are
 UUIDv7 and sort chronologically.
+
+### `resume`
+
+```jsonc
+→ {"t":"resume","cursors":{"<channel_id>":"<newest id held>"},"since":1789}
+← {"t":"resumed","messages":[ … ],"truncated":["<channel_id>"]}
+```
+
+**Reconnect is not a reload.** The client names the newest message id it holds
+per channel and gets back the gap — a flaky connection costs a few hundred
+bytes rather than a re-download of every channel (PLAN §9).
+
+`messages` is **oldest first across every channel**, in id order, so a client
+applies them in the order they happened rather than channel by channel.
+
+`since` is when the client last finished a sync, in unix seconds, and it is the
+half that is easy to forget: a message **edited or deleted** while the client
+was away keeps its id, so it is *older* than every cursor and no amount of
+"give me what is new" would ever mention it. Without `since` a withdrawn
+message stays on the returning client's screen, with its original text,
+forever. Rows whose `edited_at` or `deleted_at` is `>= since` come back too —
+`>=`, not `>`, because both stamps are whole seconds and a change in the same
+second as the mark would otherwise fall through the gap.
+
+`truncated` names the channels whose gap was bigger than one answer may carry.
+A client must not treat those as caught up: it pages them with `backfill`
+instead. The caps are in §6.
 
 ### `invite`
 
@@ -234,6 +322,9 @@ validates because it can never trust a client.
 | nonce | 1–64 bytes |
 | invite code | 1–64 bytes of `[a-zA-Z0-9]`, `-`, `_` or space; formatting ignored |
 | backfill `limit` | 1–200, default 50 |
+| `resume` cursors | at most 200 channels — one query each |
+| `resume` messages | at most 500 in total, at most 200 from any one channel |
+| typing | one per connection per 3s, on the server; indicators expire after 8s |
 
 An invite code's *shape* is checked by both sides; whether it is **real** is
 answered only by the server, in constant time, so that trying is not an oracle.
@@ -273,6 +364,52 @@ second lookup and a client mirror can answer offline.
 
 `content` is plaintext here and at rest, by design (PLAN §10) — and encrypted
 for its entire journey by QUIC + TLS 1.3, including past any relay.
+
+### `edited`
+
+```jsonc
+{"t":"edited","message":{ …the whole row, with "edited_at" set… }}
+```
+
+Carries the **whole message** rather than a patch, so a client that never saw
+the original still ends up with the right text. Applying it is the same
+idempotent write as storing a new message.
+
+### `deleted`
+
+```jsonc
+{"t":"deleted","id":"01a0…","channel_id":"…","deleted_at":1789}
+```
+
+No content, because there is no longer any. Clients are *told* rather than the
+message being silently skipped: one already on somebody's screen has to be
+taken back off it.
+
+### `presence`
+
+```jsonc
+{"t":"presence","user_id":"…","online":true}
+```
+
+Per **account**, not per connection. A member with a laptop and a phone comes
+online when the first of the two connects and goes offline when the second
+disconnects — which is what the dot next to their name is claiming. The
+connection that *caused* an arrival is not told about it; it already knows, and
+a second device on the same account still is.
+
+### `typing`
+
+```jsonc
+{"t":"typing","channel_id":"…","user_id":"…","username":"alice"}
+```
+
+Never sent back to the connection that said so. Nothing is stored and nothing
+is guaranteed to arrive: an indicator that missed its renewal expires on its
+own after `TYPING_TIMEOUT_SECS`, which is why there is no "stopped typing"
+frame to lose.
+
+`username` is denormalised for the same reason as `message.author_name`: the
+indicator has a name to show before any member list has loaded.
 
 ---
 
@@ -339,7 +476,30 @@ It is strict about what it *writes*: the canonical form above, always.
 
 ---
 
-## 9. Not yet on the wire
+## 9. Delivery guarantees
+
+Worth stating plainly, because the honest answer is not "exactly once".
+
+**A message is delivered at least once.** A client writes to its outbox before
+it sends, and clears the entry when the server answers `ok` or echoes the nonce
+back — whichever happens first. If the connection dies *between* the server
+storing the message and either of those reaching the client, the entry is still
+in the outbox and the next reconnect sends it again, producing a duplicate.
+
+The alternative is dropping anything we are unsure about, which loses words the
+user typed. This way round the failure is visible and the user can delete the
+duplicate; the other way round there is nothing to see and nothing to fix. The
+window is one round trip wide and the outcome is a repeated message, so it is
+the right trade — but it is a trade, not an accident.
+
+`nonce` does not close it: the server never stores one, so it has nothing to
+compare a redelivery against. Making it dedupe would mean keeping every nonce
+for as long as a client might retry, which is a table that only grows to
+prevent something the user can already fix in one click.
+
+---
+
+## 10. Not yet on the wire
 
 `hit-enter/0` carries exactly what is documented above. These are specified in
 PLAN §9 and land in later milestones; a client must not send them and a server
@@ -347,9 +507,7 @@ answers `PROTOCOL` if it receives one:
 
 | frame | milestone |
 |---|---|
-| `edit`, `delete` requests · `edited`, `deleted` events | M5 |
-| `resume` request (per-channel cursors, so reconnect is not a reload) | M5 |
-| `typing` request · `presence`, `revoked` events | M5 |
+| `revoked` event (this device was kicked; disconnect) | M6, with the owner's kick/ban tools |
 
 Adding any of them updates this file in the same commit. None of them breaks an
 existing frame, so the ALPN stays at `0`.
