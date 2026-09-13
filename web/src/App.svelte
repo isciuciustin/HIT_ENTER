@@ -1,7 +1,11 @@
 <script lang="ts">
   import { chat } from "./lib/chat.svelte";
+  import { step } from "./lib/shortcuts";
+  import ChannelDialog from "./components/ChannelDialog.svelte";
   import ChannelList from "./components/ChannelList.svelte";
   import Composer from "./components/Composer.svelte";
+  import MemberDialog from "./components/MemberDialog.svelte";
+  import ShortcutsDialog from "./components/ShortcutsDialog.svelte";
   import HostDialog from "./components/HostDialog.svelte";
   import InviteDialog from "./components/InviteDialog.svelte";
   import JoinDialog from "./components/JoinDialog.svelte";
@@ -18,6 +22,51 @@
   let showHost = $state(false);
   let showSettings = $state(false);
   let showMembers = $state(true);
+  let showChannels = $state(false);
+  let showShortcuts = $state(false);
+  /** The member whose dialog is open, by id. */
+  let openMember = $state<string | null>(null);
+
+  const member = $derived(
+    chat.members.find((m) => m.id === openMember) ?? null,
+  );
+
+  // Shortcuts live here rather than in the components they act on, because
+  // every one of them is about moving *between* those components — and a
+  // keydown handler per panel is how two of them end up fighting over a key.
+  function onGlobalKeydown(event: KeyboardEvent) {
+    if (event.ctrlKey || event.metaKey) {
+      if (event.key === ",") {
+        event.preventDefault();
+        showSettings = true;
+      } else if (event.key === "/") {
+        event.preventDefault();
+        showShortcuts = !showShortcuts;
+      }
+      return;
+    }
+
+    // Alt-based, so nothing here collides with text editing — and checked
+    // anyway, because a user holding Alt is still mid-sentence.
+    if (!event.altKey) return;
+    const delta =
+      event.key === "ArrowUp" ? -1 : event.key === "ArrowDown" ? 1 : 0;
+    if (delta === 0) return;
+    event.preventDefault();
+
+    if (event.shiftKey) {
+      const at = chat.servers.findIndex(
+        (s) => s.endpoint_id === chat.activeServer,
+      );
+      const next = step(chat.servers.length, at, delta);
+      if (next !== null) void chat.selectServer(chat.servers[next].endpoint_id);
+      return;
+    }
+
+    const at = chat.channels.findIndex((c) => c.id === chat.activeChannel);
+    const next = step(chat.channels.length, at, delta);
+    if (next !== null) void chat.selectChannel(chat.channels[next].id);
+  }
   /** Prefills the join dialog when a link arrives from the desktop. */
   let joinWith = $state("");
 
@@ -45,11 +94,19 @@
     return () => window.removeEventListener("focus", onFocus);
   });
 
+  // A member dialog for somebody who has just been removed from the roster
+  // would be a dialog about nobody.
+  $effect(() => {
+    if (openMember && !member) openMember = null;
+  });
+
   function openJoin(prefill = "") {
     joinWith = prefill;
     showJoin = true;
   }
 </script>
+
+<svelte:window onkeydown={onGlobalKeydown} />
 
 {#if fatal}
   <main class="grid h-full place-items-center px-8 text-center">
@@ -104,7 +161,10 @@
       onHost={() => (showHost = true)}
       onSettings={() => (showSettings = true)}
     />
-    <ChannelList onInvite={() => (showInvite = true)} />
+    <ChannelList
+      onInvite={() => (showInvite = true)}
+      onManageChannels={() => (showChannels = true)}
+    />
 
     <main class="flex min-w-0 flex-1 flex-col">
       <header
@@ -137,12 +197,36 @@
         </div>
       </header>
 
+      {#if chat.activeRevoked}
+        <!-- Nothing is retrying, so without this the space would simply sit
+             at "offline" and look like a network fault rather than somebody's
+             decision. -->
+        <div
+          class="flex items-center gap-3 border-b border-red-500/40 bg-red-500/10 px-4 py-2 text-sm text-red-300"
+        >
+          <span class="flex-1">
+            You were removed from this space. Your copy of the conversation is
+            still on this disk.
+          </span>
+          <button
+            onclick={() => chat.forget(chat.activeServer!)}
+            class="shrink-0 rounded border border-red-500/40 px-2 py-0.5 text-xs transition hover:bg-red-500/20"
+            title="Deletes this space and its mirror from this machine"
+          >
+            remove it
+          </button>
+        </div>
+      {/if}
+
       <MessagePane />
       <Composer />
     </main>
 
     {#if showMembers}
-      <MemberList onClose={() => (showMembers = false)} />
+      <MemberList
+        onClose={() => (showMembers = false)}
+        onOpenMember={(id) => (openMember = id)}
+      />
     {/if}
   </div>
 {/if}
@@ -164,4 +248,13 @@
 {/if}
 {#if showSettings}
   <SettingsDialog onClose={() => (showSettings = false)} />
+{/if}
+{#if showChannels}
+  <ChannelDialog onClose={() => (showChannels = false)} />
+{/if}
+{#if showShortcuts}
+  <ShortcutsDialog onClose={() => (showShortcuts = false)} />
+{/if}
+{#if member}
+  <MemberDialog {member} onClose={() => (openMember = null)} />
 {/if}

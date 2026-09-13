@@ -13,14 +13,17 @@
 import {
   api,
   asError,
+  onChannels,
   onConnection,
   onDeleted,
   onEdited,
   onHost,
   onLink,
+  onMembers,
   onMessage,
   onPresence,
   onPresenceSync,
+  onRevoked,
   onTyping,
   TYPING_THROTTLE_MS,
   TYPING_TIMEOUT_MS,
@@ -109,6 +112,14 @@ class Chat {
   typists = $state<Record<string, Typist>>({});
   /** The message being rewritten in the composer, if any. */
   editing = $state<UiMessage | null>(null);
+  /**
+   * Spaces this device was ejected from, by endpoint id.
+   *
+   * Kept until the user acts on it. Nothing retries — the supervisor has
+   * already given up — so without a note on screen the space would simply sit
+   * at "offline" and look like a network fault rather than a decision.
+   */
+  revoked = $state<Set<string>>(new Set());
 
   /** When we last told the server we were typing. Throttled to match it. */
   #lastTypingSent = 0;
@@ -143,6 +154,23 @@ class Chat {
   /** This account's own id on the active space, for "is this mine?". */
   get myId(): string | null {
     return this.activeServerSummary?.user_id ?? null;
+  }
+
+  /**
+   * Whether this account owns the active space.
+   *
+   * Read from the cached roster rather than remembered from a handshake, so
+   * it is right with the network off — and so it is one source of truth that
+   * a reconnect updates along with everything else.
+   */
+  get amOwner(): boolean {
+    const me = this.myId;
+    return me !== null && this.members.some((m) => m.id === me && m.is_owner);
+  }
+
+  /** True when this device was ejected from the space it is looking at. */
+  get activeRevoked(): boolean {
+    return this.activeServer !== null && this.revoked.has(this.activeServer);
   }
 
   /** The roster, online first, so the people who can answer are at the top. */
@@ -187,6 +215,24 @@ class Chat {
     await onPresence((e) => this.onPresence(e.server, e.user_id, e.online));
     await onPresenceSync((e) => {
       if (e.server === this.activeServer) this.online = new Set(e.online);
+    });
+    // Both lists arrive whole and are applied whole. A merge can only ever
+    // add, and the changes worth announcing are the ones a merge would drop.
+    await onChannels((e) => {
+      if (e.server !== this.activeServer) return;
+      this.channels = e.channels;
+      // The channel being read may have just been deleted out from under it.
+      if (!e.channels.some((c) => c.id === this.activeChannel)) {
+        void this.selectChannel(e.channels[0]?.id ?? null);
+      }
+      void this.refreshUnread();
+    });
+    await onMembers((e) => {
+      if (e.server === this.activeServer) this.members = e.members;
+    });
+    await onRevoked((e) => {
+      this.revoked = new Set(this.revoked).add(e.server);
+      void this.refreshServers();
     });
     await onTyping((e) => this.onTyping(e.server, e.channel_id, e.user_id, e.username));
     await onConnection((e) => {
@@ -268,6 +314,10 @@ class Chat {
   }
 
   async connect(endpointId: string) {
+    // Retrying an ejection cannot change the answer, and a client hammering a
+    // space it was thrown out of is indistinguishable from the behaviour it
+    // was thrown out for.
+    if (this.revoked.has(endpointId)) return;
     try {
       await api.connectServer(endpointId);
       await this.refreshServers();
@@ -568,6 +618,108 @@ class Chat {
     } catch (e) {
       this.markPending(nonce, true);
       this.error = asError(e);
+    }
+  }
+
+  // ---- owner tools ---------------------------------------------------------
+  //
+  // Each of these just asks; the server decides. What comes back is applied by
+  // the `channels` and `members` events, so there is one path that updates a
+  // list and it is the same one every other member's window takes.
+
+  /** Creates a channel and switches to it. */
+  async createChannel(name: string, topic?: string) {
+    if (!this.activeServer) return false;
+    this.error = null;
+    try {
+      const channel = await api.createChannel({
+        endpointId: this.activeServer,
+        name: name.trim(),
+        topic: topic?.trim() || undefined,
+      });
+      await this.selectChannel(channel.id);
+      return true;
+    } catch (e) {
+      this.error = asError(e);
+      return false;
+    }
+  }
+
+  /** Deletes a channel **and every message in it**. The last one is refused. */
+  async deleteChannel(channelId: string) {
+    if (!this.activeServer) return false;
+    this.error = null;
+    try {
+      await api.deleteChannel({
+        endpointId: this.activeServer,
+        channelId,
+      });
+      return true;
+    } catch (e) {
+      this.error = asError(e);
+      return false;
+    }
+  }
+
+  /** Logs a member out of every machine. Their password still works. */
+  async kickMember(userId: string) {
+    return this.ownerAction(() =>
+      api.kickMember({ endpointId: this.activeServer!, userId }),
+    );
+  }
+
+  /** Bans or un-bans a member. Refuses their password too, until un-banned. */
+  async setMemberBanned(userId: string, banned: boolean) {
+    return this.ownerAction(() =>
+      api.setMemberBanned({ endpointId: this.activeServer!, userId, banned }),
+    );
+  }
+
+  /** The machines enrolled for an account. Yours, or anyone's if you own it. */
+  async devicesFor(userId?: string) {
+    if (!this.activeServer) return [];
+    try {
+      return await api.devices({ endpointId: this.activeServer, userId });
+    } catch (e) {
+      this.error = asError(e);
+      return [];
+    }
+  }
+
+  /** Kicks one machine off. Revoking your own logs this app out. */
+  async revokeDevice(userId: string, deviceId: string) {
+    return this.ownerAction(() =>
+      api.revokeDevice({ endpointId: this.activeServer!, userId, deviceId }),
+    );
+  }
+
+  async listInvites() {
+    if (!this.activeServer) return [];
+    try {
+      return await api.invites(this.activeServer);
+    } catch (e) {
+      this.error = asError(e);
+      return [];
+    }
+  }
+
+  /** Kills a code. The accounts already made with it stay. */
+  async revokeInvite(code: string) {
+    return this.ownerAction(() =>
+      api.revokeInvite({ endpointId: this.activeServer!, code }),
+    );
+  }
+
+  /** The shape every owner action shares: needs a space, may be refused. */
+  private async ownerAction(run: () => Promise<void>) {
+    if (!this.activeServer) return false;
+    this.error = null;
+    try {
+      await run();
+      return true;
+    } catch (e) {
+      this.error = asError(e);
+      return false;
     }
   }
 

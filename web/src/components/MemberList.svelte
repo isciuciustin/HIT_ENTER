@@ -9,7 +9,10 @@
   // "online" is a property of an open connection, and a stored one would be a
   // lie the moment the app closed (PLAN §6).
 
-  let { onClose }: { onClose: () => void } = $props();
+  let {
+    onClose,
+    onOpenMember,
+  }: { onClose: () => void; onOpenMember: (id: string) => void } = $props();
 
   const offlineSpace = $derived(chat.activeStatus === "offline");
 </script>
@@ -42,27 +45,39 @@
 
   <ul class="flex-1 overflow-y-auto p-2">
     {#each chat.roster as member (member.id)}
-      <li
-        class="flex items-center gap-2 rounded px-2 py-1 text-sm
-          {member.online || offlineSpace ? 'text-neutral-300' : 'text-neutral-600'}"
-      >
-        <span
-          class="size-1.5 shrink-0 rounded-full
-            {offlineSpace
-            ? 'bg-neutral-700'
-            : member.online
-              ? 'bg-[var(--color-accent)]'
-              : 'bg-neutral-700'}"
-          aria-hidden="true"
-        ></span>
-        <span class="min-w-0 flex-1 truncate" title={member.username}>
-          {member.display_name ?? member.username}
-        </span>
-        {#if member.id === chat.myId}
-          <span class="shrink-0 text-[10px] text-neutral-600">you</span>
-        {:else if member.is_owner}
-          <span class="shrink-0 text-[10px] text-neutral-600">host</span>
-        {/if}
+      <li>
+        <!-- Clickable for everyone, not only the owner: your own row is where
+             you see and revoke your own machines. -->
+        <button
+          onclick={() => onOpenMember(member.id)}
+          class="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-sm transition hover:bg-white/5
+            {member.banned
+            ? 'text-neutral-700 line-through'
+            : member.online || offlineSpace
+              ? 'text-neutral-300'
+              : 'text-neutral-600'}"
+          title={member.banned ? `${member.username} — banned` : member.username}
+        >
+          <span
+            class="size-1.5 shrink-0 rounded-full
+              {offlineSpace || member.banned
+              ? 'bg-neutral-700'
+              : member.online
+                ? 'bg-[var(--color-accent)]'
+                : 'bg-neutral-700'}"
+            aria-hidden="true"
+          ></span>
+          <span class="min-w-0 flex-1 truncate">
+            {member.display_name ?? member.username}
+          </span>
+          {#if member.banned}
+            <span class="shrink-0 text-[10px] text-red-400/70">banned</span>
+          {:else if member.id === chat.myId}
+            <span class="shrink-0 text-[10px] text-neutral-600">you</span>
+          {:else if member.is_owner}
+            <span class="shrink-0 text-[10px] text-neutral-600">host</span>
+          {/if}
+        </button>
       </li>
     {:else}
       <li class="px-2 py-1.5 text-xs text-neutral-600">nobody here yet</li>

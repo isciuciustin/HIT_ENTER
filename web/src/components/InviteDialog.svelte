@@ -1,5 +1,11 @@
 <script lang="ts">
-  import { api, asError, copyText, type Invite } from "../lib/api";
+  import {
+    api,
+    asError,
+    copyText,
+    type Invite,
+    type InviteInfo,
+  } from "../lib/api";
   import { chat } from "../lib/chat.svelte";
   import Dialog from "./Dialog.svelte";
 
@@ -10,6 +16,40 @@
   let maxUses = $state(1);
   let busy = $state(false);
   let copied = $state<string | null>(null);
+
+  /** Existing codes, for the owner to revoke. Nobody else may list them. */
+  let existing = $state<InviteInfo[]>([]);
+  let confirming = $state<string | null>(null);
+
+  $effect(() => {
+    if (chat.amOwner) void refresh();
+  });
+
+  async function refresh() {
+    existing = await chat.listInvites();
+  }
+
+  async function revoke(code: string) {
+    if (confirming !== code) {
+      confirming = code;
+      return;
+    }
+    confirming = null;
+    if (await chat.revokeInvite(code)) await refresh();
+  }
+
+  /** `∞` reads better than "unlimited" in a column two characters wide. */
+  function uses(invite: InviteInfo): string {
+    return `${invite.uses}/${invite.max_uses ?? "∞"}`;
+  }
+
+  function expired(invite: InviteInfo): boolean {
+    return invite.expires_at != null && invite.expires_at * 1000 < Date.now();
+  }
+
+  function exhausted(invite: InviteInfo): boolean {
+    return invite.max_uses != null && invite.uses >= invite.max_uses;
+  }
 
   async function mint() {
     if (!chat.activeServer || busy) return;
@@ -107,6 +147,45 @@
     >
       {busy ? "minting…" : "create invite"}
     </button>
+  {/if}
+
+  {#if chat.amOwner && existing.length > 0}
+    <h3 class="mt-6 text-[11px] uppercase tracking-wide text-neutral-500">
+      codes that already exist
+    </h3>
+    <p class="mt-1 text-[11px] text-neutral-600">
+      Revoking one kills the code. The accounts already made with it stay —
+      they are members now, and an invite is a door, not a lease.
+    </p>
+    <ul class="mt-2 space-y-1">
+      {#each existing as invite (invite.code)}
+        {@const dead = expired(invite) || exhausted(invite)}
+        <li
+          class="flex items-center gap-2 rounded border border-[var(--color-edge)] px-2 py-1.5 text-xs
+            {dead ? 'opacity-50' : ''}"
+        >
+          <span class="min-w-0 flex-1 truncate font-mono text-neutral-300">
+            {invite.code}
+          </span>
+          <span class="shrink-0 text-[11px] text-neutral-600" title="uses">
+            {#if expired(invite)}
+              expired
+            {:else}
+              {uses(invite)}
+            {/if}
+          </span>
+          <button
+            onclick={() => revoke(invite.code)}
+            class="shrink-0 rounded px-1.5 py-0.5 text-[11px] transition
+              {confirming === invite.code
+              ? 'bg-red-500/20 text-red-300'
+              : 'text-neutral-500 hover:text-red-400'}"
+          >
+            {confirming === invite.code ? "really" : "revoke"}
+          </button>
+        </li>
+      {/each}
+    </ul>
   {/if}
 
   {#if error}

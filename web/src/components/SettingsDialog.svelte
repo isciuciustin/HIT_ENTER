@@ -213,6 +213,12 @@
     {/if}
   </div>
 
+  <p class="mt-4 text-[11px] text-neutral-600">
+    Your machines in the space you are looking at are in that space's member
+    list — click your own name. <span class="font-mono">Ctrl + /</span> lists
+    every keyboard shortcut.
+  </p>
+
   <div class="mt-4 flex justify-end gap-2">
     <button
       onclick={onClose}

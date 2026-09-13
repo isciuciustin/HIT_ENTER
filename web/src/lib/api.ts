@@ -54,9 +54,32 @@ export type Member = {
   username: string;
   display_name?: string | null;
   is_owner: boolean;
+  /** Banned members stay in the roster: one who vanished cannot be un-banned. */
+  banned?: boolean;
 };
 
 export type Unread = { channel_id: string; unread: number };
+
+/** One enrolled machine. `endpoint_id` is a public key: safe to show. */
+export type DeviceInfo = {
+  endpoint_id: string;
+  user_id: string;
+  label?: string | null;
+  enrolled_at: number;
+  last_seen: number;
+  revoked_at?: number | null;
+  /** True for the machine asking. Revoking it logs this app out. */
+  current?: boolean;
+};
+
+export type InviteInfo = {
+  code: string;
+  created_by: string;
+  created_at: number;
+  expires_at?: number | null;
+  max_uses?: number | null;
+  uses: number;
+};
 
 export type ServerSummary = {
   endpoint_id: string;
@@ -264,6 +287,49 @@ export const api = {
     messageId: string;
   }) => invoke<void>("mark_read", args),
 
+  // ---- owner tools ---------------------------------------------------------
+  //
+  // Every one of these is authorised on the server. Hiding the buttons is a
+  // courtesy to the user, not the check.
+
+  createChannel: (args: {
+    endpointId: string;
+    name: string;
+    topic?: string;
+  }) => invoke<Channel>("create_channel", args),
+
+  /** Takes every message in the channel with it. The last one is refused. */
+  deleteChannel: (args: { endpointId: string; channelId: string }) =>
+    invoke<void>("delete_channel", args),
+
+  /** Logs a member out everywhere. Their password still works. */
+  kickMember: (args: { endpointId: string; userId: string }) =>
+    invoke<void>("kick_member", args),
+
+  /** Refuses the password too. Reversible. */
+  setMemberBanned: (args: {
+    endpointId: string;
+    userId: string;
+    banned: boolean;
+  }) => invoke<void>("set_member_banned", args),
+
+  /** Kicks one machine off. Your own, or anybody's if you are the owner. */
+  revokeDevice: (args: {
+    endpointId: string;
+    userId: string;
+    deviceId: string;
+  }) => invoke<void>("revoke_device", args),
+
+  /** `userId` omitted asks about your own, the only one a member may see. */
+  devices: (args: { endpointId: string; userId?: string }) =>
+    invoke<DeviceInfo[]>("devices", args),
+
+  invites: (endpointId: string) =>
+    invoke<InviteInfo[]>("invites", { endpointId }),
+
+  revokeInvite: (args: { endpointId: string; code: string }) =>
+    invoke<void>("revoke_invite", args),
+
   createInvite: (args: {
     endpointId: string;
     expiresIn?: number;
@@ -314,6 +380,10 @@ export type PresenceEvent = {
 
 export type PresenceSyncEvent = { server: string; online: string[] };
 
+export type ChannelsEvent = { server: string; channels: Channel[] };
+export type MembersEvent = { server: string; members: Member[] };
+export type RevokedEvent = { server: string };
+
 export type TypingEvent = {
   server: string;
   channel_id: string;
@@ -351,6 +421,25 @@ export const onPresenceSync = (
 /** Expires on its own after `TYPING_TIMEOUT_MS`; there is no "stopped" event. */
 export const onTyping = (cb: (e: TypingEvent) => void): Promise<UnlistenFn> =>
   listen<TypingEvent>("he://typing", (e) => cb(e.payload));
+
+/** The whole channel list. Replace, never merge — a deletion has to land. */
+export const onChannels = (
+  cb: (e: ChannelsEvent) => void,
+): Promise<UnlistenFn> =>
+  listen<ChannelsEvent>("he://channels", (e) => cb(e.payload));
+
+/** The whole roster, for the same reason. */
+export const onMembers = (cb: (e: MembersEvent) => void): Promise<UnlistenFn> =>
+  listen<MembersEvent>("he://members", (e) => cb(e.payload));
+
+/**
+ * This device is no longer welcome in that space.
+ *
+ * Nothing retries after this: the supervisor has already given up, because
+ * the answer will not change until somebody decides otherwise.
+ */
+export const onRevoked = (cb: (e: RevokedEvent) => void): Promise<UnlistenFn> =>
+  listen<RevokedEvent>("he://revoked", (e) => cb(e.payload));
 
 export const onConnection = (
   cb: (e: ConnectionEvent) => void,

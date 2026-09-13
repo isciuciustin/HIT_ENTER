@@ -2,7 +2,10 @@
   import { chat } from "../lib/chat.svelte";
   import StatusDot from "./StatusDot.svelte";
 
-  let { onInvite }: { onInvite: () => void } = $props();
+  let {
+    onInvite,
+    onManageChannels,
+  }: { onInvite: () => void; onManageChannels: () => void } = $props();
 </script>
 
 <aside
@@ -16,6 +19,16 @@
       <StatusDot status={chat.activeStatus} label />
     </div>
   </header>
+
+  {#if chat.amOwner}
+    <button
+      onclick={onManageChannels}
+      class="mx-2 mt-2 rounded border border-dashed border-[var(--color-edge)] px-2 py-1 text-xs text-neutral-500 transition hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
+      title="Add or remove channels"
+    >
+      + channel
+    </button>
+  {/if}
 
   <ul class="flex-1 overflow-y-auto p-2">
     {#each chat.channels as channel (channel.id)}

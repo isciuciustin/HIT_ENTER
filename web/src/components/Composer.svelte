@@ -51,6 +51,19 @@
   }
 
   function onKeydown(event: KeyboardEvent) {
+    // Up in an empty composer edits the last thing you said. Only when it is
+    // empty: in a draft, Up is how you move the cursor, and a shortcut that
+    // ate that would be worse than not having one.
+    if (event.key === "ArrowUp" && !editing && draft.length === 0) {
+      const mine = [...chat.messages]
+        .reverse()
+        .find((m) => m.author_id === chat.myId && !m.pending && !m.deleted_at);
+      if (mine) {
+        event.preventDefault();
+        chat.beginEdit(mine);
+        return;
+      }
+    }
     // Escape abandons a rewrite. It must not also clear a fresh draft — that
     // would make one key mean "never mind" in one mode and "lose what you
     // typed" in the other.
