@@ -46,6 +46,9 @@
     "longDescription": "Open-source, self-hosted, local-first group chat. You run the server on your own machine with no port forwarding, and every message is stored in plain text on your disk and on every member's. No cloud, no bots, no telemetry.",
     "publisher": "HIT_ENTER contributors",
     "licenseFile": "../LICENSE-MIT",
+    "macOS": {
+      "signingIdentity": "-"
+    },
     "linux": {
       "deb": {
         "desktopTemplate": "linux/hit-enter.desktop"

@@ -16,9 +16,19 @@ because there is no us. Your messages live on your disk, in a file you can open.
 Download from [Releases](../../releases) — the desktop app for Linux, macOS and
 Windows, and `he-serverd` for machines with no desktop.
 
-The builds are **not signed**, so macOS will say the developer cannot be
-verified and Windows SmartScreen will warn you. Each release has a
-`SHA256SUMS`. On macOS, open it the first time with **right click → Open**.
+The builds are **not signed with a developer certificate**, so macOS will say
+the developer cannot be verified and Windows SmartScreen will warn you. Each
+release has a `SHA256SUMS`.
+
+On macOS, drag HIT_ENTER into Applications and open it once; when it is
+refused, go to **System Settings → Privacy & Security** and click **Open
+Anyway**. If macOS instead says HIT_ENTER **"is damaged and can't be opened"**,
+it is not — that is how macOS treats a downloaded app it cannot verify. Clear
+the download flag and open it again:
+
+```bash
+xattr -cr /Applications/HIT_ENTER.app
+```
 
 Or build it: [below](#building-it-yourself).
 
