@@ -536,6 +536,14 @@ Both carry the **whole list**, exactly as `ready` does, and a client
 worth announcing — a channel deleted, a member banned — are the ones a merge
 would silently drop.
 
+`members` goes to every session whenever the roster changes: after
+`set_banned`, and after a `hello` that **registers** an account — to every
+session except the one that just registered, whose `ready` already carried the
+same list.
+Nothing is sent for a change that happened while a client was disconnected;
+its next `ready` carries the current lists, and a client applies those the
+same way.
+
 ### `revoked`
 
 ```jsonc

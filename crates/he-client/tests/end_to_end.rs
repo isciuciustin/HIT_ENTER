@@ -140,13 +140,16 @@ async fn next_event(session: &mut Session) -> ServerFrame {
 
 /// The next event that is *about the conversation*.
 ///
-/// Presence and typing arrive whenever somebody opens a laptop, so a test
-/// asserting on what was said must not be coupled to when that happened —
-/// otherwise adding a second member to a test is enough to break it.
+/// Presence, typing and a new member's roster arrive whenever somebody opens a
+/// laptop or joins, so a test asserting on what was said must not be coupled to
+/// when that happened — otherwise adding a second member to a test is enough to
+/// break it.
 async fn next_chat_event(session: &mut Session) -> ServerFrame {
     loop {
         match next_event(session).await {
-            ServerFrame::Presence { .. } | ServerFrame::Typing { .. } => continue,
+            ServerFrame::Presence { .. }
+            | ServerFrame::Typing { .. }
+            | ServerFrame::Members { .. } => continue,
             frame => return frame,
         }
     }
@@ -930,6 +933,14 @@ async fn presence_follows_the_account_not_the_connection() {
         }
         other => panic!("expected bob coming online, got {other:?}"),
     }
+    // …and, bob being new, a roster with him in it — beside alice and the owner.
+    match next_event(&mut alice).await {
+        ServerFrame::Members { members } => {
+            assert!(members.iter().any(|m| m.id == bob_id));
+            assert_eq!(members.len(), 3);
+        }
+        other => panic!("expected the new roster, got {other:?}"),
+    }
 
     // Bob's `ready` saw alice already there, without waiting for an event.
     assert!(bob.ready().online.contains(&alice.ready().user.id));
@@ -1345,5 +1356,43 @@ async fn revoking_one_device_leaves_the_accounts_others_connected() {
     assert_eq!(active, 1);
 
     laptop.close().await;
+    harness.shutdown().await;
+}
+
+#[tokio::test]
+async fn a_new_member_is_announced_to_everyone_already_here() {
+    let harness = Harness::start().await;
+    let owner_client = harness.client().await;
+    let mut owner = harness.owner(&owner_client).await;
+    assert_eq!(owner.ready().members.len(), 1);
+
+    // The owner is watching when somebody joins with an invite — the host's
+    // window, open, while a friend pastes the link on another machine.
+    let alice_client = harness.client().await;
+    let mut alice = harness.register(&alice_client, "alice").await;
+    assert_eq!(alice.ready().members.len(), 2, "the newcomer sees both");
+
+    let members = loop {
+        match next_event(&mut owner).await {
+            ServerFrame::Presence { .. } => continue,
+            ServerFrame::Members { members } => break members,
+            other => panic!("the owner should be told the roster changed, got {other:?}"),
+        }
+    };
+    let mut names: Vec<_> = members.iter().map(|m| m.username.as_str()).collect();
+    names.sort_unstable();
+    assert_eq!(names, ["alice", "owner"], "and the owner sees both too");
+
+    // Alice is not told about herself: her `ready` had the list. Had the
+    // roster been sent to her, it would arrive ahead of her own message.
+    let channel = alice.ready().channels[0].id.clone();
+    alice.send_message(&channel, "hi").await.expect("send");
+    match next_event(&mut alice).await {
+        ServerFrame::Message { .. } => {}
+        other => panic!("the newcomer should not get the roster again, got {other:?}"),
+    }
+
+    alice.close().await;
+    owner.close().await;
     harness.shutdown().await;
 }

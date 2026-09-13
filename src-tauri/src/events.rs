@@ -238,6 +238,49 @@ pub fn emit_presence_sync(app: &AppHandle, server: &str, online: Vec<String>) {
     );
 }
 
+/// Caches the channel list and then hands it to the window, whole.
+///
+/// Both lists go through here and [`apply_members`] whether they came from an
+/// event or from a handshake's `Ready` — the only place a client learns what
+/// changed while it was not connected. The rail has to render them with the
+/// network off, and the copy on disk is the one it reads.
+pub async fn apply_channels(
+    app: &AppHandle,
+    mirror: &Mirror,
+    server: &str,
+    channels: Vec<he_proto::Channel>,
+) {
+    if let Err(err) = mirror.replace_channels(server, &channels).await {
+        tracing::error!(%err, "could not mirror the channel list");
+    }
+    let _ = app.emit(
+        CHANNELS_EVENT,
+        ChannelsEvent {
+            server: server.to_owned(),
+            channels,
+        },
+    );
+}
+
+/// Caches the roster and then hands it to the window, whole.
+pub async fn apply_members(
+    app: &AppHandle,
+    mirror: &Mirror,
+    server: &str,
+    members: Vec<he_proto::Member>,
+) {
+    if let Err(err) = mirror.replace_members(server, &members).await {
+        tracing::error!(%err, "could not mirror the roster");
+    }
+    let _ = app.emit(
+        MEMBERS_EVENT,
+        MembersEvent {
+            server: server.to_owned(),
+            members,
+        },
+    );
+}
+
 /// Runs one server's event pump until the session ends.
 pub async fn pump(
     app: AppHandle,
@@ -311,26 +354,11 @@ pub async fn pump(
                         },
                     );
                 }
-                // Both lists are cached before the window is told, for the
-                // same reason a message is: the rail has to render them with
-                // the network off, and the copy on disk is the one it reads.
                 Some(ServerFrame::Channels { channels }) => {
-                    if let Err(err) = mirror.replace_channels(&server, &channels).await {
-                        tracing::error!(%err, "could not mirror the channel list");
-                    }
-                    let _ = app.emit(
-                        CHANNELS_EVENT,
-                        ChannelsEvent { server: server.clone(), channels },
-                    );
+                    apply_channels(&app, &mirror, &server, channels).await;
                 }
                 Some(ServerFrame::Members { members }) => {
-                    if let Err(err) = mirror.replace_members(&server, &members).await {
-                        tracing::error!(%err, "could not mirror the roster");
-                    }
-                    let _ = app.emit(
-                        MEMBERS_EVENT,
-                        MembersEvent { server: server.clone(), members },
-                    );
+                    apply_members(&app, &mirror, &server, members).await;
                 }
                 // Kicked, banned, or this machine's enrolment was revoked.
                 // The supervisor must not treat the disconnect that follows as

@@ -222,7 +222,12 @@ class Chat {
       if (e.server !== this.activeServer) return;
       this.channels = e.channels;
       // The channel being read may have just been deleted out from under it.
-      if (!e.channels.some((c) => c.id === this.activeChannel)) {
+      // With none open yet, `selectServer` is still choosing one — every
+      // connect sends this list, and racing it would load the channel twice.
+      if (
+        this.activeChannel !== null &&
+        !e.channels.some((c) => c.id === this.activeChannel)
+      ) {
         void this.selectChannel(e.channels[0]?.id ?? null);
       }
       void this.refreshUnread();

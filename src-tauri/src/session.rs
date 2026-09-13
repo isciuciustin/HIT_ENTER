@@ -79,6 +79,27 @@ async fn supervise(
         // Who is here, as of this handshake. Replaced wholesale on every
         // reconnect: merging would keep members who left while we were away.
         let online = live.ready().online.clone();
+
+        // The lists, as of this handshake, likewise wholesale. The window
+        // painted from the mirror before this connection existed, and whatever
+        // changed while we were away — a member who joined, a channel that
+        // went — is in `Ready` and nowhere else. No event will repeat it.
+        let ready = live.ready();
+        events::apply_channels(
+            &app_handle,
+            app.mirror(),
+            &endpoint_id,
+            ready.channels.clone(),
+        )
+        .await;
+        events::apply_members(
+            &app_handle,
+            app.mirror(),
+            &endpoint_id,
+            ready.members.clone(),
+        )
+        .await;
+
         app.set_live_session(&endpoint_id, live.clone()).await;
         app.seed_online(&endpoint_id, online.clone()).await;
         events::emit_connection(&app_handle, &endpoint_id, describe(live.path()));

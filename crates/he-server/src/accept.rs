@@ -136,6 +136,9 @@ enum Fanout {
     },
     Members {
         members: Vec<Member>,
+        /// The connection that just registered, when that is why the roster
+        /// changed. Its `Ready` already carried this list.
+        origin: Option<u64>,
     },
     /// Aimed at particular sessions, and delivered to nobody else. The pump
     /// closes the connection after writing it.
@@ -185,7 +188,8 @@ impl Fanout {
                 nonce: (origin == connection_id).then_some(nonce),
             },
             Self::Channels { channels } => ServerFrame::Channels { channels },
-            Self::Members { members } => ServerFrame::Members { members },
+            Self::Members { origin, .. } if origin == Some(connection_id) => return None,
+            Self::Members { members, .. } => ServerFrame::Members { members },
             Self::Revoked { target } if !target.matches(to) => return None,
             Self::Revoked { .. } => ServerFrame::Revoked,
             Self::Edited { message } => ServerFrame::Edited { message },
@@ -250,8 +254,11 @@ impl Outgoing {
             Self::Channels => Fanout::Channels {
                 channels: server.channels().await?,
             },
+            // A ban goes to everyone, the owner who did it included: their
+            // window updates from this event like every other member's.
             Self::Members => Fanout::Members {
                 members: server.members().await?,
+                origin: None,
             },
             Self::Revoked(target) => Fanout::Revoked { target },
         })
@@ -319,7 +326,7 @@ impl ChatProtocol {
             .await
             .map_err(|err| ConnectionFailed(err.to_string()))?;
 
-        let session = {
+        let (session, registered) = {
             let _handshake_slot = self.handshake_slot(&mut send).await?;
             match tokio::time::timeout(
                 self.limits.handshake_timeout,
@@ -327,7 +334,7 @@ impl ChatProtocol {
             )
             .await
             {
-                Ok(Ok(session)) => session,
+                Ok(Ok(accepted)) => accepted,
                 // Refused: the client has been told why, and that is the end
                 // of the connection, not an error for the host to read about.
                 Ok(Err(_refused)) => {
@@ -358,6 +365,20 @@ impl ChatProtocol {
                 online: true,
                 origin: Some(id),
             });
+        }
+
+        // A new account is a new roster, and everyone already here has the old
+        // one. Without this a member who joined while you watched would not
+        // exist on your screen until you reconnected. The new session is left
+        // out: the list it would get is the one its `Ready` just carried.
+        if registered {
+            match self.server.members().await {
+                Ok(members) => self.fan_out(Fanout::Members {
+                    members,
+                    origin: Some(id),
+                }),
+                Err(err) => tracing::warn!(%err, "could not announce a new member"),
+            }
         }
 
         // The control stream is now one-way: events, until the session ends.
@@ -417,6 +438,8 @@ impl ChatProtocol {
     }
 
     /// Reads the `Hello`, authenticates it, and answers `Ready` or `Error`.
+    /// Also says whether it made a new account, which the other members need
+    /// to hear about.
     ///
     /// `endpoint_id` comes from the connection. It is an argument rather than
     /// something read here so that there is exactly one line in the whole
@@ -427,7 +450,7 @@ impl ChatProtocol {
         id: u64,
         send: &mut SendStream,
         recv: &mut RecvStream,
-    ) -> std::result::Result<Session, Refused> {
+    ) -> std::result::Result<(Session, bool), Refused> {
         let hello: Hello = match read_frame(recv).await {
             Ok(hello) => hello,
             Err(err) => return self.refuse(send, protocol_error_for(&err)).await,
@@ -443,6 +466,7 @@ impl ChatProtocol {
                 .await;
         }
 
+        let registered = matches!(hello.auth, Auth::Register { .. });
         let authenticated = match hello.auth {
             Auth::Device { username } => self
                 .server
@@ -489,11 +513,14 @@ impl ChatProtocol {
             return Err(Refused);
         }
 
-        Ok(Session {
-            user,
-            endpoint_id: *endpoint_id,
-            id,
-        })
+        Ok((
+            Session {
+                user,
+                endpoint_id: *endpoint_id,
+                id,
+            },
+            registered,
+        ))
     }
 
     async fn ready_for(&self, user: &User) -> Result<Ready> {
