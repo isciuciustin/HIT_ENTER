@@ -113,6 +113,7 @@ platform.
 git clone https://github.com/isciuciustin/HIT_ENTER
 cd HIT_ENTER
 cargo install tauri-cli --version "^2" --locked
+(cd web && npm install)      # once: the frontend's dependencies, Vite included
 cargo tauri dev
 ```
 
