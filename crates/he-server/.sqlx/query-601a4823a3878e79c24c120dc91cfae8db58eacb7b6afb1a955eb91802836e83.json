@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id            AS \"id!\",\n                  username      AS \"username!\",\n                  display_name,\n                  is_owner      AS \"is_owner!: bool\"\n           FROM users ORDER BY username_ci",
+  "query": "SELECT id            AS \"id!\",\n                  username      AS \"username!\",\n                  display_name,\n                  is_owner      AS \"is_owner!: bool\",\n                  banned_at IS NOT NULL AS \"banned!: bool\"\n           FROM users ORDER BY username_ci",
   "describe": {
     "columns": [
       {
@@ -46,6 +46,12 @@
             "name": "is_owner"
           }
         }
+      },
+      {
+        "name": "banned!: bool",
+        "ordinal": 4,
+        "type_info": "Integer",
+        "origin": "Expression"
       }
     ],
     "parameters": {
@@ -55,8 +61,9 @@
       false,
       false,
       true,
+      false,
       false
     ]
   },
-  "hash": "1179460b080c77bec935d1a807c71af0f2cbe61e3f47f69ca3e8e5969a7fa066"
+  "hash": "601a4823a3878e79c24c120dc91cfae8db58eacb7b6afb1a955eb91802836e83"
 }

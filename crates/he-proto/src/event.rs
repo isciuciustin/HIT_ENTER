@@ -49,6 +49,50 @@ pub struct Member {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub display_name: Option<String>,
     pub is_owner: bool,
+    /// Banned accounts stay in the roster rather than vanishing from it.
+    ///
+    /// An owner who cannot see who they banned cannot un-ban them, and a
+    /// member who silently disappeared is indistinguishable from one who left.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub banned: bool,
+}
+
+/// One enrolled device, as the owner's and the member's device lists show it.
+///
+/// `endpoint_id` is a public key, so it is safe to show and safe to name in a
+/// revocation — it is what the owner reads off the screen to decide whether a
+/// key belongs there (PLAN §3).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeviceInfo {
+    pub endpoint_id: String,
+    pub user_id: String,
+    /// "Justin's laptop", when anybody set one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    pub enrolled_at: i64,
+    pub last_seen: i64,
+    /// Set once the device was kicked off. Revoked entries stay in the list:
+    /// a device that vanished is one the owner cannot tell they revoked.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revoked_at: Option<i64>,
+    /// True for the device asking. Revoking yourself is allowed — it is how
+    /// you log a machine out — but it should say so before you click it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub current: bool,
+}
+
+/// One invite, as the owner's list shows it. Includes the code: an owner who
+/// cannot read a code back cannot tell which invite they are revoking.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InviteInfo {
+    pub code: String,
+    pub created_by: String,
+    pub created_at: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_uses: Option<i64>,
+    pub uses: i64,
 }
 
 /// Everything the server writes on the **control stream**, in order: exactly
@@ -92,6 +136,20 @@ pub enum ServerFrame {
     /// goes offline when the second of the two disconnects, which is what the
     /// dot next to their name is claiming.
     Presence { user_id: String, online: bool },
+    /// The channel list changed. Carries the whole list, like `ready` does, so
+    /// a client replaces rather than merges — a channel that was deleted has
+    /// to disappear, and a merge can only ever add.
+    Channels { channels: Vec<Channel> },
+    /// The roster changed: somebody joined, was banned, or was un-banned.
+    /// Whole list, for the same reason as [`ServerFrame::Channels`].
+    Members { members: Vec<Member> },
+    /// This connection is no longer welcome. Stop reconnecting.
+    ///
+    /// Sent to the sessions it concerns and to nobody else, immediately before
+    /// the server closes their connections. Carries no reason: the two cases a
+    /// client would act on differently — this device was revoked, this account
+    /// was banned — are both "you are out, and retrying will not help".
+    Revoked,
     /// Somebody is composing. Never sent back to the connection that said so.
     ///
     /// Nothing is stored and nothing is guaranteed to arrive; an indicator

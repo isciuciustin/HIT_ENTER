@@ -85,6 +85,24 @@ impl Live {
         }
     }
 
+    /// Hangs up and stops the supervisor **without aborting it**.
+    ///
+    /// For the one caller that is running *inside* the supervisor's own task:
+    /// the event pump, when the server says this device is revoked. Aborting
+    /// there would cancel the task at its next await, which is somewhere in
+    /// the middle of telling the window what happened.
+    ///
+    /// Taking the handle rather than aborting it also disarms `Drop`, so the
+    /// supervisor is left to notice on its own that nobody wants it any more
+    /// and to wind itself down in order.
+    fn abandon(&self) {
+        let _ = self.lock(&self.supervisor).take();
+        if let Some(session) = self.lock(&self.session).take() {
+            session.disconnect();
+        }
+        self.lock(&self.online).clear();
+    }
+
     /// Stops supervising and hangs up. Idempotent.
     fn shutdown(&self) {
         if let Some(supervisor) = self.lock(&self.supervisor).take() {
@@ -288,6 +306,18 @@ impl App {
                 true
             }
             None => false,
+        }
+    }
+
+    /// Gives up on a server, from inside the task that is supervising it.
+    ///
+    /// Used when the space says this device is revoked: retrying cannot change
+    /// that answer, so the slot is released and the supervisor's next check
+    /// tells it to stop. [`Self::remove_session`] is the version for callers
+    /// that are *not* the supervisor.
+    pub async fn stop_connecting(&self, endpoint_id: &str) {
+        if let Some(live) = self.sessions.write().await.remove(endpoint_id) {
+            live.abandon();
         }
     }
 

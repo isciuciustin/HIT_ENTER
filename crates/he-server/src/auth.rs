@@ -25,6 +25,18 @@ pub struct User {
     pub display_name: Option<String>,
     pub is_owner: bool,
     pub created_at: i64,
+    /// When the owner banned this account, if they did.
+    ///
+    /// Checked on every path into a session. The account and its messages
+    /// survive a ban — only its ability to authenticate does — so un-banning
+    /// is one `UPDATE` and never a re-registration.
+    pub banned_at: Option<i64>,
+}
+
+impl User {
+    pub fn is_banned(&self) -> bool {
+        self.banned_at.is_some()
+    }
 }
 
 /// Argon2id, with the parameters this server hashes *new* passwords at.
@@ -196,6 +208,7 @@ pub(crate) async fn create_user(
         display_name: None,
         is_owner,
         created_at,
+        banned_at: None,
     })
 }
 
@@ -210,7 +223,7 @@ pub(crate) async fn find_by_username(
     let username_ci = limits::username_ci(username);
     let row = sqlx::query!(
         r#"SELECT id, username, display_name, is_owner as "is_owner: bool", created_at,
-                  password_hash
+                  banned_at, password_hash
            FROM users WHERE username_ci = ?1"#,
         username_ci,
     )
@@ -225,6 +238,7 @@ pub(crate) async fn find_by_username(
                 display_name: row.display_name,
                 is_owner: row.is_owner,
                 created_at: row.created_at,
+                banned_at: row.banned_at,
             },
             row.password_hash,
         )
@@ -233,7 +247,8 @@ pub(crate) async fn find_by_username(
 
 pub(crate) async fn find_by_id(pool: &SqlitePool, user_id: &str) -> Result<Option<User>> {
     let row = sqlx::query!(
-        r#"SELECT id, username, display_name, is_owner as "is_owner: bool", created_at
+        r#"SELECT id, username, display_name, is_owner as "is_owner: bool", created_at,
+                  banned_at
            FROM users WHERE id = ?1"#,
         user_id,
     )
@@ -246,7 +261,28 @@ pub(crate) async fn find_by_id(pool: &SqlitePool, user_id: &str) -> Result<Optio
         display_name: row.display_name,
         is_owner: row.is_owner,
         created_at: row.created_at,
+        banned_at: row.banned_at,
     }))
+}
+
+/// Bans or un-bans an account.
+///
+/// Revoking their devices is the *caller's* job, on purpose: this module knows
+/// about accounts and passwords, and nothing about enrolments.
+pub(crate) async fn set_banned(pool: &SqlitePool, user_id: &str, banned: bool) -> Result<()> {
+    let banned_at = banned.then(now_unix);
+    let result = sqlx::query!(
+        "UPDATE users SET banned_at = ?2 WHERE id = ?1",
+        user_id,
+        banned_at,
+    )
+    .execute(pool)
+    .await?;
+
+    if result.rows_affected() == 0 {
+        return Err(ServerError::UnknownUser);
+    }
+    Ok(())
 }
 
 /// Every account on the server, in the shape other members are allowed to see.
@@ -259,7 +295,8 @@ pub(crate) async fn list_members(pool: &SqlitePool) -> Result<Vec<he_proto::Memb
         r#"SELECT id            AS "id!",
                   username      AS "username!",
                   display_name,
-                  is_owner      AS "is_owner!: bool"
+                  is_owner      AS "is_owner!: bool",
+                  banned_at IS NOT NULL AS "banned!: bool"
            FROM users ORDER BY username_ci"#,
     )
     .fetch_all(pool)
@@ -275,6 +312,7 @@ impl User {
             username: self.username.clone(),
             display_name: self.display_name.clone(),
             is_owner: self.is_owner,
+            banned: self.is_banned(),
         }
     }
 }

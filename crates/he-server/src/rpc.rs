@@ -6,7 +6,7 @@
 //! reachable only over a socket and testable only over a socket.
 
 use he_proto::rpc::{ErrorCode, ProtocolError, Request, Response};
-use he_proto::{Message, limits};
+use he_proto::{DeviceInfo, InviteInfo, Message, limits};
 
 use crate::accept::Session;
 use crate::error::ServerError;
@@ -28,6 +28,13 @@ pub(crate) enum Outgoing {
         message: Message,
         nonce: String,
     },
+    /// The channel list changed; everyone gets the new one.
+    Channels,
+    /// The roster changed; everyone gets the new one.
+    Members,
+    /// These sessions are out. Sent to them alone, and then their connections
+    /// are closed.
+    Revoked(Revoked),
     Edited {
         message: Message,
     },
@@ -38,6 +45,22 @@ pub(crate) enum Outgoing {
     },
     Typing {
         channel_id: String,
+    },
+}
+
+/// Who a [`Outgoing::Revoked`] is aimed at.
+///
+/// Narrow on purpose. "Everyone on this account" and "this one machine" are
+/// the two things an owner can actually do, and a revocation that matched
+/// more broadly than the action that caused it would disconnect bystanders.
+#[derive(Debug, Clone)]
+pub(crate) enum Revoked {
+    /// Every session belonging to an account — a kick or a ban.
+    Account { user_id: String },
+    /// One enrolment: this account, on this machine.
+    Device {
+        user_id: String,
+        endpoint_id: String,
     },
 }
 
@@ -55,6 +78,23 @@ impl Handled {
             fan_out: vec![event],
         }
     }
+
+    fn with_all(response: Response, events: Vec<Outgoing>) -> Self {
+        Self {
+            response,
+            fan_out: events,
+        }
+    }
+}
+
+/// Refuses anything an owner-only tool was asked to do by somebody else.
+///
+/// `Forbidden` rather than `NotFound`: every member can already see who the
+/// owner is — it is in the roster — so there is nothing here to keep quiet
+/// about, and a vague answer would only make a real bug harder to read.
+fn owner_only(session: &Session) -> Option<Handled> {
+    (!session.user.is_owner)
+        .then(|| Handled::plain(Response::Error(ProtocolError::new(ErrorCode::Forbidden))))
 }
 
 pub(crate) async fn handle(server: &Server, session: &Session, request: Request) -> Handled {
@@ -129,6 +169,141 @@ pub(crate) async fn handle(server: &Server, session: &Session, request: Request)
             Handled::with(Response::Ok, Outgoing::Typing { channel_id })
         }
 
+        Request::CreateChannel { name, topic } => {
+            if let Some(refused) = owner_only(session) {
+                return refused;
+            }
+            match server.create_channel(&name, topic.as_deref()).await {
+                Ok(channel) => Handled::with(Response::Channel { channel }, Outgoing::Channels),
+                Err(err) => Handled::plain(Response::Error(to_protocol_error(&err))),
+            }
+        }
+
+        Request::DeleteChannel { id } => {
+            if let Some(refused) = owner_only(session) {
+                return refused;
+            }
+            match server.delete_channel(&id).await {
+                Ok(()) => Handled::with(Response::Ok, Outgoing::Channels),
+                Err(err) => Handled::plain(Response::Error(to_protocol_error(&err))),
+            }
+        }
+
+        Request::Kick { user_id } => {
+            if let Some(refused) = owner_only(session) {
+                return refused;
+            }
+            match server.kick(&user_id).await {
+                // The roster does not change — a kicked member is still a
+                // member — but their sessions have to go, and they have to be
+                // told rather than left watching a connection that stopped
+                // answering.
+                Ok(_revoked) => Handled::with(
+                    Response::Ok,
+                    Outgoing::Revoked(Revoked::Account { user_id }),
+                ),
+                Err(err) => Handled::plain(Response::Error(to_protocol_error(&err))),
+            }
+        }
+
+        Request::SetBanned { user_id, banned } => {
+            if let Some(refused) = owner_only(session) {
+                return refused;
+            }
+            match server.set_banned(&user_id, banned).await {
+                Ok(()) if banned => Handled::with_all(
+                    Response::Ok,
+                    vec![
+                        Outgoing::Members,
+                        Outgoing::Revoked(Revoked::Account { user_id }),
+                    ],
+                ),
+                // Un-banning disconnects nobody: there is nobody connected.
+                Ok(()) => Handled::with(Response::Ok, Outgoing::Members),
+                Err(err) => Handled::plain(Response::Error(to_protocol_error(&err))),
+            }
+        }
+
+        Request::RevokeDevice {
+            user_id,
+            endpoint_id,
+        } => {
+            // The owner may revoke anybody's device; everybody else may revoke
+            // only their own. Revoking your own is how you log a machine out.
+            if user_id != session.user.id && !session.user.is_owner {
+                return Handled::plain(Response::Error(ProtocolError::new(ErrorCode::Forbidden)));
+            }
+            match server.revoke_device(&endpoint_id, &user_id).await {
+                Ok(()) => Handled::with(
+                    Response::Ok,
+                    Outgoing::Revoked(Revoked::Device {
+                        user_id,
+                        endpoint_id,
+                    }),
+                ),
+                Err(err) => Handled::plain(Response::Error(to_protocol_error(&err))),
+            }
+        }
+
+        Request::Devices { user_id } => {
+            let user_id = user_id.unwrap_or_else(|| session.user.id.clone());
+            if user_id != session.user.id && !session.user.is_owner {
+                return Handled::plain(Response::Error(ProtocolError::new(ErrorCode::Forbidden)));
+            }
+            match server.devices_for_user(&user_id).await {
+                Ok(devices) => Handled::plain(Response::Devices {
+                    devices: devices
+                        .into_iter()
+                        .map(|device| DeviceInfo {
+                            // Marked here rather than by the client, which
+                            // cannot know which connection it is reading on.
+                            current: device.endpoint_id == session.endpoint_id.to_string()
+                                && device.user_id == session.user.id,
+                            endpoint_id: device.endpoint_id,
+                            user_id: device.user_id,
+                            label: device.label,
+                            enrolled_at: device.enrolled_at,
+                            last_seen: device.last_seen,
+                            revoked_at: device.revoked_at,
+                        })
+                        .collect(),
+                }),
+                Err(err) => Handled::plain(Response::Error(to_protocol_error(&err))),
+            }
+        }
+
+        Request::Invites => {
+            if let Some(refused) = owner_only(session) {
+                return refused;
+            }
+            match server.invites().await {
+                Ok(invites) => Handled::plain(Response::Invites {
+                    invites: invites
+                        .into_iter()
+                        .map(|invite| InviteInfo {
+                            code: invite.code,
+                            created_by: invite.created_by,
+                            created_at: invite.created_at,
+                            expires_at: invite.expires_at,
+                            max_uses: invite.max_uses,
+                            uses: invite.uses,
+                        })
+                        .collect(),
+                }),
+                Err(err) => Handled::plain(Response::Error(to_protocol_error(&err))),
+            }
+        }
+
+        Request::RevokeInvite { code } => {
+            if let Some(refused) = owner_only(session) {
+                return refused;
+            }
+            match server.revoke_invite(&code).await {
+                Ok(()) => Handled::plain(Response::Ok),
+                Err(err) => Handled::plain(Response::Error(to_protocol_error(&err))),
+            }
+        }
+
         Request::Invite {
             expires_in,
             max_uses,
@@ -174,6 +349,10 @@ pub(crate) fn to_protocol_error(err: &ServerError) -> ProtocolError {
             ErrorCode::NotFound
         }
         ServerError::Forbidden => ErrorCode::Forbidden,
+        ServerError::Banned => ErrorCode::Banned,
+        // A rule the client broke, and one it can act on: the answer is "keep
+        // the other channel", not "something went wrong".
+        ServerError::LastChannel => ErrorCode::Forbidden,
         ServerError::RateLimited { retry_after } => {
             return ProtocolError::rate_limited(retry_after.as_secs().max(1));
         }

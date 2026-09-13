@@ -76,6 +76,7 @@ client → server:   hello                       (exactly once, first frame)
 server → client:   ready | error               (exactly once, in reply)
 server → client:   message | edited | deleted  (events, until the session ends)
                    | presence | typing
+                   | channels | members | revoked
 ```
 
 After `ready` the client never writes on this stream again.
@@ -87,7 +88,10 @@ response, and closes:
 
 ```
 client → server:   send | edit | delete | backfill | resume | typing | invite
-server → client:   ok | messages | resumed | invite | error
+                   | create_channel | delete_channel | kick | set_banned
+                   | revoke_device | devices | invites | revoke_invite
+server → client:   ok | messages | resumed | channel | devices | invites
+                   | invite | error
 ```
 
 A refused request does not end the session — one bad RPC is not a reason to
@@ -174,7 +178,8 @@ that one request.
 | `RATE_LIMITED` | backing off; `retry_after` is in seconds |
 | `INVALID` | the request broke a rule in §6 |
 | `NOT_FOUND` | no such channel, message or user |
-| `FORBIDDEN` | the account is who it says it is and still may not do that — editing somebody else's message. Distinct from `NOT_FOUND` because a client can already see the author of every message it is looking at, so there is no oracle here to protect |
+| `FORBIDDEN` | the account is who it says it is and still may not do that — editing somebody else's message, or using an owner's tool without being the owner. Distinct from `NOT_FOUND` because a client can already see the author of every message and who the owner is, so there is no oracle here to protect |
+| `BANNED` | the owner banned this account. Stop reconnecting and say so |
 | `PROTOCOL` | unreadable frame, wrong order, or wrong `proto` |
 | `INTERNAL` | the server broke. Never carries detail: an error message is an oracle, and the detail belongs in the host's log |
 
@@ -308,6 +313,110 @@ with the bare key otherwise, which discovery resolves.
 
 ---
 
+### Owner tools
+
+Every one of these is reachable only over this socket, so **every one is
+authorised on the server**. A client that hides a button is a convenience; the
+refusal is the security boundary.
+
+| request | who may |
+|---|---|
+| `create_channel`, `delete_channel` | the owner |
+| `kick`, `set_banned` | the owner |
+| `invites`, `revoke_invite` | the owner |
+| `revoke_device` | the owner, for anyone; everyone else, for their own |
+| `devices` | the owner, for anyone; everyone else, for their own |
+
+#### `create_channel` / `delete_channel`
+
+```jsonc
+→ {"t":"create_channel","name":"scratch","topic":"temporary"}
+← {"t":"channel","channel":{"id":"…","name":"scratch","topic":"temporary","position":1}}
+
+→ {"t":"delete_channel","id":"…"}
+← {"t":"ok"}
+```
+
+A delete takes **every message in the channel** with it, by the schema's
+cascade. History in a channel nobody can open is not kept, it is stranded.
+
+The server **refuses to delete the last channel** (`FORBIDDEN`). A space with
+no channel has nowhere to put a message, so the next person to speak would
+find a dead end and the owner would have no way back but the database.
+
+Both fan out a `channels` event (§7) carrying the whole new list.
+
+#### `kick` / `set_banned`
+
+```jsonc
+→ {"t":"kick","user_id":"…"}
+← {"t":"ok"}
+
+→ {"t":"set_banned","user_id":"…","banned":true}
+← {"t":"ok"}
+```
+
+These are two different things and the difference is the point:
+
+- **`kick`** revokes every device enrolled for the account. The password still
+  works, so the member can enrol a machine again and come back. It is the
+  proportionate answer to a laptop left in a pub.
+- **`set_banned`** revokes every device *and* refuses the password, so the
+  account cannot get back in at all. It is **reversible** — an irreversible
+  action one misclick away is worse than one that can be undone — and the
+  account and its messages survive it, so un-banning is not a
+  re-registration.
+
+Neither may target **the owner** (`FORBIDDEN`). A space is administered through
+the owner's own client; locking it out would leave the space running with
+nobody able to reach its tools.
+
+Both send `revoked` (§7) to the sessions they concern, then close those
+connections. `set_banned` also fans out `members`.
+
+#### `revoke_device` / `devices`
+
+```jsonc
+→ {"t":"revoke_device","user_id":"…","endpoint_id":"…"}
+← {"t":"ok"}
+
+→ {"t":"devices"}                       // your own
+→ {"t":"devices","user_id":"…"}         // the owner, asking about anyone
+← {"t":"devices","devices":[
+     {"endpoint_id":"…","user_id":"…","label":"Justin's laptop",
+      "enrolled_at":1789,"last_seen":1789,"current":true}]}
+```
+
+Revoking **one enrolment** is not a kick: the account's other machines stay
+connected. Revoking your own is how you log a machine out, and `current` says
+which entry that is — the client cannot know which connection it is reading on.
+
+Revoked devices stay in the list, with `revoked_at` set. A device that vanished
+is one the owner cannot tell they revoked.
+
+A revoked key is **not blacklisted**: the password can enrol it again. What was
+taken away is the passwordless login, which is the property that matters
+(PLAN §3).
+
+#### `invites` / `revoke_invite`
+
+```jsonc
+→ {"t":"invites"}
+← {"t":"invites","invites":[
+     {"code":"K7QP-2M4X-9WTZ","created_by":"…","created_at":1789,
+      "max_uses":10,"uses":1}]}
+
+→ {"t":"revoke_invite","code":"K7QP-2M4X-9WTZ"}
+← {"t":"ok"}
+```
+
+The listing carries the codes: an owner who cannot read a code back cannot tell
+which invite they are revoking. Revoking one kills the code and **leaves the
+accounts already made with it alone** — they are members now, and an invite is
+a door, not a lease.
+
+---
+
 ## 6. Limits
 
 Validated on **both** sides, by the same functions in `he-proto::limits`, so
@@ -328,6 +437,7 @@ validates because it can never trust a client.
 | `resume` cursors | at most 200 channels — one query each |
 | `resume` messages | at most 500 in total, at most 200 from any one channel |
 | typing | one per connection per 3s, on the server; indicators expire after 8s |
+| channel topic | 0–200 characters |
 
 An invite code's *shape* is checked by both sides; whether it is **real** is
 answered only by the server, in constant time, so that trying is not an oracle.
@@ -413,6 +523,40 @@ frame to lose.
 
 `username` is denormalised for the same reason as `message.author_name`: the
 indicator has a name to show before any member list has loaded.
+
+### `channels` / `members`
+
+```jsonc
+{"t":"channels","channels":[{"id":"…","name":"general","topic":null,"position":0}]}
+{"t":"members","members":[{"id":"…","username":"alice","is_owner":true}]}
+```
+
+Both carry the **whole list**, exactly as `ready` does, and a client
+**replaces** rather than merges. A merge can only ever add, and the changes
+worth announcing — a channel deleted, a member banned — are the ones a merge
+would silently drop.
+
+### `revoked`
+
+```jsonc
+{"t":"revoked"}
+```
+
+Sent to the sessions it concerns and to nobody else, immediately before the
+server closes their connections. It is the last frame on that stream and is
+flushed before the close, because a QUIC close discards unacknowledged stream
+data — and "you were kicked" arriving as "connection lost" is precisely the
+thing a client would retry through.
+
+It carries **no reason**. The two cases a client might tell apart — this device
+was revoked, this account was banned — both mean "you are out, and retrying
+will not help", and a client that treats them differently is a client that
+retries one of them.
+
+**A client that receives it must stop reconnecting.** Not back off; stop. The
+answer will not change until somebody decides otherwise, and a client hammering
+a space it was ejected from is indistinguishable from the thing being ejected
+for.
 
 ---
 
@@ -502,15 +646,19 @@ prevent something the user can already fix in one click.
 
 ---
 
-## 10. Not yet on the wire
+## 10. What is not on the wire
 
-`hit-enter/0` carries exactly what is documented above. These are specified in
-PLAN §9 and land in later milestones; a client must not send them and a server
-answers `PROTOCOL` if it receives one:
+`hit-enter/0` carries exactly what is documented above, and a frame that is not
+documented above is answered `PROTOCOL`.
 
-| frame | milestone |
+Everything PLAN §9 specified is now on the wire. What is *not* here, and is
+deliberately not planned before 1.0:
+
+| frame | why not |
 |---|---|
-| `revoked` event (this device was kicked; disconnect) | M6, with the owner's kick/ban tools |
+| renaming or re-ordering channels | `create` and `delete` cover the need; re-ordering is a drag handle and a `position` write, and it is M7's problem |
+| roles beyond `owner` / `member` | a permission matrix is explicitly out of scope (PLAN §1) |
+| a reason attached to `revoked` | see above: a client that can tell the cases apart is a client that retries one of them |
 
-Adding any of them updates this file in the same commit. None of them breaks an
-existing frame, so the ALPN stays at `0`.
+Any addition updates this file in the same commit, and only a change that
+breaks an existing frame bumps the ALPN past `0`.

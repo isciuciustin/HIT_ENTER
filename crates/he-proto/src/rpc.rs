@@ -17,7 +17,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::event::{Channel, Member, Message};
+use crate::event::{Channel, DeviceInfo, InviteInfo, Member, Message};
 use crate::limits::{self, ValidationError};
 use crate::secret::Password;
 
@@ -125,6 +125,10 @@ pub enum ErrorCode {
     /// [`ErrorCode::NotFound`] because the client can already see the author
     /// of every message it is looking at, so there is no oracle to protect.
     Forbidden,
+    /// The owner banned this account. Stop reconnecting and say so; retrying
+    /// cannot change the answer, and a client that retried forever would look
+    /// like a network fault rather than a decision somebody made.
+    Banned,
     /// The frame was unreadable, out of order, or the wrong protocol version.
     Protocol,
     /// The server broke. Never carries any detail — the detail is in the
@@ -212,6 +216,46 @@ pub enum Request {
     /// Say that this account is composing in a channel. Fire and forget:
     /// nothing is stored and nothing is guaranteed to arrive.
     Typing { channel_id: String },
+    /// Create a channel. Owner only.
+    CreateChannel {
+        name: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        topic: Option<String>,
+    },
+    /// Delete a channel **and every message in it**. Owner only.
+    ///
+    /// The server refuses to delete the last one: a space with no channel has
+    /// nowhere to put a message, and the next person to speak would find a
+    /// dead end.
+    DeleteChannel { id: String },
+    /// Log an account out of every machine it is enrolled on. Owner only.
+    ///
+    /// Not a ban: the password still works, so the member can come back by
+    /// enrolling a device again. It is the proportionate answer to a laptop
+    /// left in a pub, and to a member who should read the room.
+    Kick { user_id: String },
+    /// Ban or un-ban an account. Owner only.
+    ///
+    /// A ban revokes every device *and* refuses the password, so the account
+    /// cannot get back in at all. Reversible, because an irreversible action
+    /// one misclick away is worse than one that can be undone.
+    SetBanned { user_id: String, banned: bool },
+    /// Kick one machine off. The owner may revoke anybody's device; everyone
+    /// else may revoke only their own.
+    RevokeDevice {
+        user_id: String,
+        endpoint_id: String,
+    },
+    /// The devices enrolled for an account. `None` means this account's own,
+    /// which is the only one a member may ask about.
+    Devices {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        user_id: Option<String>,
+    },
+    /// Every invite that has been minted and not revoked. Owner only.
+    Invites,
+    /// Delete an invite. Owner only. Accounts already made with it stay.
+    RevokeInvite { code: String },
     /// Mint an invite code.
     Invite {
         /// Seconds from now; `None` never expires.
@@ -260,6 +304,31 @@ impl Request {
                 cursors.iter().map(|(c, m)| (c.as_str(), m.as_str())),
             ),
             Self::Typing { channel_id } => limits::validate_id(channel_id),
+            Self::CreateChannel { name, topic } => {
+                limits::validate_channel_name(name)?;
+                match topic {
+                    Some(topic) => limits::validate_channel_topic(topic),
+                    None => Ok(()),
+                }
+            }
+            Self::DeleteChannel { id } => limits::validate_id(id),
+            Self::Kick { user_id } => limits::validate_id(user_id),
+            Self::SetBanned { user_id, .. } => limits::validate_id(user_id),
+            Self::RevokeDevice {
+                user_id,
+                endpoint_id,
+            } => {
+                limits::validate_id(user_id)?;
+                // An `EndpointId` is z-base-32, which `validate_id` already
+                // accepts; the point of the check is the length bound.
+                limits::validate_id(endpoint_id)
+            }
+            Self::Devices { user_id } => match user_id {
+                Some(user_id) => limits::validate_id(user_id),
+                None => Ok(()),
+            },
+            Self::Invites => Ok(()),
+            Self::RevokeInvite { code } => limits::validate_invite_code(code),
             Self::Invite { max_uses, .. } => match max_uses {
                 Some(n) if *n < 1 => Err(ValidationError::InviteUses),
                 _ => Ok(()),
@@ -290,6 +359,19 @@ pub enum Response {
         /// caught up.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         truncated: Vec<String>,
+    },
+    /// The channel that was just created, so the client can select it without
+    /// hunting for it by name in the `channels` event that follows.
+    Channel {
+        channel: Channel,
+    },
+    /// The devices enrolled for an account.
+    Devices {
+        devices: Vec<DeviceInfo>,
+    },
+    /// Every invite on the space.
+    Invites {
+        invites: Vec<InviteInfo>,
     },
     /// A freshly minted invite code, in display form (`K7QP-2M4X-9WTZ`).
     Invite {
@@ -416,6 +498,8 @@ mod tests {
             (ErrorCode::RateLimited, "RATE_LIMITED"),
             (ErrorCode::Invalid, "INVALID"),
             (ErrorCode::NotFound, "NOT_FOUND"),
+            (ErrorCode::Forbidden, "FORBIDDEN"),
+            (ErrorCode::Banned, "BANNED"),
             (ErrorCode::Protocol, "PROTOCOL"),
             (ErrorCode::Internal, "INTERNAL"),
         ] {

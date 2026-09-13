@@ -27,7 +27,7 @@ use std::time::Duration;
 
 use he_proto::io::{read_frame, write_frame};
 use he_proto::rpc::{Auth, ErrorCode, Hello, ProtocolError, Ready, Request, Response};
-use he_proto::{FrameError, InviteLink, Message, NetworkConfig, ServerFrame};
+use he_proto::{Channel, FrameError, InviteLink, Member, Message, NetworkConfig, ServerFrame};
 use iroh::endpoint::{Connection, RecvStream, SendStream};
 use iroh::protocol::{AcceptError, ProtocolHandler, Router};
 use iroh::{Endpoint, EndpointId};
@@ -35,7 +35,7 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore, broadcast};
 
 use crate::error::{Result, ServerError};
 use crate::presence::Presence;
-use crate::rpc::{self, Outgoing, to_protocol_error};
+use crate::rpc::{self, Outgoing, Revoked, to_protocol_error};
 use crate::{Server, User};
 
 /// Caps that apply before anybody has proved who they are.
@@ -131,12 +131,51 @@ enum Fanout {
         /// The connection that is typing. It already knows.
         origin: u64,
     },
+    Channels {
+        channels: Vec<Channel>,
+    },
+    Members {
+        members: Vec<Member>,
+    },
+    /// Aimed at particular sessions, and delivered to nobody else. The pump
+    /// closes the connection after writing it.
+    Revoked {
+        target: Revoked,
+    },
+}
+
+/// The session an event is being rendered for.
+///
+/// Everything in here came off the iroh connection or out of the handshake —
+/// never out of a message body (PLAN §11).
+#[derive(Debug, Clone, Copy)]
+struct Recipient<'a> {
+    connection_id: u64,
+    user_id: &'a str,
+    endpoint_id: &'a str,
+}
+
+impl Revoked {
+    /// Whether a revocation is about this session.
+    fn matches(&self, to: Recipient<'_>) -> bool {
+        match self {
+            // A kick or a ban: every machine this account is signed in on.
+            Self::Account { user_id } => user_id == to.user_id,
+            // One enrolment: this account, on this machine. A second account
+            // on the same key is a different enrolment and stays connected.
+            Self::Device {
+                user_id,
+                endpoint_id,
+            } => user_id == to.user_id && endpoint_id == to.endpoint_id,
+        }
+    }
 }
 
 impl Fanout {
     /// The frame one session should see, or `None` if this event is not for
     /// that session at all.
-    fn frame_for(self, connection_id: u64) -> Option<ServerFrame> {
+    fn frame_for(self, to: Recipient<'_>) -> Option<ServerFrame> {
+        let connection_id = to.connection_id;
         Some(match self {
             Self::Message {
                 message,
@@ -145,6 +184,10 @@ impl Fanout {
                 message,
                 nonce: (origin == connection_id).then_some(nonce),
             },
+            Self::Channels { channels } => ServerFrame::Channels { channels },
+            Self::Members { members } => ServerFrame::Members { members },
+            Self::Revoked { target } if !target.matches(to) => return None,
+            Self::Revoked { .. } => ServerFrame::Revoked,
             Self::Edited { message } => ServerFrame::Edited { message },
             Self::Deleted {
                 id,
@@ -179,8 +222,8 @@ impl Outgoing {
     ///
     /// The origin is read from the [`Session`], which came from the iroh
     /// connection — never from anything the client put in the request.
-    fn into_fanout(self, session: &Session) -> Fanout {
-        match self {
+    async fn into_fanout(self, server: &Server, session: &Session) -> Result<Fanout> {
+        Ok(match self {
             Self::Message { message, nonce } => Fanout::Message {
                 message,
                 origin: (session.id, nonce),
@@ -201,7 +244,17 @@ impl Outgoing {
                 username: session.user.username.clone(),
                 origin: session.id,
             },
-        }
+            // Read here rather than assembled by the handler, so the list that
+            // goes out is the one in the database *after* the change rather
+            // than one the caller built from what it thought it did.
+            Self::Channels => Fanout::Channels {
+                channels: server.channels().await?,
+            },
+            Self::Members => Fanout::Members {
+                members: server.members().await?,
+            },
+            Self::Revoked(target) => Fanout::Revoked { target },
+        })
     }
 }
 
@@ -308,7 +361,14 @@ impl ChatProtocol {
         }
 
         // The control stream is now one-way: events, until the session ends.
-        let pump = tokio::spawn(pump_events(send, events, id));
+        let pump = tokio::spawn(pump_events(
+            conn.clone(),
+            send,
+            events,
+            id,
+            session.user.id.clone(),
+            endpoint_id.to_string(),
+        ));
         let result = self.serve_requests(&conn, &session).await;
         pump.abort();
 
@@ -522,7 +582,16 @@ impl ChatProtocol {
 
                 let handled = rpc::handle(&self.server, session, request).await;
                 for event in handled.fan_out {
-                    self.fan_out(event.into_fanout(session));
+                    match event.into_fanout(&self.server, session).await {
+                        Ok(fanout) => self.fan_out(fanout),
+                        // The change itself succeeded; only the announcement
+                        // of it failed. Refusing the request now would be a
+                        // lie, so the client is told it worked and everyone
+                        // else finds out on their next connect.
+                        Err(err) => {
+                            tracing::error!(%err, "could not announce a change");
+                        }
+                    }
                 }
                 handled.response
             }
@@ -554,10 +623,19 @@ impl ProtocolHandler for ChatProtocol {
 /// Writes broadcast events to one session's control stream until the stream
 /// dies or the session ends.
 async fn pump_events(
+    conn: Connection,
     mut send: SendStream,
     mut events: broadcast::Receiver<Fanout>,
     connection_id: u64,
+    user_id: String,
+    endpoint_id: String,
 ) {
+    let to = Recipient {
+        connection_id,
+        user_id: &user_id,
+        endpoint_id: &endpoint_id,
+    };
+
     loop {
         let event = match events.recv().await {
             Ok(event) => event,
@@ -572,10 +650,22 @@ async fn pump_events(
         };
 
         // `None` means this event was never for this session — a typing
-        // indicator going back to the person who is typing.
-        let Some(frame) = event.frame_for(connection_id) else {
+        // indicator going back to the person who is typing, or a revocation
+        // aimed at somebody else.
+        let Some(frame) = event.frame_for(to) else {
             continue;
         };
+
+        if matches!(frame, ServerFrame::Revoked) {
+            // The last frame this connection will carry, so it has to be
+            // flushed before the connection is dropped — otherwise the QUIC
+            // close discards it and being kicked arrives as "connection lost",
+            // which is exactly the thing the client must not retry through.
+            tracing::info!(connection = connection_id, %user_id, "session revoked");
+            send_final(&mut send, &frame).await;
+            conn.close(REVOKED_CODE.into(), b"revoked");
+            return;
+        }
 
         if write_frame(&mut send, &frame).await.is_err() {
             return;
@@ -665,6 +755,7 @@ async fn send_final(send: &mut SendStream, frame: &ServerFrame) {
 const BUSY_CODE: u32 = 1;
 const TIMEOUT_CODE: u32 = 2;
 const REFUSED_CODE: u32 = 3;
+const REVOKED_CODE: u32 = 4;
 
 /// How long to wait for a peer to acknowledge a final frame before giving up
 /// on it. See [`send_final`].
@@ -686,6 +777,16 @@ fn protocol_error_for(err: &FrameError) -> ProtocolError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A session to render events for. The two ids are what a revocation is
+    /// matched against, so tests that do not care still have to name them.
+    fn to(connection_id: u64) -> Recipient<'static> {
+        Recipient {
+            connection_id,
+            user_id: "u1",
+            endpoint_id: "device-1",
+        }
+    }
 
     fn a_message() -> Message {
         Message {
@@ -709,12 +810,12 @@ mod tests {
             origin: (7, "n1".into()),
         };
 
-        let Some(ServerFrame::Message { nonce, .. }) = event.clone().frame_for(7) else {
+        let Some(ServerFrame::Message { nonce, .. }) = event.clone().frame_for(to(7)) else {
             panic!("the sender gets the message");
         };
         assert_eq!(nonce.as_deref(), Some("n1"));
 
-        let Some(ServerFrame::Message { nonce, .. }) = event.frame_for(8) else {
+        let Some(ServerFrame::Message { nonce, .. }) = event.frame_for(to(8)) else {
             panic!("everyone else gets the message too");
         };
         assert_eq!(nonce, None);
@@ -730,9 +831,9 @@ mod tests {
             username: "justin".into(),
             origin: 7,
         };
-        assert!(event.clone().frame_for(7).is_none());
+        assert!(event.clone().frame_for(to(7)).is_none());
         assert!(matches!(
-            event.frame_for(8),
+            event.frame_for(to(8)),
             Some(ServerFrame::Typing { .. })
         ));
     }
@@ -746,11 +847,58 @@ mod tests {
             online: true,
             origin: Some(7),
         };
-        assert!(event.clone().frame_for(7).is_none());
+        assert!(event.clone().frame_for(to(7)).is_none());
         assert!(matches!(
-            event.frame_for(8),
+            event.frame_for(to(8)),
             Some(ServerFrame::Presence { online: true, .. })
         ));
+    }
+
+    #[test]
+    fn a_revocation_reaches_the_sessions_it_is_about_and_no_others() {
+        // Getting this wrong in either direction is bad in a different way:
+        // too narrow and a kicked member keeps a live session, too wide and
+        // revoking one laptop signs the whole space out.
+        let kicked = Fanout::Revoked {
+            target: Revoked::Account {
+                user_id: "u1".into(),
+            },
+        };
+        assert!(matches!(
+            kicked.clone().frame_for(to(7)),
+            Some(ServerFrame::Revoked)
+        ));
+        assert!(
+            kicked
+                .frame_for(Recipient {
+                    connection_id: 8,
+                    user_id: "u2",
+                    endpoint_id: "device-1",
+                })
+                .is_none(),
+            "banning one account must not disconnect another on the same machine"
+        );
+
+        let one_device = Fanout::Revoked {
+            target: Revoked::Device {
+                user_id: "u1".into(),
+                endpoint_id: "device-1".into(),
+            },
+        };
+        assert!(matches!(
+            one_device.clone().frame_for(to(7)),
+            Some(ServerFrame::Revoked)
+        ));
+        assert!(
+            one_device
+                .frame_for(Recipient {
+                    connection_id: 9,
+                    user_id: "u1",
+                    endpoint_id: "device-2",
+                })
+                .is_none(),
+            "revoking one machine must leave the member's other machines alone"
+        );
     }
 
     #[test]
@@ -773,8 +921,8 @@ mod tests {
                 message: a_message(),
             },
         ] {
-            assert!(event.clone().frame_for(7).is_some());
-            assert!(event.frame_for(8).is_some());
+            assert!(event.clone().frame_for(to(7)).is_some());
+            assert!(event.frame_for(to(8)).is_some());
         }
     }
 

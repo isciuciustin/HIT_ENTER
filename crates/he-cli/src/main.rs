@@ -33,6 +33,18 @@ COMMANDS:
     watch                       Print events until ^C
     invite [--max-uses N]       Mint an invite code
 
+  Owner tools (refused with FORBIDDEN for anyone else):
+    members                     List accounts, with who is banned
+    devices [USER_ID]           List enrolled devices  [default: your own]
+    revoke-device <USER> <KEY>  Kick one machine off
+    kick <USER_ID>              Log an account out everywhere
+    ban <USER_ID>               Kick, and refuse the password too
+    unban <USER_ID>             Let a banned account back in
+    invites                     List every invite
+    revoke-invite <CODE>        Delete an invite
+    channel-add <NAME>          Create a channel
+    channel-rm <CHANNEL>        Delete a channel and its messages
+
 OPTIONS:
     -s, --server <ADDRESS>      Who to dial      [env: HE_SERVER]
     -k, --key <PATH>            Device key file  [default: ./he-cli.key]
@@ -78,12 +90,47 @@ struct Args {
 
 enum Command {
     Info,
-    Send { channel: String, text: String },
-    Edit { id: String, text: String },
-    Delete { id: String },
-    History { channel: Option<String> },
+    Send {
+        channel: String,
+        text: String,
+    },
+    Edit {
+        id: String,
+        text: String,
+    },
+    Delete {
+        id: String,
+    },
+    History {
+        channel: Option<String>,
+    },
     Watch,
     Invite,
+    Members,
+    Devices {
+        user_id: Option<String>,
+    },
+    RevokeDevice {
+        user_id: String,
+        endpoint_id: String,
+    },
+    Kick {
+        user_id: String,
+    },
+    SetBanned {
+        user_id: String,
+        banned: bool,
+    },
+    Invites,
+    RevokeInvite {
+        code: String,
+    },
+    ChannelAdd {
+        name: String,
+    },
+    ChannelRemove {
+        channel: String,
+    },
 }
 
 fn parse_args() -> Result<Option<Args>> {
@@ -179,6 +226,41 @@ fn parse_args() -> Result<Option<Args>> {
             }
             "delete" => Command::Delete {
                 id: tail.first().context("delete needs a message id")?.clone(),
+            },
+            "members" => Command::Members,
+            "devices" => Command::Devices {
+                user_id: tail.first().cloned(),
+            },
+            "revoke-device" => Command::RevokeDevice {
+                user_id: tail
+                    .first()
+                    .context("revoke-device needs a user id")?
+                    .clone(),
+                endpoint_id: tail
+                    .get(1)
+                    .context("revoke-device needs an endpoint id")?
+                    .clone(),
+            },
+            "kick" => Command::Kick {
+                user_id: tail.first().context("kick needs a user id")?.clone(),
+            },
+            "ban" => Command::SetBanned {
+                user_id: tail.first().context("ban needs a user id")?.clone(),
+                banned: true,
+            },
+            "unban" => Command::SetBanned {
+                user_id: tail.first().context("unban needs a user id")?.clone(),
+                banned: false,
+            },
+            "invites" => Command::Invites,
+            "revoke-invite" => Command::RevokeInvite {
+                code: tail.first().context("revoke-invite needs a code")?.clone(),
+            },
+            "channel-add" => Command::ChannelAdd {
+                name: tail.first().context("channel-add needs a name")?.clone(),
+            },
+            "channel-rm" => Command::ChannelRemove {
+                channel: tail.first().context("channel-rm needs a channel")?.clone(),
             },
             other => bail!("unrecognised command {other:?}\n\n{USAGE}"),
         },
@@ -332,6 +414,75 @@ async fn main() -> Result<()> {
                 InviteLink::new(args.server.addr().clone(), Some(code))
             );
         }
+        Command::Members => {
+            for member in &session.ready().members {
+                let mut tags = Vec::new();
+                if member.is_owner {
+                    tags.push("owner");
+                }
+                if member.banned {
+                    tags.push("banned");
+                }
+                let tags = if tags.is_empty() {
+                    String::new()
+                } else {
+                    format!("  ({})", tags.join(", "))
+                };
+                println!("{}  {}{}", member.id, member.username, tags);
+            }
+        }
+        Command::Devices { user_id } => {
+            for device in session.devices(user_id.as_deref()).await? {
+                let state = match (device.revoked_at, device.current) {
+                    (Some(_), _) => "revoked",
+                    (None, true) => "this one",
+                    (None, false) => "active",
+                };
+                println!(
+                    "{}  {:<8}  {}",
+                    device.endpoint_id,
+                    state,
+                    device.label.as_deref().unwrap_or("-")
+                );
+            }
+        }
+        Command::RevokeDevice {
+            user_id,
+            endpoint_id,
+        } => {
+            session.revoke_device(user_id, endpoint_id).await?;
+            println!("revoked {endpoint_id}");
+        }
+        Command::Kick { user_id } => {
+            session.kick(user_id).await?;
+            println!("kicked {user_id}");
+        }
+        Command::SetBanned { user_id, banned } => {
+            session.set_banned(user_id, *banned).await?;
+            println!("{} {user_id}", if *banned { "banned" } else { "un-banned" });
+        }
+        Command::Invites => {
+            for invite in session.invites().await? {
+                let uses = match invite.max_uses {
+                    Some(max) => format!("{}/{max}", invite.uses),
+                    None => format!("{}/∞", invite.uses),
+                };
+                println!("{}  {uses}", invite.code);
+            }
+        }
+        Command::RevokeInvite { code } => {
+            session.revoke_invite(code).await?;
+            println!("revoked {code}");
+        }
+        Command::ChannelAdd { name } => {
+            let channel = session.create_channel(name, None).await?;
+            println!("{}  {}", channel.id, channel.name);
+        }
+        Command::ChannelRemove { channel } => {
+            let channel_id = resolve_channel(&session, Some(channel))?;
+            session.delete_channel(&channel_id).await?;
+            println!("deleted {channel_id}");
+        }
     }
 
     session.close().await;
@@ -419,6 +570,18 @@ async fn watch(session: &mut Session) {
             }
             ServerFrame::Typing { username, .. } => {
                 println!("{username} is typing…");
+            }
+            ServerFrame::Channels { channels } => {
+                let names: Vec<&str> = channels.iter().map(|c| c.name.as_str()).collect();
+                println!("channels: {}", names.join(", "));
+            }
+            ServerFrame::Members { members } => {
+                let names: Vec<&str> = members.iter().map(|m| m.username.as_str()).collect();
+                println!("members: {}", names.join(", "));
+            }
+            ServerFrame::Revoked => {
+                eprintln!("this device was revoked; not reconnecting");
+                return;
             }
             ServerFrame::Error(err) => {
                 eprintln!("server error: {:?}", err.code);

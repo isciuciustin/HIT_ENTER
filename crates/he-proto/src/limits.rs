@@ -17,6 +17,8 @@ pub const PASSWORD_MIN_BYTES: usize = 8;
 pub const PASSWORD_MAX_BYTES: usize = 1024;
 pub const MESSAGE_MAX_CHARS: usize = 4000;
 pub const CHANNEL_NAME_MAX_CHARS: usize = 64;
+/// A topic is one line under a channel name, not a document.
+pub const CHANNEL_TOPIC_MAX_CHARS: usize = 200;
 
 /// Longest id accepted from the wire. Ours are UUIDv7 (36 characters); the cap
 /// exists so that a hostile id cannot be used to build a huge query string or
@@ -84,6 +86,8 @@ pub enum ValidationError {
     ChannelNameEmpty,
     #[error("channel name must be at most {CHANNEL_NAME_MAX_CHARS} characters")]
     ChannelNameTooLong,
+    #[error("channel topic must be at most {CHANNEL_TOPIC_MAX_CHARS} characters")]
+    ChannelTopicTooLong,
     #[error("identifier is empty, too long, or not an identifier")]
     IdInvalid,
     #[error("nonce must be 1-{NONCE_MAX_BYTES} bytes")]
@@ -146,6 +150,15 @@ pub fn validate_channel_name(name: &str) -> Result<(), ValidationError> {
     }
     if name.chars().count() > CHANNEL_NAME_MAX_CHARS {
         return Err(ValidationError::ChannelNameTooLong);
+    }
+    Ok(())
+}
+
+/// Checks a channel topic. An absent topic is always fine; an empty one is
+/// the same as none, and the caller is expected to have made it `None`.
+pub fn validate_channel_topic(topic: &str) -> Result<(), ValidationError> {
+    if topic.chars().count() > CHANNEL_TOPIC_MAX_CHARS {
+        return Err(ValidationError::ChannelTopicTooLong);
     }
     Ok(())
 }

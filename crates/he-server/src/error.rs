@@ -70,6 +70,17 @@ pub enum ServerError {
     #[error("no such message")]
     UnknownMessage,
 
+    /// A space with no channel has nowhere to put a message.
+    #[error("a space must keep at least one channel")]
+    LastChannel,
+
+    /// The owner banned this account. Told plainly rather than hidden behind
+    /// "bad credentials": retrying cannot change the answer, and a client that
+    /// retried forever would look like a network fault rather than a decision
+    /// somebody made.
+    #[error("this account has been banned")]
+    Banned,
+
     /// Authenticated, and still not allowed: editing somebody else's message,
     /// for instance. Distinct from a "not found" because the client can
     /// already see who wrote every message it is looking at, so answering

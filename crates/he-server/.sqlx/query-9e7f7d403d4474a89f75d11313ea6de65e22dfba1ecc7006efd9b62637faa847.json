@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id, username, display_name, is_owner as \"is_owner: bool\", created_at,\n                  password_hash\n           FROM users WHERE username_ci = ?1",
+  "query": "SELECT id, username, display_name, is_owner as \"is_owner: bool\", created_at,\n                  banned_at, password_hash\n           FROM users WHERE username_ci = ?1",
   "describe": {
     "columns": [
       {
@@ -59,8 +59,19 @@
         }
       },
       {
-        "name": "password_hash",
+        "name": "banned_at",
         "ordinal": 5,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "users",
+            "name": "banned_at"
+          }
+        }
+      },
+      {
+        "name": "password_hash",
+        "ordinal": 6,
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -79,8 +90,9 @@
       true,
       false,
       false,
+      true,
       false
     ]
   },
-  "hash": "cbe0b977e5f6f40d7529b313b514051fd974f93553c0067c48d681bddf0f2b10"
+  "hash": "9e7f7d403d4474a89f75d11313ea6de65e22dfba1ecc7006efd9b62637faa847"
 }

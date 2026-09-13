@@ -30,6 +30,12 @@ pub const DELETED_EVENT: &str = "he://deleted";
 pub const PRESENCE_EVENT: &str = "he://presence";
 /// The whole online set, after a connect or a reconnect.
 pub const PRESENCE_SYNC_EVENT: &str = "he://presence-sync";
+/// The channel list changed. Carries the whole list.
+pub const CHANNELS_EVENT: &str = "he://channels";
+/// The roster changed. Carries the whole list.
+pub const MEMBERS_EVENT: &str = "he://members";
+/// This device is no longer welcome here. The rail says so; nothing retries.
+pub const REVOKED_EVENT: &str = "he://revoked";
 /// Somebody is composing. Expires on its own; see
 /// `he_proto::limits::TYPING_TIMEOUT_SECS`.
 pub const TYPING_EVENT: &str = "he://typing";
@@ -68,6 +74,23 @@ pub struct PresenceEvent {
     pub server: String,
     pub user_id: String,
     pub online: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ChannelsEvent {
+    pub server: String,
+    pub channels: Vec<he_proto::Channel>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct MembersEvent {
+    pub server: String,
+    pub members: Vec<he_proto::Member>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct RevokedEvent {
+    pub server: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -287,6 +310,36 @@ pub async fn pump(
                             username,
                         },
                     );
+                }
+                // Both lists are cached before the window is told, for the
+                // same reason a message is: the rail has to render them with
+                // the network off, and the copy on disk is the one it reads.
+                Some(ServerFrame::Channels { channels }) => {
+                    if let Err(err) = mirror.replace_channels(&server, &channels).await {
+                        tracing::error!(%err, "could not mirror the channel list");
+                    }
+                    let _ = app.emit(
+                        CHANNELS_EVENT,
+                        ChannelsEvent { server: server.clone(), channels },
+                    );
+                }
+                Some(ServerFrame::Members { members }) => {
+                    if let Err(err) = mirror.replace_members(&server, &members).await {
+                        tracing::error!(%err, "could not mirror the roster");
+                    }
+                    let _ = app.emit(
+                        MEMBERS_EVENT,
+                        MembersEvent { server: server.clone(), members },
+                    );
+                }
+                // Kicked, banned, or this machine's enrolment was revoked.
+                // The supervisor must not treat the disconnect that follows as
+                // a gap to close, so it is told to stop before it happens.
+                Some(ServerFrame::Revoked) => {
+                    tracing::warn!(%server, "this device was revoked");
+                    state.stop_connecting(&server).await;
+                    let _ = app.emit(REVOKED_EVENT, RevokedEvent { server: server.clone() });
+                    break;
                 }
                 Some(ServerFrame::Error(err)) => {
                     tracing::warn!(code = ?err.code, "server ended the session");

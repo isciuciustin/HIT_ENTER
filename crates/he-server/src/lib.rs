@@ -290,6 +290,15 @@ impl Server {
             return Err(ServerError::BadCredentials);
         }
 
+        // Checked *after* the password, deliberately. Answering "banned" to
+        // anyone who typed a username would tell a stranger which accounts
+        // exist; answering it to somebody who just proved they own the account
+        // tells them nothing they did not already know, and saves them from
+        // retrying a password that is not the problem.
+        if user.is_banned() {
+            return Err(ServerError::Banned);
+        }
+
         let mut conn = self.pool.acquire().await?;
         let device = devices::enroll(&mut conn, endpoint_id, &user.id, label).await?;
         self.limiter.record_success(&keys);
@@ -322,6 +331,13 @@ impl Server {
             // enrolment is orphaned and must not authenticate anyone.
             return Err(ServerError::DeviceNotEnrolled);
         };
+        // A ban revokes every device, so this should already have failed at
+        // `resolve`. Checked again because "banned accounts cannot connect" is
+        // the rule, and a rule that holds only because of a side effect
+        // somewhere else is one enrolment away from not holding.
+        if user.is_banned() {
+            return Err(ServerError::Banned);
+        }
         devices::touch(&self.pool, endpoint_id, &user.id).await?;
 
         Ok((user, device))
@@ -330,6 +346,91 @@ impl Server {
     /// Every device enrolled for an account, revoked ones included.
     pub async fn devices_for_user(&self, user_id: &str) -> Result<Vec<Device>> {
         devices::for_user(&self.pool, user_id).await
+    }
+
+    /// Logs an account out of every machine it is enrolled on.
+    ///
+    /// Not a ban: the password still works, so the member can enrol again.
+    /// That is the proportionate answer to a laptop left in a pub — and the
+    /// difference between the two is exactly why both exist.
+    ///
+    /// Returns how many enrolments were active, so the caller can say what it
+    /// did rather than "done".
+    pub async fn kick(&self, user_id: &str) -> Result<usize> {
+        let user = self.require_user(user_id).await?;
+        if user.is_owner {
+            // The owner's client is how a space is administered. Kicking it
+            // off would leave the space running with nobody able to reach its
+            // tools, and the only way back would be the database.
+            return Err(ServerError::Forbidden);
+        }
+        self.revoke_all_devices(user_id).await
+    }
+
+    /// Bans or un-bans an account: every device revoked, and the password
+    /// refused too, until somebody un-bans it.
+    pub async fn set_banned(&self, user_id: &str, banned: bool) -> Result<()> {
+        let user = self.require_user(user_id).await?;
+        if user.is_owner {
+            return Err(ServerError::Forbidden);
+        }
+
+        auth::set_banned(&self.pool, user_id, banned).await?;
+        if banned {
+            // Order matters only in one direction: the flag first, so that a
+            // connection racing the revocation is refused by the flag.
+            self.revoke_all_devices(user_id).await?;
+        }
+        tracing::info!(%user_id, banned, "membership changed");
+        Ok(())
+    }
+
+    /// Revokes every active enrolment for an account.
+    async fn revoke_all_devices(&self, user_id: &str) -> Result<usize> {
+        let devices = devices::for_user(&self.pool, user_id).await?;
+        let mut revoked = 0;
+        for device in devices.iter().filter(|d| d.is_active()) {
+            devices::revoke(&self.pool, &device.endpoint_id, user_id).await?;
+            revoked += 1;
+        }
+        tracing::info!(%user_id, revoked, "devices revoked");
+        Ok(revoked)
+    }
+
+    /// Creates a channel at the end of the list.
+    pub async fn create_channel(
+        &self,
+        name: &str,
+        topic: Option<&str>,
+    ) -> Result<he_proto::Channel> {
+        let channel = channels::append(&self.pool, name, topic).await?;
+        tracing::info!(channel_id = %channel.id, name = %channel.name, "channel created");
+        Ok(channel)
+    }
+
+    /// Deletes a channel and every message in it. Refuses the last one.
+    pub async fn delete_channel(&self, channel_id: &str) -> Result<()> {
+        channels::delete(&self.pool, channel_id).await?;
+        tracing::info!(%channel_id, "channel deleted");
+        Ok(())
+    }
+
+    /// Every invite on the space, newest first.
+    pub async fn invites(&self) -> Result<Vec<Invite>> {
+        invite::list(&self.pool).await
+    }
+
+    /// Deletes an invite. Accounts already made with it stay.
+    pub async fn revoke_invite(&self, code: &str) -> Result<()> {
+        invite::revoke(&self.pool, code).await
+    }
+
+    /// Resolves an account id, so that every owner tool refuses a bad one the
+    /// same way instead of each inventing its own answer.
+    async fn require_user(&self, user_id: &str) -> Result<User> {
+        auth::find_by_id(&self.pool, user_id)
+            .await?
+            .ok_or(ServerError::UnknownUser)
     }
 
     /// Kicks a device off. Its next `Hello` fails with

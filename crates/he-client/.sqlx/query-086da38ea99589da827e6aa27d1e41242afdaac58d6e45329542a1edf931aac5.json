@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO cached_members\n                     (endpoint_id, id, username, display_name, is_owner, banned)\n                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 6
+    },
+    "nullable": []
+  },
+  "hash": "086da38ea99589da827e6aa27d1e41242afdaac58d6e45329542a1edf931aac5"
+}

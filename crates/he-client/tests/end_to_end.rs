@@ -982,3 +982,368 @@ async fn typing_goes_to_everyone_else_and_is_throttled() {
     bob.close().await;
     harness.shutdown().await;
 }
+
+// ---------------------------------------------------------------------------
+// M6: the owner's tools
+// ---------------------------------------------------------------------------
+
+impl Harness {
+    /// A session on the owner's account. The owner is made locally, so this is
+    /// a password login rather than a registration.
+    async fn owner(&self, client: &Client) -> Session {
+        client
+            .connect(
+                self.addr.clone(),
+                Auth::Password {
+                    username: "owner".into(),
+                    password: Password::new("correct horse"),
+                },
+            )
+            .await
+            .expect("owner login")
+    }
+}
+
+#[tokio::test]
+async fn a_member_cannot_use_the_owners_tools() {
+    // The whole point of the milestone: these are reachable only over a
+    // socket, so every one of them has to be refused on the server and not in
+    // a disabled button somewhere.
+    let harness = Harness::start().await;
+    let client = harness.client().await;
+    let alice = harness.register(&client, "alice").await;
+    let owner_id = alice
+        .ready()
+        .members
+        .iter()
+        .find(|m| m.is_owner)
+        .map(|m| m.id.clone())
+        .expect("the owner is in the roster");
+
+    let forbidden = |err: ClientError| assert_eq!(err.code(), Some(ErrorCode::Forbidden));
+
+    forbidden(
+        alice
+            .create_channel("mine", None)
+            .await
+            .expect_err("a member may not make channels"),
+    );
+    forbidden(
+        alice
+            .delete_channel(&alice.ready().channels[0].id)
+            .await
+            .expect_err("a member may not delete channels"),
+    );
+    forbidden(
+        alice
+            .kick(&owner_id)
+            .await
+            .expect_err("a member may not kick"),
+    );
+    forbidden(
+        alice
+            .set_banned(&owner_id, true)
+            .await
+            .expect_err("a member may not ban"),
+    );
+    forbidden(
+        alice
+            .invites()
+            .await
+            .expect_err("a member may not list invites"),
+    );
+    forbidden(
+        alice
+            .revoke_invite(&harness.invite)
+            .await
+            .expect_err("a member may not revoke invites"),
+    );
+    // Somebody else's devices are somebody else's business.
+    forbidden(
+        alice
+            .devices(Some(&owner_id))
+            .await
+            .expect_err("a member may not enumerate another account's devices"),
+    );
+
+    // Their own devices, though, are theirs to see and to revoke.
+    let mine = alice.devices(None).await.expect("my own devices");
+    assert_eq!(mine.len(), 1);
+    assert!(mine[0].current, "the device asking is marked as such");
+
+    alice.close().await;
+    harness.shutdown().await;
+}
+
+#[tokio::test]
+async fn a_ban_disconnects_the_account_and_refuses_it_afterwards() {
+    let harness = Harness::start().await;
+    let owner_client = harness.client().await;
+    let owner = harness.owner(&owner_client).await;
+    let alice_client = harness.client().await;
+    let mut alice = harness.register(&alice_client, "alice").await;
+    let alice_id = alice.ready().user.id.clone();
+
+    owner.set_banned(&alice_id, true).await.expect("ban");
+
+    // Told, rather than left watching a connection that stopped answering.
+    let revoked = tokio::time::timeout(PATIENCE, async {
+        loop {
+            match alice.next_event().await {
+                Some(ServerFrame::Revoked) => return true,
+                Some(_) => continue,
+                None => return false,
+            }
+        }
+    })
+    .await
+    .expect("an answer within the timeout");
+    assert!(revoked, "a banned account is told, not silently dropped");
+
+    // The device key is no use any more…
+    let err = alice_client
+        .connect(harness.addr.clone(), Auth::Device { username: None })
+        .await
+        .expect_err("a banned account must not reconnect");
+    assert_eq!(err.code(), Some(ErrorCode::DeviceRevoked), "got {err:?}");
+
+    // …and neither is the password, which is what makes it a ban rather than
+    // a kick.
+    let err = alice_client
+        .connect(
+            harness.addr.clone(),
+            Auth::Password {
+                username: "alice".into(),
+                password: Password::new("correct horse"),
+            },
+        )
+        .await
+        .expect_err("a banned account must not log in");
+    assert_eq!(err.code(), Some(ErrorCode::Banned), "got {err:?}");
+
+    // Reversible: an irreversible action one misclick away is worse.
+    owner.set_banned(&alice_id, false).await.expect("un-ban");
+    let back = alice_client
+        .connect(
+            harness.addr.clone(),
+            Auth::Password {
+                username: "alice".into(),
+                password: Password::new("correct horse"),
+            },
+        )
+        .await
+        .expect("un-banning lets them back in");
+
+    back.close().await;
+    owner.close().await;
+    harness.shutdown().await;
+}
+
+#[tokio::test]
+async fn a_kick_costs_a_password_and_not_the_account() {
+    // The difference between kick and ban, stated as a test: after a kick the
+    // password still works. That is what makes it the proportionate answer to
+    // a laptop left in a pub.
+    let harness = Harness::start().await;
+    let owner_client = harness.client().await;
+    let owner = harness.owner(&owner_client).await;
+    let alice_client = harness.client().await;
+    let alice = harness.register(&alice_client, "alice").await;
+    let alice_id = alice.ready().user.id.clone();
+
+    owner.kick(&alice_id).await.expect("kick");
+    alice.close().await;
+
+    let err = alice_client
+        .connect(harness.addr.clone(), Auth::Device { username: None })
+        .await
+        .expect_err("the enrolment is gone");
+    assert_eq!(err.code(), Some(ErrorCode::DeviceRevoked), "got {err:?}");
+
+    let back = alice_client
+        .connect(
+            harness.addr.clone(),
+            Auth::Password {
+                username: "alice".into(),
+                password: Password::new("correct horse"),
+            },
+        )
+        .await
+        .expect("a kick is not a ban: the password still enrols this device");
+
+    back.close().await;
+    owner.close().await;
+    harness.shutdown().await;
+}
+
+#[tokio::test]
+async fn the_owner_cannot_lock_themselves_out() {
+    // A space is administered through the owner's own client. Banning it would
+    // leave the space running with nobody able to reach its tools, and the
+    // only way back would be editing the database by hand.
+    let harness = Harness::start().await;
+    let client = harness.client().await;
+    let owner = harness.owner(&client).await;
+    let owner_id = owner.ready().user.id.clone();
+
+    let err = owner
+        .set_banned(&owner_id, true)
+        .await
+        .expect_err("the owner must not be bannable");
+    assert_eq!(err.code(), Some(ErrorCode::Forbidden), "got {err:?}");
+
+    let err = owner
+        .kick(&owner_id)
+        .await
+        .expect_err("the owner must not be kickable");
+    assert_eq!(err.code(), Some(ErrorCode::Forbidden), "got {err:?}");
+
+    owner.close().await;
+    harness.shutdown().await;
+}
+
+#[tokio::test]
+async fn channels_come_and_go_and_the_last_one_stays() {
+    let harness = Harness::start().await;
+    let owner_client = harness.client().await;
+    let owner = harness.owner(&owner_client).await;
+    let alice_client = harness.client().await;
+    let mut alice = harness.register(&alice_client, "alice").await;
+
+    let general = alice.ready().channels[0].id.clone();
+    let scratch = owner
+        .create_channel("scratch", Some("temporary"))
+        .await
+        .expect("create");
+    assert_eq!(scratch.name, "scratch");
+
+    // Everybody is told, with the whole list — a channel that was deleted has
+    // to disappear, and a merge can only ever add.
+    let names = tokio::time::timeout(PATIENCE, async {
+        loop {
+            if let Some(ServerFrame::Channels { channels }) = alice.next_event().await {
+                return channels.into_iter().map(|c| c.name).collect::<Vec<_>>();
+            }
+        }
+    })
+    .await
+    .expect("a channels event");
+    assert_eq!(names, vec!["general".to_string(), "scratch".to_string()]);
+
+    owner.delete_channel(&scratch.id).await.expect("delete");
+
+    // The last one stays: a space with no channel has nowhere to put a
+    // message, and the owner would have no way back but the database.
+    let err = owner
+        .delete_channel(&general)
+        .await
+        .expect_err("the last channel must survive");
+    assert_eq!(err.code(), Some(ErrorCode::Forbidden), "got {err:?}");
+
+    alice.close().await;
+    owner.close().await;
+    harness.shutdown().await;
+}
+
+#[tokio::test]
+async fn a_revoked_invite_stops_working_and_leaves_its_accounts_alone() {
+    let harness = Harness::start().await;
+    let owner_client = harness.client().await;
+    let owner = harness.owner(&owner_client).await;
+
+    let alice_client = harness.client().await;
+    let alice = harness.register(&alice_client, "alice").await;
+    alice.close().await;
+
+    let listed = owner.invites().await.expect("list");
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].uses, 1, "alice used it once");
+
+    owner.revoke_invite(&harness.invite).await.expect("revoke");
+    assert!(owner.invites().await.expect("list").is_empty());
+
+    // The code is dead…
+    let bob_client = harness.client().await;
+    let err = bob_client
+        .connect(
+            harness.addr.clone(),
+            Auth::Register {
+                invite: harness.invite.clone(),
+                username: "bob".into(),
+                password: Password::new("correct horse"),
+            },
+        )
+        .await
+        .expect_err("a revoked invite must not create an account");
+    assert_eq!(err.code(), Some(ErrorCode::InviteInvalid), "got {err:?}");
+
+    // …and alice, who is already in, stays in.
+    let alice = alice_client
+        .connect(harness.addr.clone(), Auth::Device { username: None })
+        .await
+        .expect("revoking an invite does not evict the accounts made with it");
+
+    alice.close().await;
+    owner.close().await;
+    harness.shutdown().await;
+}
+
+#[tokio::test]
+async fn revoking_one_device_leaves_the_accounts_others_connected() {
+    // The narrow case that is easy to get wrong: two machines, one account.
+    let harness = Harness::start().await;
+    let laptop_client = harness.client().await;
+    let laptop = harness.register(&laptop_client, "alice").await;
+    let alice_id = laptop.ready().user.id.clone();
+
+    // A second machine enrols with the password, as PLAN §3 describes.
+    let phone_client = harness.client().await;
+    let mut phone = phone_client
+        .connect(
+            harness.addr.clone(),
+            Auth::Password {
+                username: "alice".into(),
+                password: Password::new("correct horse"),
+            },
+        )
+        .await
+        .expect("enrol a second device");
+
+    let phone_key = phone_client.endpoint_id().to_string();
+    assert_eq!(
+        laptop.devices(None).await.expect("devices").len(),
+        2,
+        "one account, two machines"
+    );
+
+    // The laptop revokes the phone — your own devices are yours to manage.
+    laptop
+        .revoke_device(&alice_id, &phone_key)
+        .await
+        .expect("revoke");
+
+    let told = tokio::time::timeout(PATIENCE, async {
+        loop {
+            match phone.next_event().await {
+                Some(ServerFrame::Revoked) => return true,
+                Some(_) => continue,
+                None => return false,
+            }
+        }
+    })
+    .await
+    .expect("an answer within the timeout");
+    assert!(told, "the revoked machine is told");
+
+    // The laptop is still here. Revoking one enrolment must not sign the
+    // account out everywhere — that is what a kick is for.
+    let devices = laptop
+        .devices(None)
+        .await
+        .expect("the laptop's session still works");
+    let active = devices.iter().filter(|d| d.revoked_at.is_none()).count();
+    assert_eq!(active, 1);
+
+    laptop.close().await;
+    harness.shutdown().await;
+}

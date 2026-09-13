@@ -1083,3 +1083,125 @@ pub async fn mark_read(
         .await?;
     Ok(())
 }
+
+// ---- owner tools (PLAN §12, M6) -------------------------------------------
+//
+// Every one of these needs a live session, and none of them is queued when
+// there is not one. Moderation is a decision about a space, and a decision
+// that will be applied "at some point, against whatever state you find" is a
+// worse promise than "you are offline".
+
+async fn connected(app: &Arc<App>, endpoint_id: &str) -> Result<Arc<Session>> {
+    app.session(endpoint_id)
+        .await
+        .ok_or_else(|| CommandError::message("not connected to that space"))
+}
+
+/// Creates a channel. Owner only; the server is what enforces that.
+#[tauri::command]
+pub async fn create_channel(
+    app: State<'_, Arc<App>>,
+    endpoint_id: String,
+    name: String,
+    topic: Option<String>,
+) -> Result<Channel> {
+    let topic = topic.filter(|t| !t.trim().is_empty());
+    let session = connected(&app, &endpoint_id).await?;
+    let channel = session.create_channel(&name, topic.as_deref()).await?;
+    // The `he://channels` event that follows updates the mirror and the rail;
+    // this returns the new channel so the caller can select it without
+    // waiting for the round trip it just made.
+    Ok(channel)
+}
+
+/// Deletes a channel and every message in it. The server refuses the last one.
+#[tauri::command]
+pub async fn delete_channel(
+    app: State<'_, Arc<App>>,
+    endpoint_id: String,
+    channel_id: String,
+) -> Result<()> {
+    connected(&app, &endpoint_id)
+        .await?
+        .delete_channel(&channel_id)
+        .await?;
+    Ok(())
+}
+
+/// Logs a member out of every machine they are enrolled on.
+#[tauri::command]
+pub async fn kick_member(
+    app: State<'_, Arc<App>>,
+    endpoint_id: String,
+    user_id: String,
+) -> Result<()> {
+    connected(&app, &endpoint_id).await?.kick(&user_id).await?;
+    Ok(())
+}
+
+/// Bans or un-bans a member.
+#[tauri::command]
+pub async fn set_member_banned(
+    app: State<'_, Arc<App>>,
+    endpoint_id: String,
+    user_id: String,
+    banned: bool,
+) -> Result<()> {
+    connected(&app, &endpoint_id)
+        .await?
+        .set_banned(&user_id, banned)
+        .await?;
+    Ok(())
+}
+
+/// Kicks one machine off. Your own, or anybody's if you are the owner.
+#[tauri::command]
+pub async fn revoke_device(
+    app: State<'_, Arc<App>>,
+    endpoint_id: String,
+    user_id: String,
+    device_id: String,
+) -> Result<()> {
+    connected(&app, &endpoint_id)
+        .await?
+        .revoke_device(&user_id, &device_id)
+        .await?;
+    Ok(())
+}
+
+/// The devices enrolled for an account. `None` asks about your own.
+#[tauri::command]
+pub async fn devices(
+    app: State<'_, Arc<App>>,
+    endpoint_id: String,
+    user_id: Option<String>,
+) -> Result<Vec<he_proto::DeviceInfo>> {
+    let devices = connected(&app, &endpoint_id)
+        .await?
+        .devices(user_id.as_deref())
+        .await?;
+    Ok(devices)
+}
+
+/// Every invite on the space. Owner only.
+#[tauri::command]
+pub async fn invites(
+    app: State<'_, Arc<App>>,
+    endpoint_id: String,
+) -> Result<Vec<he_proto::InviteInfo>> {
+    Ok(connected(&app, &endpoint_id).await?.invites().await?)
+}
+
+/// Deletes an invite. Accounts already made with it stay.
+#[tauri::command]
+pub async fn revoke_invite(
+    app: State<'_, Arc<App>>,
+    endpoint_id: String,
+    code: String,
+) -> Result<()> {
+    connected(&app, &endpoint_id)
+        .await?
+        .revoke_invite(&code)
+        .await?;
+    Ok(())
+}

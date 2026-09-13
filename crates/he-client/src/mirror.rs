@@ -250,13 +250,15 @@ impl Mirror {
 
         for member in members {
             sqlx::query!(
-                "INSERT INTO cached_members (endpoint_id, id, username, display_name, is_owner)
-                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                "INSERT INTO cached_members
+                     (endpoint_id, id, username, display_name, is_owner, banned)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
                 endpoint_id,
                 member.id,
                 member.username,
                 member.display_name,
                 member.is_owner,
+                member.banned,
             )
             .execute(&mut *tx)
             .await?;
@@ -270,7 +272,9 @@ impl Mirror {
     pub async fn members(&self, endpoint_id: &str) -> Result<Vec<he_proto::Member>> {
         let rows = sqlx::query_as!(
             he_proto::Member,
-            r#"SELECT id, username, display_name, is_owner AS "is_owner!: bool"
+            r#"SELECT id, username, display_name,
+                      is_owner AS "is_owner!: bool",
+                      banned   AS "banned!: bool"
                FROM cached_members WHERE endpoint_id = ?1
                ORDER BY is_owner DESC, username COLLATE NOCASE"#,
             endpoint_id,

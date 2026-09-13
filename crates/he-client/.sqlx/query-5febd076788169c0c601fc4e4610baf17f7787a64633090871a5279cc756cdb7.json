@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id, username, display_name, is_owner AS \"is_owner!: bool\"\n               FROM cached_members WHERE endpoint_id = ?1\n               ORDER BY is_owner DESC, username COLLATE NOCASE",
+  "query": "SELECT id, username, display_name,\n                      is_owner AS \"is_owner!: bool\",\n                      banned   AS \"banned!: bool\"\n               FROM cached_members WHERE endpoint_id = ?1\n               ORDER BY is_owner DESC, username COLLATE NOCASE",
   "describe": {
     "columns": [
       {
@@ -46,6 +46,17 @@
             "name": "is_owner"
           }
         }
+      },
+      {
+        "name": "banned!: bool",
+        "ordinal": 4,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "cached_members",
+            "name": "banned"
+          }
+        }
       }
     ],
     "parameters": {
@@ -55,8 +66,9 @@
       false,
       false,
       true,
+      false,
       false
     ]
   },
-  "hash": "21fb273e6f619931e5f40889091fcc176ac7d1d37d3d1faa0563f3ffe0dc747f"
+  "hash": "5febd076788169c0c601fc4e4610baf17f7787a64633090871a5279cc756cdb7"
 }

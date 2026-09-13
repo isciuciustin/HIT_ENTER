@@ -27,7 +27,7 @@ pub mod rpc;
 pub mod secret;
 pub mod ticket;
 
-pub use event::{Channel, Member, Message, ServerFrame};
+pub use event::{Channel, DeviceInfo, InviteInfo, Member, Message, ServerFrame};
 pub use frame::FrameError;
 pub use net::{NetworkConfig, Relays};
 pub use rpc::{Auth, ErrorCode, Hello, ProtocolError, Ready, Request, Response};

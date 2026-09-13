@@ -13,7 +13,9 @@ use std::collections::BTreeMap;
 
 use he_proto::io::{read_frame, write_frame};
 use he_proto::rpc::{Auth, Hello, Ready, Request, Response};
-use he_proto::{FrameError, Message, NetworkConfig, ServerFrame, limits};
+use he_proto::{
+    Channel, DeviceInfo, FrameError, InviteInfo, Message, NetworkConfig, ServerFrame, limits,
+};
 use iroh::endpoint::Connection;
 use iroh::{Endpoint, EndpointAddr};
 use tokio::sync::mpsc;
@@ -312,6 +314,92 @@ impl Session {
             }),
             _ => Err(ClientError::Unexpected("response")),
         }
+    }
+
+    // ---- owner tools (PLAN §12, M6) --------------------------------------
+
+    /// Creates a channel. Owner only; anyone else is refused `FORBIDDEN`.
+    pub async fn create_channel(&self, name: &str, topic: Option<&str>) -> Result<Channel> {
+        match self
+            .request(Request::CreateChannel {
+                name: name.to_owned(),
+                topic: topic.map(str::to_owned),
+            })
+            .await?
+        {
+            Response::Channel { channel } => Ok(channel),
+            _ => Err(ClientError::Unexpected("response")),
+        }
+    }
+
+    /// Deletes a channel and every message in it. The server refuses the last.
+    pub async fn delete_channel(&self, channel_id: &str) -> Result<()> {
+        self.request(Request::DeleteChannel {
+            id: channel_id.to_owned(),
+        })
+        .await
+        .map(|_| ())
+    }
+
+    /// Logs an account out of every machine. Not a ban — the password still
+    /// works, so they can enrol again.
+    pub async fn kick(&self, user_id: &str) -> Result<()> {
+        self.request(Request::Kick {
+            user_id: user_id.to_owned(),
+        })
+        .await
+        .map(|_| ())
+    }
+
+    /// Bans or un-bans an account.
+    pub async fn set_banned(&self, user_id: &str, banned: bool) -> Result<()> {
+        self.request(Request::SetBanned {
+            user_id: user_id.to_owned(),
+            banned,
+        })
+        .await
+        .map(|_| ())
+    }
+
+    /// Kicks one machine off. Your own, or anybody's if you are the owner.
+    pub async fn revoke_device(&self, user_id: &str, endpoint_id: &str) -> Result<()> {
+        self.request(Request::RevokeDevice {
+            user_id: user_id.to_owned(),
+            endpoint_id: endpoint_id.to_owned(),
+        })
+        .await
+        .map(|_| ())
+    }
+
+    /// The devices enrolled for an account. `None` asks about our own, which
+    /// is the only one a member may ask about.
+    pub async fn devices(&self, user_id: Option<&str>) -> Result<Vec<DeviceInfo>> {
+        match self
+            .request(Request::Devices {
+                user_id: user_id.map(str::to_owned),
+            })
+            .await?
+        {
+            Response::Devices { devices } => Ok(devices),
+            _ => Err(ClientError::Unexpected("response")),
+        }
+    }
+
+    /// Every invite on the space. Owner only.
+    pub async fn invites(&self) -> Result<Vec<InviteInfo>> {
+        match self.request(Request::Invites).await? {
+            Response::Invites { invites } => Ok(invites),
+            _ => Err(ClientError::Unexpected("response")),
+        }
+    }
+
+    /// Deletes an invite. Accounts already made with it stay. Owner only.
+    pub async fn revoke_invite(&self, code: &str) -> Result<()> {
+        self.request(Request::RevokeInvite {
+            code: code.to_owned(),
+        })
+        .await
+        .map(|_| ())
     }
 
     /// Mints an invite code.
