@@ -930,3 +930,18 @@ Recorded so they are decided deliberately rather than by accident:
    revisiting post-1.0 is **DMs first**: 1:1 conversations need neither
    server-side search nor moderation, so they carry the least cost. Group
    channels keep plaintext. Do not open this before 1.0 ships.
+7. **Mobile (Android/iOS)** — not a deferred-on-purpose no like bots or E2EE;
+   it has simply never been evaluated. Tauri v2 supports both, but neither
+   `gen/android` nor `gen/ios` exists in this repo, so nothing has been proven
+   to work. iOS can only ever be built from macOS (Xcode is not available
+   anywhere else); Android can be built from Linux, macOS, or Windows. The
+   real open question is not the build — it is whether the **host role**
+   survives mobile OS background suspension. "One binary, two roles" assumes
+   the process hosting a space can keep an iroh endpoint listening
+   indefinitely; both platforms aggressively suspend backgrounded apps'
+   networking, especially iOS. A mobile build as a **client only** (joining
+   an existing space, never hosting one) is far more plausible than a mobile
+   host, and would still need `HE_DATA_DIR`/mirror.db path resolution and the
+   `hitenter://` deep-link handling redone for each platform's intent-filter
+   / universal-link equivalent of what desktop already has. Undecided whether
+   this is in scope for 1.0 or after.

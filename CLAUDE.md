@@ -131,6 +131,34 @@ Gdk-Message: Error 71 (Protocol error) dispatching to Wayland display.
 `target/debug/hit-enter` directly** — that path needs the variable set by hand,
 and release packaging needs it in the `.desktop` `Exec=` line (tracked in M6).
 
+## Windows build gotchas
+
+A fresh Windows machine has none of this and nothing here installs it
+automatically — `rustup` (MSVC host triple), VS Build Tools with the
+`Microsoft.VisualStudio.Workload.VCTools` workload (`link.exe`, for the MSVC
+linker), and `tauri-cli` all have to go on by hand before `cargo tauri build`
+works:
+
+```powershell
+winget install Rustlang.Rustup
+winget install Microsoft.VisualStudio.2022.BuildTools --override `
+  "--add Microsoft.VisualStudio.Workload.VCTools --includeRecommended --passive"
+cargo install tauri-cli --version "^2" --locked
+```
+
+- **`winget`'s `msstore` source can fail a TLS check** (`the server certificate
+  did not match any of the expected values`) even when the package is right
+  there on the `winget` source. Scope the install with `--source winget`
+  instead of troubleshooting the store source.
+- **Defender locks a freshly-compiled build-script `.exe` before cargo can run
+  it**, deterministically, every retry, always at the same crate — the error
+  is `failed to run custom build command ... Access is denied. (os error 5)`
+  from a path under `%TEMP%\cargo-install*`. It is not transient; retrying in
+  place does not help. Build outside Temp instead:
+  `cargo install tauri-cli --version "^2" --locked --target-dir
+  "$env:USERPROFILE\.cargo-build-tmp"`. The same trick applies to `cargo
+  build`/`cargo tauri build` if it recurs there.
+
 ## Commands
 
 ```bash
