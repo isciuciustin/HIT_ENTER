@@ -4,9 +4,9 @@ Privacy-first, open-source (MIT), Discord-shaped chat: groups with channels, DMs
 text, files, voice, and zaps. **Nostr is the identity and the data model; iroh is
 the wire; every running app is a relay** for its user's groups.
 
-The app is called **HIT_ENTER**. The directory is `HIT_ENTER_0.1` (the private
-dev repo, `isciuciustin/HIT_ENTER_0.1`); the source is published to the
-**public** `isciuciustin/HIT_ENTER` (MIT, since 2026-10-22). Crates are `hit-*`, so they never collide with the original HIT_ENTER's `he-*` or
+The app is called **HIT_ENTER**. The directory is `HIT_ENTER`, the **public**
+repo `isciuciustin/HIT_ENTER` (MIT, since 2026-10-22); work happens here
+directly. (Until then it lived in the private `HIT_ENTER_0.1`, now retired.) Crates are `hit-*`, so they never collide with the original HIT_ENTER's `he-*` or
 HIT_ENTER_2's `he2-*`.
 
 ## Where this is right now

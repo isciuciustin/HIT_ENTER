@@ -270,7 +270,7 @@ repo (`~/Work/tries/callme`), logs go to `~/Work/tries/callme-logs/`.
 **Both machines, once:**
 
 ```bash
-git pull                              # in HIT_ENTER_0.1
+git pull                              # in HIT_ENTER
 spikes/voice/call.sh setup            # Rust via mise, clone + build callme (~1.5 min)
 spikes/voice/call.sh devices          # the headset should be the starred (*) sink and source
 ```
