@@ -3,10 +3,14 @@
 The architecture is in [`DESIGN.md`](DESIGN.md). This file is the order of
 work.
 
-**Target, v1.0:** a privacy-first, closed-source, Discord-shaped app where you and a
+**Target, v1.0:** an open-source (MIT), Discord-shaped app where you and a
 friend in another city make a group, talk in channels, DM, send files, sit in
 a voice channel, and zap each other's messages — **with no server either of
 you had to rent, and no public Nostr relay in the loop.**
+
+**Beyond v1.0, the north star (2026-10-22):** the next Discord, for public
+communities — the Unturned Discord running on HIT_ENTER (`DESIGN.md` §0).
+**§0 below is what happens now.**
 
 Every milestone ends in something you can run and show someone. No milestone
 is "refactoring", and no milestone is "and then the rest of it".
@@ -18,6 +22,62 @@ HIT_ENTER_2's plan estimated 28–40 weekends; its M0 to M9 landed between
 calendar promises: an **S** is about M1 of HIT_ENTER_2, an **L** is about its
 M7 (attachments). What they are good for is noticing when a milestone is
 twice its size — and splitting it rather than pushing through.
+
+---
+
+## 0. Now — until the VPS (2026-10-22 → November 2026)
+
+The owner rents a VPS next month; it becomes the first always-on anchor.
+Until then, in this order. *You* = the owner, *me* = Claude.
+
+### Week 1 (Oct 23–31) — prove it works for real
+
+- [ ] **Laptop ↔ PC across two networks** (one on a phone hotspot): a
+  group, messages, a file, a call — the first real network crossing
+  (`TESTING.md` §2). *You + me.*
+- [ ] **A real session with the friend in another city**: a group, chat,
+  a file, a ten-minute call (`TESTING.md` §4, §6) — what v0.1.0 waits for.
+  *You + friend.*
+- [ ] Fix whatever those break, and **the zap dialog's ~4 s give-up** on
+  the wallet path (it should wait for the carrier). *Me.*
+- [ ] **Announce on Nostr** that HIT_ENTER is open source: GitHub link,
+  hitenter.app. *You.*
+
+### Weeks 2–3 (Nov 1–14) — public groups
+
+- [ ] **The owner answers** (asked 2026-10-22; the last two open since M7):
+  1. In a public group, can a newcomer post at once, or read until a
+     moderator lets them in?
+  2. Publish profiles to public Nostr relays by default? (Recommended:
+     yes, for public communities.)
+  3. Anchors keep your DMs while you are offline (the DM inbox) — on by
+     default?
+- [ ] **Write the "public groups" milestone** here, then build it: a
+  **public** setting on a group, **join from a link without an invite**,
+  **read before joining** (`DESIGN.md` §0, rows 1 and 3). *Me.*
+- [ ] **Public groups announced on Nostr relays**, and a first, plain
+  **"browse communities"** list in the app. *Me.*
+- [ ] **Rehearse the VPS in Docker**: `hit-anchor` under systemd, Caddy
+  for `wss://`, exactly as `SELF_HOSTING.md` says — so VPS day is copy and
+  paste, not debugging. *Me.*
+
+### Week 4 (Nov 15–22) — release, and get ready
+
+- [ ] **beta.5** with public groups and the fixes: Linux built here, macOS
+  and Windows by the owner; hitenter.app links and sha256 lines. *Me + you.*
+- [ ] **The VPS-day checklist**: which server (Hetzner-class, ~€4–5/month),
+  the DNS move of `anchor.hitenter.app` from the Cloudflare tunnel to the
+  VPS, install, backups, and the check that it works. *Me.*
+- [ ] Pick the provider; a card ready. *You.*
+
+### VPS day
+
+The owner rents the box and points the domain; the checklist does the
+rest. The group stays alive with nobody online, zaps get a permanent
+`wss://`, and other Nostr apps can see public communities.
+
+**Deliberately after the VPS:** code signing (costs money), Windows echo
+cancellation, moving HIT_ENTER_2's billing crates (M11), voice over 8.
 
 ---
 

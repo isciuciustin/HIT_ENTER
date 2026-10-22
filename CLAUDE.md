@@ -14,6 +14,9 @@ HIT_ENTER_2's `he2-*`.
 
 ## Where this is right now
 
+**2026-10-22 — the plan until the VPS is `PLAN.md` §0** (week by week; the
+owner rents a VPS in November for the first always-on anchor). Start there.
+
 **2026-10-19: v0.1.0-beta.4 is out — Linux, macOS Apple silicon, Windows.**
 Public pre-release on `isciuciustin/hitenter` (AppImage, `.deb`, `.dmg`,
 `.zip`, one `SHA256SUMS`). New: Twemoji colour reactions (`src/art.rs`,
