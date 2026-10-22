@@ -32,9 +32,8 @@ cargo run --release -p hit-desktop    # the app
 cargo test --workspace                # the tests
 ```
 
-The third HIT_ENTER. The first ([tag `v0.1.1`](https://github.com/isciuciustin/HIT_ENTER/tree/v0.1.1)
-of this repo) proved iroh between two cities; HIT_ENTER_2 built global
-accounts, roles, attachments and paid hosting. This one replaces the accounts with Nostr and
-the host with everybody.
+The third HIT_ENTER. The first proved iroh between two cities; HIT_ENTER_2
+built global accounts, roles, attachments and paid hosting. This one
+replaces the accounts with Nostr and the host with everybody.
 
 `#WAR_ON_CENTRALIZATION`
