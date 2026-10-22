@@ -1,0 +1,11 @@
+[env]
+# SQL is checked at compile time against each crate's checked-in `.sqlx/`
+# cache. Offline mode makes a stale cache a build failure instead of a silent
+# fallback to whatever DATABASE_URL happens to be set, and lets a clone with no
+# database build. Refreshing a cache: CLAUDE.md, "sqlx".
+SQLX_OFFLINE = { value = "true", force = false }
+# WebKitGTK's dmabuf renderer kills the window at startup on Wayland with the
+# proprietary NVIDIA driver (`Gdk-Message: Error 71 (Protocol error)`). From
+# HIT_ENTER_2. Covers `cargo run`; the binary also sets it for itself, and the
+# packaged .desktop file sets it in `Exec=`.
+WEBKIT_DISABLE_DMABUF_RENDERER = { value = "1", force = false }

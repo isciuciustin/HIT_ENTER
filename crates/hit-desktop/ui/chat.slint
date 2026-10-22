@@ -1,0 +1,1092 @@
+// The main window (M12-4): the rail, a group's channels, the messages, the
+// composer and the members — the web window's App.svelte, Rail, ChannelList,
+// MessagePane, Composer and MemberList, in that layout.
+import { Panel } from "panel.slint";
+import { ListView, ScrollView } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+import { Emoji, Glyph, EmojiPicker } from "art.slint";
+import { ChatIcon, UserIcon, InfoIcon, CloseIcon, GearIcon } from "icons.slint";
+import { GroupUi, ChannelUi, MessageUi, MemberUi, ViewUi, ChipUi, FileUi, PendingUi } from "types.slint";
+
+export global Ink {
+    out property <color> n200: #e5e5e5;
+    out property <color> n300: #d4d4d4;
+    out property <color> n400: #a3a3a3;
+    out property <color> n500: #737373;
+    out property <color> n600: #525252;
+    out property <color> sky: #7dd3fc;
+    out property <color> hover: #ffffff0d;
+    out property <color> rail: #00000033;
+}
+
+// A count in the accent, "99+" past ninety-nine.
+export component Badge inherits Panel {
+    in property <int> n;
+    height: 16px;
+    width: max(16px, t.preferred-width + 8px);
+    border-radius: 8px;
+    background: Theme.accent;
+    t := Text {
+        text: root.n > 99 ? "99+" : root.n;
+        font-size: 10px;
+        font-weight: 700;
+        color: Theme.accent-ink;
+    }
+}
+
+// A row button: hover and keyboard focus look alike.
+export component Row inherits Panel {
+    in property <bool> selected;
+    in property <string> label;
+    out property <bool> has-focus: keys.has-focus;
+    out property <bool> hovered: touch.has-hover;
+    callback clicked;
+    forward-focus: keys;
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-action-default => { root.clicked(); }
+    border-radius: 4px;
+    background: root.selected ? Theme.edge : (touch.has-hover || keys.has-focus ? Ink.hover : transparent);
+    border-width: keys.has-focus ? 1px : 0px;
+    border-color: Theme.accent;
+    keys := FocusScope {
+        key-pressed(event) => {
+            if (event.text == Key.Return || event.text == " ") {
+                root.clicked();
+                return accept;
+            }
+            reject
+        }
+    }
+    touch := TouchArea {
+        clicked => {
+            keys.focus();
+            root.clicked();
+        }
+    }
+    @children
+}
+
+// A rail icon, Kick-style: a round tile and a green ring when it is the one
+// open or focused. Both are anti-aliased pictures (src/art.rs) — a border on
+// a rounded rectangle is drawn in stairs by the software renderer.
+component RailIcon inherits Row {
+    in property <bool> lit;
+    in property <bool> outline;
+    width: 44px;
+    height: 44px;
+    border-radius: 22px;
+    border-width: 0px;
+    background: transparent;
+    // Vector circles, anti-aliased at any scale (the software renderer's
+    // `path` feature); a rounded rectangle's border is drawn in stairs.
+    Path {
+        width: 44px;
+        height: 44px;
+        viewbox-width: 44;
+        viewbox-height: 44;
+        commands: "M 22 1.25 A 20.75 20.75 0 1 1 22 42.75 A 20.75 20.75 0 1 1 22 1.25 Z";
+        fill: root.outline ? transparent : (root.has-focus || root.lit || root.hovered ? #1b2128 : Theme.panel);
+        stroke: root.lit || root.has-focus ? Theme.accent : (root.outline ? Theme.edge : transparent);
+        stroke-width: 2.5px;
+    }
+}
+
+// A small button in a message's bar: an emoji, or a word.
+export component Mini inherits Panel {
+    in property <string> text;
+    in property <string> label;
+    in property <color> ink: Ink.n400;
+    in property <color> hover-color: Theme.text;
+    in property <length> font-size: 12px;
+    // Drawn in the emoji font (main.slint says why).
+    in property <bool> emoji;
+    out property <bool> has-focus: keys.has-focus;
+    callback clicked;
+    forward-focus: keys;
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-action-default => { root.clicked(); }
+    height: 22px;
+    width: t.preferred-width + 10px;
+    border-radius: 4px;
+    background: touch.has-hover || keys.has-focus ? #ffffff1a : transparent;
+    border-width: keys.has-focus ? 1px : 0px;
+    border-color: Theme.accent;
+    t := Text {
+        text: root.text;
+        font-size: root.emoji ? 14px : root.font-size;
+        font-family: root.emoji ? "Noto Emoji" : "JetBrains Mono";
+        color: touch.has-hover || keys.has-focus ? root.hover-color : root.ink;
+    }
+    keys := FocusScope {
+        key-pressed(event) => {
+            if (event.text == Key.Return || event.text == " ") {
+                root.clicked();
+                return accept;
+            }
+            reject
+        }
+    }
+    touch := TouchArea { clicked => { root.clicked(); } }
+}
+
+// One file (FileView.svelte): a picture, shown at display size, or a chip
+// with *show* and *save*. The bytes come from whoever has them — checked
+// against the hash either way; a DM file is decrypted on this side.
+export component FileView inherits VerticalLayout {
+    in property <FileUi> file;
+    // The widest a picture may be here: given by the row, whose width does
+    // not depend on what is inside it (its own width would be a loop).
+    in property <length> room: 400px;
+    callback show(FileUi);
+    callback save(FileUi);
+    alignment: start;
+    spacing: 2px;
+    if root.file.shown : HorizontalLayout {
+        alignment: start;
+        Image {
+            source: root.file.picture;
+            // Decoded at this size (src/pictures.rs): one pixel each — or
+            // smaller, when the column is narrower.
+            width: min(self.source.width * 1phx, root.room);
+            height: self.width * self.source.height / max(1, self.source.width);
+            image-fit: contain;
+            accessible-role: image;
+            accessible-label: root.file.name;
+        }
+    }
+    HorizontalLayout {
+        alignment: start;
+        Panel {
+            height: 26px;
+            width: chip.preferred-width;
+            border-radius: 4px;
+            border-width: root.file.shown ? 0px : 1px;
+            border-color: Theme.edge;
+            background: root.file.shown ? transparent : Theme.panel;
+            chip := HorizontalLayout {
+                padding-left: root.file.shown ? 0px : 8px;
+                padding-right: 4px;
+                spacing: 6px;
+                if !root.file.shown : Text {
+                    text: root.file.image ? "🖼" : "📎";
+                    font-family: "Noto Emoji";
+                    font-size: 12px;
+                    color: Ink.n500;
+                    vertical-alignment: center;
+                }
+                Text {
+                    text: root.file.name;
+                    font-size: root.file.shown ? 11px : 12px;
+                    color: root.file.shown ? Ink.n600 : Ink.n300;
+                    vertical-alignment: center;
+                    overflow: elide;
+                    max-width: 240px;
+                }
+                Text {
+                    text: root.file.size;
+                    font-size: 11px;
+                    color: Ink.n600;
+                    vertical-alignment: center;
+                }
+                if root.file.image && !root.file.shown : VerticalLayout {
+                    alignment: center;
+                    Mini {
+                        text: root.file.note == "loading…" ? "…" : "show";
+                        label: "Show \{root.file.name}";
+                        font-size: 11px;
+                        hover-color: Theme.accent;
+                        clicked => { root.show(root.file); }
+                    }
+                }
+                VerticalLayout {
+                    alignment: center;
+                    Mini {
+                        text: "save";
+                        label: "Save \{root.file.name}";
+                        font-size: 11px;
+                        hover-color: Theme.accent;
+                        clicked => { root.save(root.file); }
+                    }
+                }
+            }
+        }
+    }
+    // Said, not shrugged: nobody online who has it is a different problem
+    // from a file this person may not see.
+    if root.file.note != "" && root.file.note != "loading…" : Text {
+        text: root.file.note;
+        font-size: 11px;
+        color: Ink.n600;
+        wrap: word-wrap;
+    }
+}
+
+export component Rail inherits Rectangle {
+    in property <[GroupUi]> groups;
+    in property <bool> about-open;
+    in property <bool> dms-open;
+    in property <int> dm-unread;
+    callback dms();
+    callback you();
+    callback select(string);
+    callback add();
+    // Slint's licence: its About box reachable from the top level.
+    callback about();
+    width: 64px;
+    background: Ink.rail;
+    Rectangle {
+        x: parent.width - 1px;
+        width: 1px;
+        background: Theme.edge;
+    }
+    VerticalLayout {
+        padding-top: 12px;
+        padding-bottom: 12px;
+        spacing: 8px;
+        // Direct messages first, as Discord does.
+        HorizontalLayout {
+            alignment: center;
+            RailIcon {
+                label: "Direct messages";
+                lit: root.dms-open;
+                clicked => { root.dms(); }
+                ChatIcon {
+                    width: 20px;
+                    height: 20px;
+                    color: root.dms-open ? Theme.accent : Ink.n400;
+                }
+                if root.dm-unread > 0 && !root.dms-open : Badge {
+                    n: root.dm-unread;
+                    x: parent.width - self.width + 4px;
+                    y: -4px;
+                }
+            }
+        }
+        HorizontalLayout {
+            alignment: center;
+            Rectangle { width: 32px; height: 1px; background: Theme.edge; }
+        }
+        for g in root.groups : HorizontalLayout {
+            alignment: center;
+            RailIcon {
+                label: g.name;
+                lit: g.active && !root.dms-open;
+                clicked => { root.select(g.id); }
+                Text {
+                    text: g.initials;
+                    font-size: 14px;
+                    font-weight: 600;
+                    color: g.active && !root.dms-open ? Theme.accent : Ink.n400;
+                }
+                if g.unread > 0 && (!g.active || root.dms-open) : Badge {
+                    n: g.unread;
+                    x: parent.width - self.width + 4px;
+                    y: -4px;
+                }
+            }
+        }
+        HorizontalLayout {
+            alignment: center;
+            RailIcon {
+                label: "Make or join a group";
+                outline: true;
+                clicked => { root.add(); }
+                Text { text: "+"; font-size: 20px; color: Ink.n500; }
+            }
+        }
+        Rectangle { vertical-stretch: 1; }
+        HorizontalLayout {
+            alignment: center;
+            you := Row {
+                width: 36px;
+                height: 36px;
+                border-radius: 18px;
+                label: "You: your name, keys, contact link, wallet";
+                clicked => { root.you(); }
+                UserIcon { color: you.hovered || you.has-focus ? Theme.text : Ink.n500; }
+            }
+        }
+        HorizontalLayout {
+            alignment: center;
+            about := Row {
+                width: 36px;
+                height: 36px;
+                border-radius: 18px;
+                label: root.about-open ? "Close About" : "About HIT_ENTER";
+                clicked => { root.about(); }
+                if !root.about-open : InfoIcon { color: about.hovered || about.has-focus ? Theme.text : Ink.n500; }
+                if root.about-open : CloseIcon { color: about.hovered || about.has-focus ? Theme.text : Ink.n500; }
+            }
+        }
+    }
+}
+
+export component ChannelList inherits Rectangle {
+    in property <ViewUi> view;
+    in property <[ChannelUi]> channels;
+    in property <bool> has-settings;
+    callback select(string);
+    callback join(string);
+    callback invite();
+    callback settings();
+    width: 224px;
+    background: Theme.panel;
+    Rectangle {
+        x: parent.width - 1px;
+        width: 1px;
+        background: Theme.edge;
+    }
+    VerticalLayout {
+        Rectangle {
+            height: 45px;
+            HorizontalLayout {
+                padding-left: 16px;
+                padding-right: 16px;
+                spacing: 8px;
+                Text {
+                    horizontal-stretch: 1;
+                    text: root.view.group-name;
+                    font-size: 13px;
+                    font-weight: 600;
+                    color: Theme.text;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+                if root.has-settings : VerticalLayout {
+                    alignment: center;
+                    gear := Row {
+                        width: 28px;
+                        height: 28px;
+                        border-radius: 14px;
+                        label: "Group settings: name, channels, slowmode, bans";
+                        clicked => { root.settings(); }
+                        GearIcon { color: gear.hovered || gear.has-focus ? Theme.accent : Ink.n500; }
+                    }
+                }
+            }
+            Rectangle {
+                y: parent.height - 1px;
+                height: 1px;
+                background: Theme.edge;
+            }
+        }
+        ScrollView {
+            vertical-stretch: 1;
+            VerticalLayout {
+                padding: 8px;
+                spacing: 2px;
+                alignment: start;
+                for c in root.channels : VerticalLayout {
+                  Row {
+                    height: 30px;
+                    label: c.voice
+                        ? (c.here ? "voice channel \{c.name}, you are in it" : "join voice channel \{c.name}: up to 8 people, connected to each other directly")
+                        : "#\{c.name}";
+                    selected: c.active || c.here;
+                    // A voice channel is joined, not opened: it has no
+                    // messages.
+                    clicked => {
+                        if (c.voice) {
+                            if (!c.here) {
+                                root.join(c.id);
+                            }
+                        } else {
+                            root.select(c.id);
+                        }
+                    }
+                    HorizontalLayout {
+                        padding-left: 8px;
+                        padding-right: 8px;
+                        spacing: 6px;
+                        Text {
+                            text: c.voice ? "🔊" : "#";
+                            font-family: c.voice ? "Noto Emoji" : "JetBrains Mono";
+                            color: Ink.n600;
+                            vertical-alignment: center;
+                        }
+                        Text {
+                            horizontal-stretch: 1;
+                            text: c.name;
+                            vertical-alignment: center;
+                            overflow: elide;
+                            font-weight: c.unread > 0 && !c.active ? 700 : 400;
+                            color: c.active || c.unread > 0 ? #f5f5f5 : Ink.n400;
+                        }
+                        if c.private : Text {
+                            text: "🔒";
+                            font-size: 11px;
+                            font-family: "Noto Emoji";
+                            color: Ink.n600;
+                            vertical-alignment: center;
+                        }
+                        if c.slowmode > 0 : Text {
+                            font-family: "Noto Emoji";
+                            text: "⏱";
+                            font-size: 10px;
+                            color: Ink.n600;
+                            vertical-alignment: center;
+                        }
+                        if c.unread > 0 && !c.active : VerticalLayout {
+                            alignment: center;
+                            Badge { n: c.unread; }
+                        }
+                    }
+                  }
+                  // Who is in the voice channel, lit while speaking.
+                  for p in c.people : HorizontalLayout {
+                    padding-left: 30px;
+                    height: 20px;
+                    spacing: 6px;
+                    VerticalLayout {
+                        alignment: center;
+                        Panel {
+                            width: 6px;
+                            height: 6px;
+                            border-radius: 3px;
+                            background: p.speaking ? #34d399 : #525252;
+                        }
+                    }
+                    Text {
+                        text: p.name;
+                        font-size: 12px;
+                        color: p.speaking ? #6ee7b7 : Ink.n400;
+                        vertical-alignment: center;
+                        overflow: elide;
+                    }
+                  }
+                }
+                if root.channels.length == 0 : Text {
+                    text: root.view.joining ? "waiting for a member to answer…" : "no channels you can see";
+                    font-size: 12px;
+                    color: Ink.n600;
+                }
+            }
+        }
+        Rectangle {
+            height: 1px;
+            background: Theme.edge;
+        }
+        // As tall as the composer beside it (12 + 38 + 12), so the two
+        // lines above them meet. Who you are lives on the rail, once.
+        VerticalLayout {
+            height: 62px;
+            padding: 12px;
+            if root.view.can-invite : Row {
+                height: 38px;
+                border-radius: Theme.radius;
+                border-width: 1px;
+                border-color: self.has-focus ? Theme.accent : Theme.edge;
+                label: "Invite people: make a link";
+                clicked => { root.invite(); }
+                Text { text: "invite people"; font-size: 12px; color: Ink.n300; }
+            }
+        }
+    }
+}
+
+// One reaction chip: the emoji and how many; mine in the accent.
+component Chip inherits Panel {
+    in property <ChipUi> chip;
+    callback clicked;
+    forward-focus: keys;
+    accessible-role: button;
+    accessible-label: "\{root.chip.emoji} \{root.chip.count}: \{root.chip.who}";
+    accessible-action-default => { root.clicked(); }
+    height: 22px;
+    width: row.preferred-width + 20px;
+    border-radius: 11px;
+    border-width: 1px;
+    border-color: keys.has-focus ? Theme.accent
+        : root.chip.mine ? #3ddc8499 : (touch.has-hover ? Ink.n500 : Theme.edge);
+    background: root.chip.mine ? #3ddc841a : transparent;
+    row := HorizontalLayout {
+        x: 8px;
+        spacing: 4px;
+        VerticalLayout {
+            alignment: center;
+            Glyph { emoji: root.chip.emoji; size: 16px; }
+        }
+        Text {
+            text: root.chip.count;
+            font-size: 10px;
+            color: root.chip.mine ? #f5f5f5 : Ink.n400;
+            vertical-alignment: center;
+        }
+    }
+    keys := FocusScope {
+        key-pressed(event) => {
+            if (event.text == Key.Return || event.text == " ") {
+                root.clicked();
+                return accept;
+            }
+            reject
+        }
+    }
+    touch := TouchArea { clicked => { root.clicked(); } }
+}
+
+// One message. Hover or keyboard focus shows its bar: quick reactions,
+// and withdrawing my own or — for a moderator — removing someone else's.
+// Withdrawing is NIP-09: honest peers drop it; a copy someone already saved
+// elsewhere is out of anyone's reach.
+component MessageRow inherits Panel {
+    in property <MessageUi> m;
+    callback zap();
+    callback show-file(FileUi);
+    callback save-file(FileUi);
+    callback react(string);
+    callback withdraw();
+    callback remove();
+    // The bar's own buttons take the pointer from `hover`: count them in, or
+    // the bar vanishes under the pointer and comes back (a flicker).
+    property <bool> lit: hover.has-hover || keys.has-focus || on-bar.has-hover;
+    height: body.preferred-height;
+    accessible-role: list-item;
+    accessible-label: "\{root.m.name}: \{root.m.text}";
+    background: keys.has-focus ? #ffffff0a : (hover.has-hover ? #ffffff05 : transparent);
+    border-radius: 4px;
+    border-width: keys.has-focus ? 1px : 0px;
+    border-color: Theme.edge;
+    hover := TouchArea { clicked => { keys.focus(); } }
+    picker := EmojiPicker {
+        x: root.width - self.width - 16px;
+        y: 28px;
+        picked(e) => {
+            root.react(e);
+            keys.focus();
+        }
+    }
+    // From the keyboard, on a focused message: 1–5 react as the bar's five
+    // do, Delete takes it back. Tab cannot walk into the bar — Slint's
+    // focus chain passes over it — so the bar shows the keys.
+    keys := FocusScope {
+        key-pressed(event) => {
+            // Its first file: Ctrl+S saves it, Enter shows a picture held
+            // back for its size.
+            if (root.m.files.length > 0) {
+                if (event.modifiers.control && (event.text == "s" || event.text == "S")) {
+                    root.save-file(root.m.files[0]);
+                    return accept;
+                }
+                if (event.text == Key.Return && root.m.files[0].image && !root.m.files[0].shown) {
+                    root.show-file(root.m.files[0]);
+                    return accept;
+                }
+            }
+            if (event.modifiers.control || event.modifiers.alt) {
+                return reject;
+            }
+            if (event.text == "z" && !root.m.mine) { root.zap(); return accept; }
+            // The first five of HIT_ENTER's green ones, as on the bar.
+            if (event.text == "1") { root.react(Emoji.specials[0]); return accept; }
+            if (event.text == "2") { root.react(Emoji.specials[1]); return accept; }
+            if (event.text == "3") { root.react(Emoji.specials[2]); return accept; }
+            if (event.text == "4") { root.react(Emoji.specials[3]); return accept; }
+            if (event.text == "5") { root.react(Emoji.specials[4]); return accept; }
+            if (event.text == "e") { picker.show(); return accept; }
+            if (event.text == Key.Delete) {
+                if (root.m.mine) {
+                    root.withdraw();
+                    return accept;
+                }
+                if (root.m.can-remove) {
+                    root.remove();
+                    return accept;
+                }
+            }
+            reject
+        }
+    }
+    body := VerticalLayout {
+        padding-left: 16px;
+        padding-right: 16px;
+        padding-top: root.m.head ? 12px : 1px;
+        padding-bottom: 1px;
+        spacing: 2px;
+        if root.m.head : HorizontalLayout {
+            spacing: 8px;
+            alignment: start;
+            Text {
+                text: root.m.name;
+                font-size: 12px;
+                font-weight: 600;
+                color: root.m.mine ? Theme.accent : Ink.sky;
+            }
+            Text {
+                text: root.m.time;
+                font-size: 10px;
+                color: Ink.n600;
+                vertical-alignment: center;
+            }
+        }
+        if root.m.text != "" : Text {
+            text: root.m.text;
+            wrap: word-wrap;
+            font-size: 14px;
+            color: Ink.n200;
+        }
+        for f in root.m.files : FileView {
+            file: f;
+            room: root.width - 32px;
+            show(f) => { root.show-file(f); }
+            save(f) => { root.save-file(f); }
+        }
+        if root.m.reactions.length > 0 || root.m.zap-sats != "" : HorizontalLayout {
+            padding-top: 2px;
+            spacing: 4px;
+            alignment: start;
+            // Counted from receipts signed by its author's wallet.
+            if root.m.zap-sats != "" : Panel {
+                height: 22px;
+                width: zt.preferred-width + 20px;
+                border-radius: 11px;
+                border-width: 1px;
+                border-color: #fbbf2466;
+                background: #fbbf241a;
+                accessible-role: text;
+                accessible-label: root.m.zap-note;
+                zt := Text { text: "⚡ " + root.m.zap-sats; font-size: 11px; color: #fde68a; }
+            }
+            for c in root.m.reactions : Chip {
+                chip: c;
+                clicked => { root.react(c.emoji); }
+            }
+        }
+    }
+    Panel {
+        visible: root.lit;
+        x: parent.width - self.width - 16px;
+        y: 0px;
+        width: bar.preferred-width + 6px;
+        height: 26px;
+        background: Theme.panel;
+        border-width: 1px;
+        border-color: Theme.edge;
+        border-radius: 4px;
+        on-bar := TouchArea {
+            bar := HorizontalLayout {
+                padding: 2px;
+                spacing: 2px;
+                if keys.has-focus : Text {
+                    text: (root.m.files.length > 0 ? "⌃S save · " : "") + (root.m.mine ? "" : "z zap · ") + "1–5 · e more";
+                    font-size: 10px;
+                    color: Ink.n600;
+                    vertical-alignment: center;
+                }
+                for i in 5 : Panel {
+                    width: 22px;
+                    height: 22px;
+                    border-radius: 4px;
+                    background: qt.has-hover ? #ffffff1a : transparent;
+                    accessible-role: button;
+                    accessible-label: "react " + Emoji.specials[i];
+                    accessible-action-default => { root.react(Emoji.specials[i]); }
+                    Glyph { emoji: Emoji.specials[i]; size: 18px; }
+                    qt := TouchArea { clicked => { root.react(Emoji.specials[i]); } }
+                }
+                Mini {
+                    text: "+";
+                    label: "More reactions";
+                    font-size: 13px;
+                    clicked => { picker.show(); }
+                }
+                Mini {
+                    visible: !root.m.mine;
+                    width: self.visible ? self.preferred-width : 0px;
+                    text: "⚡zap";
+                    label: "Zap: send sats from your own wallet";
+                    font-size: 11px;
+                    ink: #fcd34dcc;
+                    hover-color: #fcd34d;
+                    clicked => { root.zap(); }
+                }
+                act := Mini {
+                    visible: root.m.mine || root.m.can-remove;
+                    width: self.visible ? self.preferred-width : 0px;
+                    text: (root.m.mine ? "delete" : "remove") + (keys.has-focus ? " ⌦" : "");
+                    label: root.m.mine ? "Withdraw this message: every honest member's app drops it"
+                        : "Remove it for everyone: honest members' apps drop it and refuse it if it comes back";
+                    font-size: 11px;
+                    hover-color: Theme.danger;
+                    clicked => {
+                        if (root.m.mine) {
+                            root.withdraw();
+                        } else {
+                            root.remove();
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component MessagePane inherits Rectangle {
+    in property <[MessageUi]> messages;
+    in property <bool> has-channel;
+    in property <string> error;
+    callback react(string, string);
+    callback withdraw(string);
+    callback remove(string);
+    callback show-file(FileUi);
+    callback save-file(FileUi);
+    callback zap(string);
+    // Follow new messages only if the reader was already at the bottom:
+    // scrolling someone away from what they are reading is rude.
+    property <bool> stick: true;
+    property <int> count: root.messages.length;
+
+    public function to-bottom() {
+        root.stick = true;
+        list.content-y = min(0px, list.visible-height - list.content-height);
+    }
+
+    changed count => {
+        if (root.stick) {
+            // After this layout pass, when the new row's height is known.
+            settle.running = true;
+        }
+    }
+
+    settle := Timer {
+        interval: 16ms;
+        running: false;
+        triggered => {
+            self.running = false;
+            root.to-bottom();
+        }
+    }
+
+    list := ListView {
+        changed content-y => {
+            root.stick = list.content-height + list.content-y - list.visible-height < 80px;
+        }
+        for m in root.messages : MessageRow {
+            m: m;
+            react(e) => { root.react(m.id, e); }
+            withdraw => { root.withdraw(m.id); }
+            remove => { root.remove(m.id); }
+            show-file(f) => { root.show-file(f); }
+            save-file(f) => { root.save-file(f); }
+            zap => { root.zap(m.id); }
+        }
+    }
+
+    if root.messages.length == 0 : Text {
+        text: root.has-channel ? "nothing here yet — say something" : "no channel selected";
+        font-size: 13px;
+        color: Ink.n600;
+    }
+
+    if root.error != "" : Rectangle {
+        y: parent.height - self.height - 4px;
+        x: 16px;
+        width: parent.width - 32px;
+        height: et.preferred-height + 8px;
+        background: Theme.panel;
+        et := Text {
+            width: parent.width;
+            text: root.error;
+            wrap: word-wrap;
+            font-size: 12px;
+            color: Theme.danger;
+        }
+    }
+}
+
+export component Composer inherits Rectangle {
+    in-out property <string> draft;
+    in property <ViewUi> view;
+    // Files waiting to go with the next message (a group's composer).
+    in property <[PendingUi]> pending;
+    callback send(string);
+    callback attach();
+    callback unattach(string);
+    forward-focus: input;
+    property <bool> too-long: root.draft.character-count > root.view.max-chars;
+    property <bool> can-send: (root.draft != "" || root.pending.length > 0) && !root.too-long && root.view.refusal == "";
+
+    public function focus-input() {
+        input.focus();
+    }
+
+    // A character typed elsewhere in the window: appended, cursor at the end.
+    public function type-in(text: string) {
+        root.draft += text;
+        input.focus();
+        input.set-selection-offsets(2147483647, 2147483647);
+    }
+
+    VerticalLayout {
+        padding-left: 16px;
+        padding-right: 16px;
+        padding-top: 12px;
+        padding-bottom: 12px;
+        spacing: 4px;
+        if root.pending.length > 0 : HorizontalLayout {
+            alignment: start;
+            spacing: 4px;
+            for f in root.pending : Panel {
+                height: 24px;
+                width: pl.preferred-width;
+                border-radius: 4px;
+                border-width: 1px;
+                border-color: Theme.edge;
+                pl := HorizontalLayout {
+                    padding-left: 8px;
+                    padding-right: 2px;
+                    spacing: 4px;
+                    Text { text: "📎"; font-family: "Noto Emoji"; font-size: 11px; color: Ink.n500; vertical-alignment: center; }
+                    Text { text: f.name; font-size: 11px; color: Ink.n300; vertical-alignment: center; overflow: elide; max-width: 180px; }
+                    Text { text: f.size; font-size: 11px; color: Ink.n600; vertical-alignment: center; }
+                    Mini {
+                        text: "×";
+                        label: "Remove \{f.name}";
+                        hover-color: Theme.danger;
+                        clicked => { root.unattach(f.hash); }
+                    }
+                }
+            }
+        }
+        HorizontalLayout {
+          spacing: 8px;
+          VerticalLayout {
+            alignment: end;
+            Panel {
+                width: 34px;
+                height: 38px;
+                border-radius: Theme.radius;
+                border-width: 1px;
+                border-color: plus.has-focus ? Theme.accent : Theme.edge;
+                accessible-role: button;
+                accessible-label: "Attach files";
+                plus := FocusScope {
+                    key-pressed(event) => {
+                        if (event.text == Key.Return || event.text == " ") {
+                            root.attach();
+                            return accept;
+                        }
+                        reject
+                    }
+                }
+                TouchArea { clicked => { root.attach(); } }
+                Text { text: "+"; font-size: 16px; color: Ink.n400; }
+            }
+          }
+        Panel {
+            horizontal-stretch: 1;
+            height: min(192px, max(38px, input.preferred-height + 18px));
+            border-radius: Theme.radius;
+            border-width: 1px;
+            border-color: input.has-focus ? Theme.accent : Theme.edge;
+            background: #0000004d;
+            opacity: root.view.refusal == "" ? 1 : 0.5;
+            // Enter sends, Shift+Enter is a new line — the name of the app.
+            keys := FocusScope {
+                focus-on-tab-navigation: false;
+                capture-key-pressed(event) => {
+                    if (event.text == Key.Return && !event.modifiers.shift) {
+                        if (root.can-send) {
+                            root.send(root.draft);
+                        }
+                        return accept;
+                    }
+                    reject
+                }
+                input := TextInput {
+                    x: 12px;
+                    y: 9px;
+                    width: parent.width - 24px;
+                    height: parent.height - 18px;
+                    single-line: false;
+                    wrap: word-wrap;
+                    // Read-only, not disabled, while refusing: a mute running
+                    // out must leave a composer that still has the keyboard.
+                    read-only: root.view.refusal != "";
+                    text <=> root.draft;
+                    color: Ink.n200;
+                    font-size: 14px;
+                    accessible-label: root.view.refusal != "" ? root.view.refusal : root.view.placeholder;
+                }
+            }
+            if root.draft == "" : Text {
+                x: 12px;
+                text: root.view.refusal != "" ? root.view.refusal : root.view.placeholder;
+                color: #ffffff40;
+                font-size: 14px;
+            }
+        }
+        }
+        if root.too-long : Text {
+            text: "\{root.draft.character-count - root.view.max-chars} characters over the \{root.view.max-chars} limit";
+            font-size: 12px;
+            color: Theme.danger;
+        }
+        if !root.too-long && root.view.send-error != "" : Text {
+            text: "not sent: \{root.view.send-error}";
+            font-size: 12px;
+            color: Theme.danger;
+        }
+        if !root.too-long && root.view.send-error == "" && root.view.slowmode > 0 : Text {
+            text: "slowmode: one message every \{root.view.slowmode} s here";
+            font-size: 11px;
+            color: Ink.n600;
+        }
+    }
+}
+
+export component MemberList inherits Rectangle {
+    in property <[MemberUi]> members;
+    callback open(string);
+    width: 224px;
+    background: Theme.panel;
+    Rectangle {
+        width: 1px;
+        x: 0;
+        background: Theme.edge;
+    }
+    VerticalLayout {
+        Rectangle {
+            height: 45px;
+            Text {
+                x: 16px;
+                text: "\{root.members.length} member\{root.members.length == 1 ? "" : "s"}";
+                font-size: 12px;
+                color: Ink.n500;
+            }
+            Rectangle {
+                y: parent.height - 1px;
+                height: 1px;
+                background: Theme.edge;
+            }
+        }
+        // ListView builds only the rows in sight: a group of thousands
+        // costs the rows on screen, not thousands.
+        ListView {
+            vertical-stretch: 1;
+            for m in root.members : Row {
+              height: 40px;
+              label: m.name;
+              clicked => { root.open(m.npub); }
+              HorizontalLayout {
+                padding-left: 16px;
+                padding-right: 8px;
+                padding-top: 5px;
+                padding-bottom: 5px;
+                spacing: 8px;
+                VerticalLayout {
+                    alignment: center;
+                    Panel {
+                        width: 8px;
+                        height: 8px;
+                        border-radius: 4px;
+                        background: m.here ? Theme.accent : #404040;
+                    }
+                }
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    Text {
+                        text: m.name + (m.me ? " (you)" : "");
+                        font-size: 13px;
+                        color: m.here ? Ink.n200 : Ink.n500;
+                        overflow: elide;
+                    }
+                    if m.detail != "" : Text {
+                        text: m.detail;
+                        font-size: 10px;
+                        color: Ink.n500;
+                        overflow: elide;
+                    }
+                }
+              }
+            }
+        }
+    }
+}
+
+// Who is reachable, honestly: "reached lately", not "online".
+component Reach inherits HorizontalLayout {
+    in property <ViewUi> view;
+    spacing: 6px;
+    VerticalLayout {
+        alignment: center;
+        Panel {
+            width: 8px;
+            height: 8px;
+            border-radius: 4px;
+            background: root.view.reach-ok ? Theme.accent : #525252;
+        }
+    }
+    Text {
+        text: root.view.reach;
+        font-size: 12px;
+        color: Ink.n500;
+        vertical-alignment: center;
+        // The one thing in the header that may shorten.
+        overflow: elide;
+        min-width: 48px;
+        horizontal-stretch: 1;
+    }
+}
+
+// The bar above the messages: the channel, who is reachable, and the
+// member list's switch.
+export component Header inherits Rectangle {
+    in property <ViewUi> view;
+    in-out property <bool> show-members;
+    // Too narrow for one line: the channel and the members switch on top,
+    // who is reachable and the IP line under them — the web header wraps.
+    // From the window's width, not the header's: the header's is computed
+    // from what is inside it, which depends on this — a binding loop.
+    in property <bool> narrow;
+    height: root.narrow ? 64px : 45px;
+
+    VerticalLayout {
+        padding-left: 16px;
+        padding-right: 16px;
+        padding-top: root.narrow ? 6px : 0px;
+        padding-bottom: root.narrow ? 6px : 0px;
+        HorizontalLayout {
+            spacing: 10px;
+            Text {
+                horizontal-stretch: 1;
+                min-width: 60px;
+                text: root.view.channel-name == "" ? "" : "# \{root.view.channel-name}";
+                font-size: 13px;
+                font-weight: 600;
+                color: Theme.text;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+            if !root.narrow : Reach { view: root.view; }
+            VerticalLayout {
+                alignment: center;
+                Row {
+                    height: 22px;
+                    width: mt.preferred-width + 16px;
+                    label: "Show or hide the member list";
+                    border-width: 1px;
+                    border-color: self.has-focus ? Theme.accent : Theme.edge;
+                    clicked => { root.show-members = !root.show-members; }
+                    mt := Text {
+                        text: "\{root.view.members} member\{root.view.members == 1 ? "" : "s"}";
+                        font-size: 11px;
+                        color: root.show-members ? Ink.n300 : Ink.n500;
+                    }
+                }
+            }
+        }
+        if root.narrow : HorizontalLayout {
+            spacing: 10px;
+            Reach { view: root.view; }
+        }
+    }
+    Rectangle {
+        y: parent.height - 1px;
+        height: 1px;
+        background: Theme.edge;
+    }
+}
+

@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO blob_use (hash, last_used, mine) VALUES (?, ?, ?)\n             ON CONFLICT (hash) DO UPDATE SET last_used = excluded.last_used,\n                 mine = MAX(blob_use.mine, excluded.mine)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "3e862e785ca33b6035c46ab0d0f6bf7544ac118456e0a2f2ff10468080ebbc8b"
+}

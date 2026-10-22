@@ -1,0 +1,229 @@
+// The rows the window shows, filled by src/chat.rs.
+
+export struct GroupUi {
+    id: string,
+    name: string,
+    initials: string,
+    unread: int,
+    active: bool,
+}
+
+// Someone in a voice channel.
+export struct VoicePersonUi {
+    name: string,
+    speaking: bool,
+}
+
+export struct ChannelUi {
+    id: string,
+    name: string,
+    voice: bool,
+    private: bool,
+    slowmode: int,
+    unread: int,
+    active: bool,
+    // A voice channel: who is in it, and whether this person is.
+    people: [VoicePersonUi],
+    here: bool,
+}
+
+// One emoji's reactions to a message.
+export struct ChipUi {
+    emoji: string,
+    count: int,
+    mine: bool,
+    // Who reacted, by name.
+    who: string,
+}
+
+// A file in a message or a DM (M8, M8b).
+export struct FileUi {
+    // The file's hash, or — for a DM file — the DM's id.
+    key: string,
+    dm: bool,
+    name: string,
+    // "1.2 MB".
+    size: string,
+    image: bool,
+    // Decoded at display size; shown when `shown`.
+    picture: image,
+    shown: bool,
+    // "loading…", why it could not be shown or saved, or "".
+    note: string,
+}
+
+export struct MessageUi {
+    id: string,
+    name: string,
+    time: string,
+    text: string,
+    mine: bool,
+    // The first of a block: same author within five minutes shows one name.
+    head: bool,
+    reactions: [ChipUi],
+    files: [FileUi],
+    // "1,000" when zapped (receipts its author's wallet signed), else "".
+    zap-sats: string,
+    zap-note: string,
+    // A moderator here may remove it (someone else's message).
+    can-remove: bool,
+}
+
+export struct MemberUi {
+    npub: string,
+    name: string,
+    here: bool,
+    me: bool,
+    // "anchor · owner · muted", or roles.
+    detail: string,
+}
+
+// Everything else about the open group and channel.
+export struct ViewUi {
+    has-groups: bool,
+    group-name: string,
+    channel-name: string,
+    reach: string,
+    reach-ok: bool,
+    members: int,
+    can-invite: bool,
+    // Why the composer refuses, or "".
+    refusal: string,
+    placeholder: string,
+    // Removed or banned, or "".
+    banner: string,
+    joining: bool,
+    send-error: string,
+    slowmode: int,
+    max-chars: int,
+    my-name: string,
+}
+
+// The open group's settings: each section only for who may use it.
+export struct SettingsUi {
+    name: string,
+    me-owner: bool,
+    can-rename: bool,
+    can-manage: bool,
+    can-ban: bool,
+    can-compact: bool,
+    seq: int,
+    has-any: bool,
+}
+
+export struct BanUi {
+    npub: string,
+    name: string,
+}
+
+// The member dialog's one person.
+export struct PersonUi {
+    npub: string,
+    name: string,
+    // "Owner", roles, or "Member"; and how long a mute has left.
+    rank: string,
+    muted-for: int,
+    me: bool,
+    can-kick: bool,
+    can-ban: bool,
+    can-mute: bool,
+    can-set-roles: bool,
+}
+
+export struct RoleUi {
+    id: string,
+    name: string,
+    assignable: bool,
+    chosen: bool,
+}
+
+// A file attached to the composer, not sent yet.
+export struct PendingUi {
+    hash: string,
+    name: string,
+    size: string,
+}
+
+// One conversation in the DM list.
+export struct ConvUi {
+    with: string,
+    name: string,
+    // The last message: "you: …", or "📎 name".
+    last: string,
+    unread: int,
+    active: bool,
+}
+
+export struct DmUi {
+    id: string,
+    mine: bool,
+    text: string,
+    time: string,
+    has-file: bool,
+    file: FileUi,
+}
+
+// This person's call (CallBar.svelte); `active` false when there is none.
+export struct CallUi {
+    active: bool,
+    dm: bool,
+    // "🔊 general" or the person's name.
+    title: string,
+    // "rust friends · 2 connected", "ringing…", …
+    sub: string,
+    connected: bool,
+    muted: bool,
+    deafened: bool,
+    push-to-talk: bool,
+    can-speak: bool,
+    talking: bool,
+    // Skips and clicks at this device's mic or speakers, this call.
+    glitches: int,
+    // 1:1: whose call it is (npub), for the DM header's button.
+    with: string,
+}
+
+export struct DeviceUi {
+    id: string,
+    name: string,
+}
+
+// The profile dialog (ProfileDialog.svelte).
+export struct ProfileUi {
+    loaded: bool,
+    name: string,
+    npub: string,
+    device: string,
+    relays: bool,
+    contact: string,
+    // The Lightning address, and whether zaps to it can be counted.
+    address: string,
+    zappable: bool,
+    connected: bool,
+    wallet-relays: string,
+    fee-on: bool,
+    fee-percent: int,
+    fee-min: int,
+    inbox-loaded: bool,
+    inbox-enabled: bool,
+    inbox-available: int,
+    min-password: int,
+}
+
+// The zap dialog: "pick", "qr", "fee" or "done".
+export struct ZapUi {
+    step: string,
+    who: string,
+    // The quote, once the wallet answered: "1,000 sats to Bob · 10 sats
+    // HIT_ENTER fee · 1,010 total".
+    quote: string,
+    fee-note: string,
+    privacy: string,
+    has-quote: bool,
+    wallet: bool,
+    total: string,
+    invoice: string,
+    qr: image,
+    invoice-sats: string,
+    result: string,
+}

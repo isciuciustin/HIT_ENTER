@@ -1,0 +1,35 @@
+[package]
+name = "hit-app-core"
+description = "HIT_ENTER — the desktop app without a window: onboarding, the node's life, every question a window asks, and the events it is told."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+repository.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+hit-event = { workspace = true }
+hit-group = { workspace = true }
+hit-node = { workspace = true }
+hit-proto = { workspace = true }
+hit-voice = { workspace = true }
+hit-zap = { workspace = true }
+nostr = { workspace = true }
+iroh = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+zeroize = { workspace = true }
+# The zap dialog's QR fallback (M10): an invoice as an SVG, for any wallet.
+qrcode = { version = "0.14", default-features = false, features = ["svg"] }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+hit-zap = { workspace = true, features = ["fake"] }

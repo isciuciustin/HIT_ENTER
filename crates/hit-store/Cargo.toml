@@ -1,0 +1,25 @@
+[package]
+name = "hit-store"
+description = "The event store: SQLite behind sqlx, NIP-01 filter queries, negentropy storage."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+# MIT, but never goes to crates.io.
+publish = false
+repository.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+hit-event = { workspace = true }
+nostr = { workspace = true }
+sqlx = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }
+tempfile = { workspace = true }

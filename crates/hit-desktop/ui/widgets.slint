@@ -1,0 +1,132 @@
+import { Panel } from "panel.slint";
+import { Theme } from "theme.slint";
+
+// A button in our look: flat, the accent when it is the one to press.
+// Keyboard first: Tab reaches it, Enter or Space presses it, and focus
+// shows as the accent border.
+export component Pill inherits Panel {
+    in property <string> text;
+    in property <bool> primary;
+    // The one that cannot be undone: a ban, a kick.
+    in property <bool> danger;
+    in property <bool> enabled: true;
+    out property <bool> has-focus: keys.has-focus;
+    callback clicked;
+    forward-focus: keys;
+    accessible-role: button;
+    accessible-label: root.text;
+    accessible-action-default => { root.clicked(); }
+    height: 40px;
+    min-width: label.preferred-width + 32px;
+    border-radius: Theme.radius;
+    border-width: keys.has-focus ? 2px : 1px;
+    border-color: keys.has-focus || touch.has-hover ? (root.primary ? Theme.text : Theme.accent)
+        : (root.primary ? Theme.accent : Theme.edge);
+    background: root.danger ? #ef4444cc : root.primary ? Theme.accent : Theme.ink;
+    opacity: root.enabled ? 1 : 0.5;
+    label := Text {
+        text: root.text;
+        color: root.danger ? #ffffff : root.primary ? Theme.accent-ink : Theme.text;
+        font-weight: 700;
+    }
+    keys := FocusScope {
+        key-pressed(event) => {
+            if (root.enabled && (event.text == Key.Return || event.text == " ")) {
+                root.clicked();
+                return accept;
+            }
+            reject
+        }
+    }
+    touch := TouchArea {
+        enabled: root.enabled;
+        clicked => {
+            keys.focus();
+            root.clicked();
+        }
+    }
+}
+
+// A quiet button: text only, for "back" and tabs.
+export component Link inherits Panel {
+    in property <string> text;
+    in property <bool> selected;
+    callback clicked;
+    forward-focus: keys;
+    accessible-role: button;
+    accessible-label: root.text;
+    accessible-action-default => { root.clicked(); }
+    height: 30px;
+    min-width: label.preferred-width + 20px;
+    border-radius: Theme.radius;
+    background: root.selected ? Theme.edge : transparent;
+    border-width: keys.has-focus ? 1px : 0px;
+    border-color: Theme.accent;
+    label := Text {
+        text: root.text;
+        font-size: 12px;
+        color: root.selected || touch.has-hover || keys.has-focus ? Theme.text : Theme.muted;
+    }
+    keys := FocusScope {
+        key-pressed(event) => {
+            if (event.text == Key.Return || event.text == " ") {
+                root.clicked();
+                return accept;
+            }
+            reject
+        }
+    }
+    touch := TouchArea {
+        clicked => {
+            keys.focus();
+            root.clicked();
+        }
+    }
+}
+
+// A text field in our look. Enter fires `accepted`.
+export component Field inherits Panel {
+    in property <string> placeholder;
+    in property <InputType> input-type: InputType.text;
+    in property <bool> mono;
+    in property <bool> read-only;
+    in property <bool> multi-line;
+    in-out property <string> text;
+    callback accepted;
+    forward-focus: input;
+    min-height: root.multi-line ? 72px : 38px;
+    border-radius: Theme.radius;
+    border-width: 1px;
+    border-color: input.has-focus ? Theme.accent : Theme.edge;
+    background: #0000004d;
+    input := TextInput {
+        x: 12px;
+        y: root.multi-line ? 10px : 0px;
+        width: parent.width - 24px;
+        height: root.multi-line ? parent.height - 20px : parent.height;
+        vertical-alignment: root.multi-line ? top : center;
+        single-line: !root.multi-line;
+        wrap: root.multi-line ? TextWrap.char-wrap : TextWrap.no-wrap;
+        text <=> root.text;
+        input-type: root.input-type;
+        read-only: root.read-only;
+        color: Theme.text;
+        font-size: root.mono ? 12px : 13px;
+        accessible-label: root.placeholder;
+        accepted => { root.accepted(); }
+    }
+    if root.text == "" : Text {
+        x: 12px;
+        y: root.multi-line ? 10px : (parent.height - self.height) / 2;
+        text: root.placeholder;
+        color: #ffffff40;
+        font-size: 13px;
+    }
+}
+
+// Body copy: muted, wrapping.
+export component Note inherits Text {
+    wrap: word-wrap;
+    color: Theme.muted;
+    font-size: 13px;
+}

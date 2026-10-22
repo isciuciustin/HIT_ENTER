@@ -1,0 +1,93 @@
+// Pictures drawn in Rust (src/art.rs): colour emoji.
+import { Panel } from "panel.slint";
+import { Theme } from "theme.slint";
+
+export global Emoji {
+    // A reaction's picture (Twemoji, or one of HIT_ENTER's green ones);
+    // an empty image for anything else.
+    pure callback image(string) -> image;
+    // HIT_ENTER's own, green, Kick-style: ":hit_gg:" and so on.
+    in property <[string]> specials;
+    in property <[string]> all;
+}
+
+// A reaction drawn as a picture when there is one, else as text.
+export component Glyph inherits Rectangle {
+    in property <string> emoji;
+    in property <length> size: 16px;
+    property <image> img: Emoji.image(root.emoji);
+    width: root.img.width > 0 ? root.size : t.preferred-width;
+    height: root.size;
+    if root.img.width > 0 : Image {
+        width: root.size;
+        height: root.size;
+        source: root.img;
+    }
+    t := Text {
+        visible: root.img.width == 0;
+        text: root.emoji;
+        font-size: root.size * 0.8;
+        font-family: "Noto Emoji";
+        color: #e5e5e5;
+        vertical-alignment: center;
+    }
+}
+
+component Cell inherits Panel {
+    in property <string> emoji;
+    callback picked(string);
+    width: 30px;
+    height: 30px;
+    border-radius: 6px;
+    background: touch.has-hover ? #ffffff1a : transparent;
+    accessible-role: button;
+    accessible-label: root.emoji;
+    accessible-action-default => { root.picked(root.emoji); }
+    Glyph { emoji: root.emoji; size: 22px; }
+    touch := TouchArea { clicked => { root.picked(root.emoji); } }
+}
+
+// Every reaction: HIT_ENTER's green ones first, then the colour emoji.
+export component EmojiPicker inherits PopupWindow {
+    callback picked(string);
+    property <int> cols: 11;
+    width: root.cols * 30px + 16px;
+    height: 8px + 18px + 30px + 8px + 18px + ceil(Emoji.all.length / root.cols) * 30px + 8px;
+    // Sized to the whole popup: unsized, it drew nothing behind the list.
+    Panel {
+        width: 100%;
+        height: 100%;
+        background: Theme.panel;
+        border-width: 1px;
+        border-color: Theme.edge;
+        border-radius: 8px;
+    }
+    Text {
+        x: 10px; y: 8px; height: 18px;
+        text: "HIT_ENTER";
+        font-size: 10px;
+        font-weight: 700;
+        color: Theme.accent;
+        vertical-alignment: center;
+    }
+    for e[i] in Emoji.specials : Cell {
+        x: 8px + mod(i, root.cols) * 30px;
+        y: 26px + floor(i / root.cols) * 30px;
+        emoji: e;
+        picked(e) => { root.picked(e); }
+    }
+    Text {
+        x: 10px; y: 64px; height: 18px;
+        text: "emoji";
+        font-size: 10px;
+        font-weight: 700;
+        color: #737373;
+        vertical-alignment: center;
+    }
+    for e[i] in Emoji.all : Cell {
+        x: 8px + mod(i, root.cols) * 30px;
+        y: 82px + floor(i / root.cols) * 30px;
+        emoji: e;
+        picked(e) => { root.picked(e); }
+    }
+}

@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT e.json FROM attachments a JOIN events e ON e.id = a.event_id WHERE a.hash = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "json",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "events",
+            "name": "json"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "cc251f89b5379389e1d1ac48b815431ebd8a1035f0eadb4c0712eadad9f650b0"
+}

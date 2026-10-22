@@ -1,0 +1,4 @@
+# The workspace denies `unwrap_used` and `expect_used` (Cargo.toml). Tests may
+# use both: a panic is how a test fails.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true

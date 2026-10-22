@@ -1,0 +1,37 @@
+[package]
+name = "hit-voice"
+description = "Voice channels: Opus over QUIC datagrams, a jitter buffer, echo cancellation, the devices."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+repository.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+hit-node = { workspace = true }
+hit-event = { workspace = true }
+hit-group = { workspace = true }
+iroh = { workspace = true }
+nostr = { workspace = true }
+tokio = { workspace = true, features = ["io-util"] }
+tracing = { workspace = true }
+opus = "0.3"
+cpal = "0.18"
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+# Echo cancellation (src/device.rs). Its bundled build is autotools, which
+# MSVC has no answer to: on Windows calls run without it for now
+# (docs/BUILD_WINDOWS.md).
+[target.'cfg(not(windows))'.dependencies]
+webrtc-audio-processing = { version = "0.5", features = ["bundled"] }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

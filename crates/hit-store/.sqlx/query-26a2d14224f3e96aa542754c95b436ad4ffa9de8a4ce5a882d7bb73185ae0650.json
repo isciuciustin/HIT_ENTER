@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT person FROM blob_grants WHERE hash = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "person",
+        "ordinal": 0,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "blob_grants",
+            "name": "person"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "26a2d14224f3e96aa542754c95b436ad4ffa9de8a4ce5a882d7bb73185ae0650"
+}

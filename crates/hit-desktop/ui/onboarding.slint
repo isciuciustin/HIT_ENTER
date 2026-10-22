@@ -1,0 +1,302 @@
+// Onboarding (DESIGN.md §3, "honestly"): make or import a key, and — for a
+// new one — a backup step that cannot be skipped. hit-app-core holds the
+// line (no group before a backup, the key shown on that step only); this
+// screen explains it. Then a name. The web window's Onboarding.svelte,
+// screen for screen.
+import { Panel } from "panel.slint";
+import { Theme } from "theme.slint";
+import { Pill, Link, Field, Note } from "widgets.slint";
+
+export struct StatusUi {
+    // "opening", "new", "backup" or "ready".
+    stage: string,
+    npub: string,
+    // The identity app.json names and the keychain no longer holds.
+    lost: string,
+    name: string,
+    min-password: int,
+    confirm-chars: int,
+}
+
+component Title inherits HorizontalLayout {
+    alignment: start;
+    Text { text: "HIT"; font-size: 36px; font-weight: 700; color: Theme.text; }
+    Text { text: "_"; font-size: 36px; font-weight: 700; color: Theme.accent; }
+    Text { text: "ENTER"; font-size: 36px; font-weight: 700; color: Theme.text; }
+}
+
+export component Onboarding inherits Rectangle {
+    in property <StatusUi> status;
+    in property <bool> busy;
+    in property <string> error;
+    // The key, on the backup step only, once asked for.
+    in property <string> shown-key;
+    in property <bool> copied;
+
+    callback create();
+    callback import-key(string, string);
+    callback save-file(string, string);
+    callback reveal();
+    callback copy-key();
+    callback confirm(string);
+    callback set-name(string);
+
+    property <string> mode: "choose";
+    property <string> how: "file";
+    property <string> secret;
+    property <string> password;
+    property <string> password2;
+    property <string> tail;
+    property <string> name;
+    // An ncryptsec needs its password. Slint's strings have no prefix
+    // test; Rust answers.
+    pure callback is-encrypted(string) -> bool;
+    property <bool> starts-with-ncryptsec: root.is-encrypted(root.secret);
+
+    VerticalLayout {
+        alignment: center;
+        padding: 32px;
+        HorizontalLayout {
+            alignment: center;
+            VerticalLayout {
+                width: min(512px, root.width - 64px);
+                spacing: 16px;
+                Title { }
+
+                // ---- new: choose -------------------------------------
+                if root.status.stage == "new" && root.mode == "choose" : VerticalLayout {
+                    spacing: 16px;
+                    if root.status.lost != "" : Panel {
+                        border-radius: Theme.radius;
+                        border-width: 1px;
+                        border-color: #f59e0b66;
+                        background: #f59e0b1a;
+                        VerticalLayout {
+                            padding: 12px;
+                            Text {
+                                wrap: word-wrap;
+                                color: #fde68a;
+                                font-size: 13px;
+                                text: "This device's identity, \{root.status.lost}, is no longer in your keychain. Import it from your backup to carry on.";
+                            }
+                        }
+                    }
+                    Note {
+                        text: "Your identity is a key that lives on this device, in your system's keychain. Nobody issues it and nobody can recover it: lose it and the identity is gone. The next step is a backup, and it is not optional.";
+                    }
+                    HorizontalLayout {
+                        alignment: start;
+                        spacing: 8px;
+                        make := Pill {
+                            text: "make a new identity";
+                            primary: true;
+                            enabled: !root.busy;
+                            init => { self.focus(); }
+                            clicked => { root.create(); }
+                        }
+                        Pill {
+                            text: "I already have a key";
+                            clicked => { root.mode = "import"; }
+                        }
+                    }
+                }
+
+                // ---- new: import -------------------------------------
+                if root.status.stage == "new" && root.mode == "import" : VerticalLayout {
+                    spacing: 12px;
+                    Note {
+                        text: "Paste your nsec, or an ncryptsec backup and its password. A Nostr key from another app works: it is the same you.";
+                    }
+                    Field {
+                        multi-line: true;
+                        mono: true;
+                        placeholder: "nsec1… or ncryptsec1…";
+                        text <=> root.secret;
+                        init => { self.focus(); }
+                    }
+                    if root.starts-with-ncryptsec : Field {
+                        input-type: InputType.password;
+                        placeholder: "the backup's password";
+                        text <=> root.password;
+                        accepted => { root.import-key(root.secret, root.password); }
+                    }
+                    HorizontalLayout {
+                        alignment: start;
+                        spacing: 8px;
+                        Pill {
+                            text: root.busy ? "importing…" : "import";
+                            primary: true;
+                            enabled: !root.busy && root.secret != "";
+                            clicked => {
+                                root.import-key(root.secret, root.starts-with-ncryptsec ? root.password : "");
+                            }
+                        }
+                        Link {
+                            text: "back";
+                            clicked => {
+                                root.mode = "choose";
+                                root.secret = "";
+                                root.password = "";
+                            }
+                        }
+                    }
+                }
+
+                // ---- backup ------------------------------------------
+                if root.status.stage == "backup" : VerticalLayout {
+                    spacing: 12px;
+                    Note {
+                        text: "Your identity is \{root.status.npub}. Before you can join or make a group, save a backup of its key. There is no other way back if this device is lost.";
+                    }
+                    HorizontalLayout {
+                        alignment: start;
+                        spacing: 4px;
+                        Link {
+                            text: "encrypted file";
+                            selected: root.how == "file";
+                            clicked => { root.how = "file"; }
+                        }
+                        Link {
+                            text: "show the key once";
+                            selected: root.how == "show";
+                            clicked => { root.how = "show"; }
+                        }
+                    }
+
+                    if root.how == "file" : VerticalLayout {
+                        spacing: 12px;
+                        Note {
+                            font-size: 12px;
+                            text: "The key, encrypted with a password (NIP-49 ncryptsec). Keep the file somewhere that is not this device, and the password somewhere that is not the file.";
+                        }
+                        Field {
+                            input-type: InputType.password;
+                            placeholder: "password (at least \{root.status.min-password} characters)";
+                            text <=> root.password;
+                            init => { self.focus(); }
+                        }
+                        Field {
+                            input-type: InputType.password;
+                            placeholder: "the same password again";
+                            text <=> root.password2;
+                            accepted => { root.save-file(root.password, root.password2); }
+                        }
+                        HorizontalLayout {
+                            alignment: start;
+                            Pill {
+                                text: "save the backup file…";
+                                primary: true;
+                                enabled: !root.busy && root.password.character-count >= root.status.min-password;
+                                clicked => { root.save-file(root.password, root.password2); }
+                            }
+                        }
+                    }
+
+                    if root.how == "show" && root.shown-key == "" : VerticalLayout {
+                        spacing: 12px;
+                        Note {
+                            font-size: 12px;
+                            text: "For a password manager. The key is shown here once, and never again after this step. Anyone who sees it can be you.";
+                        }
+                        HorizontalLayout {
+                            alignment: start;
+                            Pill {
+                                text: "show my key";
+                                init => { self.focus(); }
+                                clicked => { root.reveal(); }
+                            }
+                        }
+                    }
+
+                    if root.how == "show" && root.shown-key != "" : VerticalLayout {
+                        spacing: 12px;
+                        Panel {
+                            border-radius: Theme.radius;
+                            border-width: 1px;
+                            border-color: #f59e0b66;
+                            background: #00000066;
+                            VerticalLayout {
+                                padding: 12px;
+                                // Read-only but selectable, like the web's select-all.
+                                TextInput {
+                                    text: root.shown-key;
+                                    read-only: true;
+                                    single-line: false;
+                                    wrap: char-wrap;
+                                    color: #fde68a;
+                                    font-size: 12px;
+                                }
+                            }
+                        }
+                        HorizontalLayout {
+                            alignment: start;
+                            Link {
+                                text: root.copied ? "copied — paste it into your password manager" : "copy";
+                                clicked => { root.copy-key(); }
+                            }
+                        }
+                        Note {
+                            font-size: 12px;
+                            text: "To prove it is saved, type its last \{root.status.confirm-chars} characters:";
+                        }
+                        HorizontalLayout {
+                            alignment: start;
+                            spacing: 8px;
+                            // Focused on arrival: the button that revealed the
+                            // key held focus and is gone.
+                            Field {
+                                width: 160px;
+                                mono: true;
+                                text <=> root.tail;
+                                init => { self.focus(); }
+                                accepted => { root.confirm(root.tail); }
+                            }
+                            Pill {
+                                text: "it is saved";
+                                primary: true;
+                                enabled: !root.busy && root.tail.character-count == root.status.confirm-chars;
+                                clicked => { root.confirm(root.tail); }
+                            }
+                        }
+                    }
+                }
+
+                // ---- ready, no name yet ------------------------------
+                if root.status.stage == "ready" && root.status.name == "" : VerticalLayout {
+                    spacing: 12px;
+                    Text {
+                        text: "What should people call you?";
+                        font-size: 20px;
+                        font-weight: 600;
+                        color: Theme.text;
+                    }
+                    Note {
+                        text: "Shown to the people you share a group with. You can change it later.";
+                    }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        Field {
+                            placeholder: "your name";
+                            text <=> root.name;
+                            init => { self.focus(); }
+                            accepted => { root.set-name(root.name); }
+                        }
+                        Pill {
+                            text: "continue";
+                            primary: true;
+                            enabled: !root.busy && root.name != "";
+                            clicked => { root.set-name(root.name); }
+                        }
+                    }
+                }
+
+                if root.error != "" : Text {
+                    wrap: word-wrap;
+                    color: Theme.danger;
+                    font-size: 13px;
+                    text: root.error;
+                }
+            }
+        }
+    }
+}

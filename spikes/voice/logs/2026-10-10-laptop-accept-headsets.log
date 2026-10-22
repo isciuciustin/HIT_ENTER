@@ -1,0 +1,51 @@
+our node id:
+964100699c4145d805ec3d2076ade12d2a103c79ff00bfff22dbbda1958b8cf2
+2026-10-10T03:55:05.109744Z  INFO callme::audio::processor: init audio processor (enabled=true)
+2026-10-10T03:55:05.121445Z  INFO callme::audio::device: selected capture stream config: SupportedStreamConfig { channels: 2, sample_rate: SampleRate(48000), buffer_size: Range { min: 3, max: 4194304 }, sample_format: F32 }
+2026-10-10T03:55:05.121739Z  WARN callme::audio::capture: failed to set capture thread to realtime priority: AudioThreadPriorityError { message: "org.freedesktop.DBus.Error.ServiceUnknown:The name is not activatable", inner: None }
+2026-10-10T03:55:05.154908Z  INFO callme::audio::capture: starting capture stream on pulse with AudioFormat { sample_rate: SampleRate(48000), channel_count: 2 }
+2026-10-10T03:55:05.154929Z  INFO callme::audio::capture: capture loop start
+2026-10-10T03:55:05.164571Z  INFO callme::audio::device: selected playback stream config: SupportedStreamConfig { channels: 2, sample_rate: SampleRate(48000), buffer_size: Range { min: 3, max: 4194304 }, sample_format: F32 }
+2026-10-10T03:55:05.164863Z  WARN callme::audio::playback: failed to set playback thread to realtime priority: AudioThreadPriorityError { message: "org.freedesktop.DBus.Error.ServiceUnknown:The name is not activatable", inner: None }
+2026-10-10T03:55:05.196992Z  INFO callme::audio::playback: start playback stream on pulse with AudioFormat { sample_rate: SampleRate(48000), channel_count: 2 }
+2026-10-10T03:55:05.197011Z  INFO callme::audio::playback: playback loop start
+2026-10-10T03:55:05.513423Z  WARN ep{me=964100699c}:magicsock:net_report.actor:reportgen.actor:probe: iroh_net_report::reportgen: probe failed: Multiple identical request probe=IcmpV4 { delay: 400ms, node: RelayNode { url: RelayUrl("https://aps1-1.relay.iroh.network./"), stun_only: false, stun_port: 3478, quic: Some(RelayQuicConfig { port: 7842 }) } }
+2026-10-10T03:55:05.513453Z  WARN ep{me=964100699c}:magicsock:net_report.actor:reportgen.actor:probe: iroh_net_report::reportgen: probe failed: Multiple identical request probe=IcmpV6 { delay: 400ms, node: RelayNode { url: RelayUrl("https://aps1-1.relay.iroh.network./"), stun_only: false, stun_port: 3478, quic: Some(RelayQuicConfig { port: 7842 }) } }
+2026-10-10T03:55:05.513458Z  WARN ep{me=964100699c}:magicsock:net_report.actor:reportgen.actor:probe: iroh_net_report::reportgen: probe failed: Network error. probe=IcmpV4 { delay: 300ms, node: RelayNode { url: RelayUrl("https://aps1-1.relay.iroh.network./"), stun_only: false, stun_port: 3478, quic: Some(RelayQuicConfig { port: 7842 }) } }
+2026-10-10T03:55:05.513477Z  WARN ep{me=964100699c}:magicsock:net_report.actor:reportgen.actor:probe: iroh_net_report::reportgen: probe failed: Network error. probe=IcmpV6 { delay: 300ms, node: RelayNode { url: RelayUrl("https://aps1-1.relay.iroh.network./"), stun_only: false, stun_port: 3478, quic: Some(RelayQuicConfig { port: 7842 }) } }
+2026-10-10T03:55:05.902443Z  INFO ep{me=964100699c}:magicsock:actor: iroh::magicsock: home is now relay https://euw1-1.relay.iroh.network./, was None
+2026-10-10T03:55:06.476818Z  WARN callme::audio::playback: [tick 121] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 0 previous)
+2026-10-10T03:55:08.720237Z  WARN callme::audio::playback: [tick 332] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 1 previous)
+2026-10-10T03:55:20.573167Z  WARN callme::audio::playback: [tick 1443] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 2 previous)
+2026-10-10T03:55:38.183737Z  WARN callme::audio::playback: [tick 3094] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 3 previous)
+2026-10-10T03:55:50.674541Z  WARN callme::audio::playback: [tick 4265] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 4 previous)
+2026-10-10T03:56:00.605112Z  WARN callme::audio::playback: [tick 5196] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 5 previous)
+2026-10-10T03:56:18.535549Z  WARN callme::audio::playback: [tick 6877] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 6 previous)
+2026-10-10T03:56:51.186410Z  WARN callme::audio::playback: [tick 9938] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 7 previous)
+2026-10-10T03:57:05.277228Z  WARN callme::audio::playback: [tick 11259] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 8 previous)
+2026-10-10T03:57:20.327522Z  WARN callme::audio::playback: [tick 12670] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 9 previous)
+2026-10-10T03:57:28.337799Z  INFO ep{me=964100699c}:magicsock:poll_recv:poll_recv_relay:disco_in{node=b6e30f480b src=Relay(https://euw1-1.relay.iroh.network./, b6e30f480b)}: iroh::magicsock::node_map: inserting new node in NodeMap node=b6e30f480b relay_url=Some(RelayUrl("https://euw1-1.relay.iroh.network./")) source=relay
+2026-10-10T03:57:28.338219Z  INFO router.accept:try_send:get_send_addrs{node=b6e30f480b}: iroh::magicsock::node_map::node_state: new connection type typ=relay(https://euw1-1.relay.iroh.network./)
+2026-10-10T03:57:28.385436Z  INFO ep{me=964100699c}:magicsock:poll_recv:disco_in{node=b6e30f480b src=Udp([IPv6-redacted]:PORT)}:handle_pong{m=Pong { tx_id: TransactionId(0x4393C2EDDE3A7D34125B7945), ping_observed_addr: Udp([IPv6-redacted]:PORT) } src=Udp([IPv6-redacted]:PORT)}: iroh::magicsock::node_map::best_addr: selecting new direct path for node addr=[IPv6-redacted]:PORT latency=3.122188ms trust_for=6.499998077s
+2026-10-10T03:57:28.385533Z  INFO ep{me=964100699c}:magicsock:poll_recv:disco_in{node=b6e30f480b src=Udp(192.168.1.132:55138)}:handle_pong{m=Pong { tx_id: TransactionId(0x18C7E38FE7E0DF039BD4C017), ping_observed_addr: Udp(192.168.1.130:44544) } src=Udp(192.168.1.132:55138)}: iroh::magicsock::node_map::best_addr: selecting new direct path for node addr=192.168.1.132:55138 latency=1.620149ms trust_for=6.499999769s
+2026-10-10T03:57:28.429550Z  INFO router.accept:try_send:get_send_addrs{node=b6e30f480b}: iroh::magicsock::node_map::node_state: new connection type typ=direct(192.168.1.132:55138)
+2026-10-10T03:57:28.429936Z  INFO callme::rtc: added capture track to rtc connection
+2026-10-10T03:57:28.438685Z  INFO callme::audio::capture: new sink added to capture loop
+2026-10-10T03:57:28.444292Z  INFO callme::rtc: new remote track: Audio Opus { channels: Stereo }
+2026-10-10T03:57:28.451288Z  INFO callme::audio::playback: add new track to decoder
+2026-10-10T03:57:34.885905Z  INFO router.accept:try_send:get_send_addrs{node=b6e30f480b}: iroh::magicsock::node_map::node_state: new connection type typ=mixed(udp: 192.168.1.132:55138, relay: https://euw1-1.relay.iroh.network./)
+2026-10-10T03:57:34.887623Z  INFO ep{me=964100699c}:magicsock:poll_recv:disco_in{node=b6e30f480b src=Udp([IPv6-redacted]:PORT)}:handle_pong{m=Pong { tx_id: TransactionId(0xB87E6F752F77A9D25F9BD520), ping_observed_addr: Udp([IPv6-redacted]:PORT) } src=Udp([IPv6-redacted]:PORT)}: iroh::magicsock::node_map::best_addr: selecting new direct path for node addr=[IPv6-redacted]:PORT latency=1.619639ms trust_for=6.499999499s
+2026-10-10T03:57:34.887647Z  INFO router.accept:try_send:get_send_addrs{node=b6e30f480b}: iroh::magicsock::node_map::node_state: new connection type typ=direct([IPv6-redacted]:PORT)
+2026-10-10T03:57:36.338506Z  WARN callme::audio::playback: [tick 14171] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 10 previous)
+2026-10-10T03:57:53.309117Z  WARN callme::audio::playback: [tick 15762] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 11 previous)
+2026-10-10T03:58:01.319778Z  WARN callme::audio::playback: [tick 16513] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 12 previous)
+2026-10-10T03:58:19.890343Z  WARN callme::audio::playback: [tick 18254] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 13 previous)
+2026-10-10T03:58:34.621054Z  WARN callme::audio::playback: [tick 19635] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 14 previous)
+2026-10-10T03:59:01.511869Z  WARN callme::audio::playback: [tick 22156] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 15 previous)
+2026-10-10T03:59:20.082653Z  WARN callme::audio::playback: [tick 23897] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 16 previous)
+2026-10-10T03:59:31.398022Z  WARN iroh_roq::session: connection terminated: ApplicationClosed(ApplicationClose { error_code: 0, reason: b"" })
+2026-10-10T03:59:31.398050Z  WARN callme::rtc::rtp_receiver: rtp receive flow failed: session is closed id=1
+2026-10-10T03:59:31.398057Z  INFO callme::rtc: rtp receiver closed
+2026-10-10T03:59:31.398057Z ERROR callme_cli: connection from b6e30f480b closed with error: closed by peer: 0
+2026-10-10T03:59:31.399113Z  WARN callme::rtc::rtp_receiver: rtp receive flow failed: session is closed id=0
+2026-10-10T03:59:31.399124Z  INFO callme::rtc: rtp receiver closed

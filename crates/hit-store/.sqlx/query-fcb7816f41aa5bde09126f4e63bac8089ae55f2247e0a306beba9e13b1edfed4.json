@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT e.json FROM tags t JOIN events e ON e.id = t.event_id\n             WHERE t.name = 'e' AND t.value = ? AND e.kind = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "json",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "events",
+            "name": "json"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "fcb7816f41aa5bde09126f4e63bac8089ae55f2247e0a306beba9e13b1edfed4"
+}

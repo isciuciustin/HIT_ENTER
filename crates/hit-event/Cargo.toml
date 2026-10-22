@@ -1,0 +1,36 @@
+[package]
+name = "hit-event"
+description = "Our Nostr event kinds, tags and validation; person keys; the device binding. No I/O."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+# MIT, but never goes to crates.io.
+publish = false
+repository.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+default = ["keychain"]
+# The OS keychain store. The one piece of I/O in this crate, behind a feature
+# so a consumer that only verifies events (an anchor, a test) does not link
+# the platform's secret store.
+keychain = ["dep:keyring"]
+
+[dependencies]
+nostr = { workspace = true }
+iroh-base = { workspace = true }
+keyring = { workspace = true, optional = true }
+zeroize = { workspace = true }
+hex = { workspace = true }
+getrandom = { workspace = true }
+thiserror = { workspace = true }
+aes-gcm = { workspace = true }
+sha2 = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+serde_json = { workspace = true }

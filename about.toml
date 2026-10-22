@@ -1,0 +1,92 @@
+# What licences the dependency tree is allowed to contain.
+#
+# `cargo about generate` fails if a crate's licence is not on this list, which
+# is the point: the list is a decision, not a description. Adding a name here
+# is accepting an obligation, so do it deliberately and read the licence first.
+#
+# Regenerate the notices after any dependency change:
+#
+#     cargo about generate about.hbs --workspace --all-features \
+#       -o THIRD_PARTY_NOTICES.md
+#
+# **Deliberately absent: GPL, AGPL and LGPL** (CLAUDE.md). This product is
+# MIT and statically linked; a copyleft dependency would change the terms
+# the whole binary ships under — a licensing decision, not a dependency bump. Leaving
+# them off means the build says so the day one arrives, which is the only
+# time it is cheap to reverse.
+#
+accepted = [
+    # The Rust ecosystem's default pair, and the overwhelming majority.
+    "MIT",
+    "Apache-2.0",
+    # Apache-2.0 with the exception that keeps linking from imposing its
+    # terms on the linked work — the compiler-support crates use it.
+    "Apache-2.0 WITH LLVM-exception",
+    # Permissive, attribution-only. BSD-3 adds "do not use our name to
+    # endorse", which we do not.
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "0BSD",
+    "ISC",
+    "Zlib",
+    "BSL-1.0",
+    # The Unicode data licence, carried by the ICU crates under idna.
+    # Attribution-only.
+    "Unicode-3.0",
+    # Public-domain dedications. Listed so their crates still appear in the
+    # notices rather than silently vanishing.
+    "Unlicense",
+    "CC0-1.0",
+    # webpki-roots: the Mozilla CA bundle, which is data rather than code.
+    # Permissive, attribution-only.
+    "CDLA-Permissive-2.0",
+    # Weak, file-level copyleft (owner's decision, 2026-10-10). Fine to link
+    # into an MIT product: the obligation attaches to the MPL'd *files*,
+    # not to the work that links them, and shipping this notice with those
+    # crates unmodified discharges it. Six crates since M4: `attohttpc`,
+    # under iroh's default `portmapper` feature (portmapper → igd-next →
+    # attohttpc: UPnP on the user's router; turning the port mapper off
+    # would remove it, at the price of more relayed connections), and five
+    # under Tauri — `cssparser`, `cssparser-macros`, `dtoa-short`,
+    # `selectors` (Servo's CSS code, under Tauri's HTML tooling) and
+    # `option-ext` (under `dirs`). HIT_ENTER_2 ships the same five.
+    #
+    # **If an MPL crate is ever forked or patched, the modified files must be
+    # published.** That is the whole practical difference, and it is why this
+    # entry has a paragraph and the others have a line.
+    "MPL-2.0",
+    # Slint, the native window (owner's decision, 2026-10-18, PLAN.md M12).
+    # Its crates are "GPL-3.0-only OR this OR a paid licence"; we take this
+    # one. Read 2026-10-18 (v1.18.1, LICENSES/LicenseRef-Slint-Royalty-
+    # free-2.0.md): royalty-free for a desktop, mobile or web application,
+    # **not for embedded systems**; never distributed alone, nor an app
+    # that exposes Slint's APIs. **The condition: attribution** — Slint's
+    # `AboutSlint` widget in an About screen reachable from the top level
+    # of the app (what we do, `hit-desktop`), or Slint's badge on the
+    # public page the binaries are downloaded from. Remove the About box
+    # and the badge must go on hitenter.app the same day.
+    "LicenseRef-Slint-Royalty-free-2.0",
+]
+
+# Our own crates are MIT (`LICENSE`) and every one is `publish = false`;
+# they are not third parties, so they stay out of the notices.
+private = { ignore = true }
+
+# webrtc-audio-processing (M9: echo cancellation): the crates name a
+# `license-file` instead of an SPDX id. Both COPYING files are Google's
+# BSD-3-Clause text (read 2026-10-11); the -sys crate's is the bundled C++
+# library's own, which `bundled` compiles in statically. The checksums pin
+# the text read — a new version with a different file fails here again.
+[webrtc-audio-processing.clarify]
+license = "BSD-3-Clause"
+[[webrtc-audio-processing.clarify.files]]
+path = "COPYING"
+license = "BSD-3-Clause"
+checksum = "6db9d4840c6ff0fb3c37ace8e32cfd3eb6c6e759c67b4ecbee969cd8d75154a9"
+
+[webrtc-audio-processing-sys.clarify]
+license = "BSD-3-Clause"
+[[webrtc-audio-processing-sys.clarify.files]]
+path = "COPYING"
+license = "BSD-3-Clause"
+checksum = "9b79539028e216e813e152d45f5c1ed5fdd0554426ad50270fb03134e7082dac"

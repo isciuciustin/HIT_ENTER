@@ -1,0 +1,89 @@
+[package]
+name = "hit-desktop"
+description = "HIT_ENTER — the native desktop window (M12): Slint over hit-app-core."
+version.workspace = true
+edition.workspace = true
+# Slint 1.18 needs 1.92.
+rust-version = "1.92"
+license.workspace = true
+publish = false
+repository.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[[bin]]
+# `hit-enter` once the Tauri window leaves (M12-9); until then both build.
+name = "hit-enter"
+path = "src/main.rs"
+
+[dependencies]
+hit-app-core = { workspace = true }
+# winit and the software renderer only: no OpenGL, no GPU driver mapped
+# into the process (the GPU stack is itself a memory cost, PLAN.md M12),
+# and never the Qt backend (LGPL). Licence: Slint Royalty-Free 2.0 —
+# attribution by `AboutSlint` in the app (about.toml).
+slint = { version = "1.18", default-features = false, features = [
+    "std",
+    "compat-1-2",
+    "backend-winit",
+    "renderer-software",
+    # Anti-aliased vector paths: the rail's circles (ui/chat.slint, RailIcon).
+    "software-renderer-path",
+    "software-renderer-systemfonts",
+    "accessibility",
+    # The winit window under Slint's: a ringing call asks the desktop for
+    # attention (`request_user_attention`), as the Tauri window did.
+    "unstable-winit-030",
+] }
+tokio = { workspace = true }
+# Message times in the local zone.
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+# The data directory, the same one the Tauri window used.
+dirs = "6"
+# The backup's save dialog: the desktop portal (no GTK linked), driven from
+# any executor. MIT.
+rfd = { version = "0.17", default-features = false, features = ["xdg-portal", "wayland"] }
+# Pictures in messages, decoded once and kept at display size (PLAN.md
+# M12-6). The formats people send; already in the tree via slint-build.
+# MIT OR Apache-2.0.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
+# A zap invoice's QR code, drawn to pixels here (Slint's software renderer
+# draws no SVG). MIT OR Apache-2.0, as in hit-app-core.
+qrcode = { version = "0.14", default-features = false }
+# Copying the key on the backup step, and invite links later. Wayland's
+# data-control protocol, no image support. MIT OR Apache-2.0.
+arboard = { version = "3", default-features = false, features = ["wayland-data-control"] }
+
+# glibc's allocator settings (src/main.rs, `tune_allocator`). MIT OR Apache-2.0.
+[target.'cfg(all(target_os = "linux", target_env = "gnu"))'.dependencies]
+libc = "0.2"
+
+# A clicked `hit-enter:` link reaches the running app as an Apple Event
+# (src/instance.rs, `mac`). The versions winit and Slint already use. MIT.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSAppleEventDescriptor", "NSAppleEventManager", "NSString"] }
+
+# Windows (src/instance.rs): the single-instance named pipe and the
+# `hit-enter:` handler in the registry. The version winit already uses. MIT
+# OR Apache-2.0.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Pipes",
+    "Win32_System_Registry",
+] }
+
+[build-dependencies]
+slint-build = "1.18"
+
+# The icon in the .exe (Explorer, the taskbar). A build dependency's cfg is
+# the build machine's: Windows builds are made on Windows. MIT.
+[target.'cfg(windows)'.build-dependencies]
+embed-resource = "3"

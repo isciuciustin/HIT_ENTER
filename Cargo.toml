@@ -1,0 +1,137 @@
+[workspace]
+resolver = "3"
+# The crates M1–M6 need, in dependency order; `hit-desktop` is the app (M12:
+# Slint; the Tauri/web window it replaced left the tree at 0.1.0-beta.3),
+# `hit-anchor` the always-on peer (M6). The rest join when their milestone
+# starts, not before: `hit-files` (M8), `hit-voice` (M9) and `hit-zap` (M10). An empty crate for
+# work months away is a guess about its shape, written down as if it were a
+# decision.
+members = [
+    "crates/hit-event",
+    "crates/hit-proto",
+    "crates/hit-store",
+    "crates/hit-group",
+    "crates/hit-node",
+    "crates/hit-cli",
+    "crates/hit-anchor",
+    "crates/hit-voice",
+    "crates/hit-zap",
+    "crates/hit-app-core",
+    "crates/hit-desktop",
+]
+# Spikes are questions, not crates. Each has its own lockfile and `[workspace]`
+# table, and some pull in `iroh/test-utils` (axum, a relay server). Excluded so
+# none of that reaches the product's dependency graph or its licence check.
+exclude = ["spikes"]
+
+[workspace.package]
+version = "0.1.0-beta.4"
+edition = "2024"
+rust-version = "1.90"
+repository = "https://github.com/isciuciustin/HIT_ENTER"
+authors = ["isciuciustin"]
+# **MIT** (`LICENSE`; open source since 2026-10-22, DESIGN.md §15 q1). Every
+# crate still sets `publish = false`: open source, but not on crates.io.
+#
+# Code carried in from the original HIT_ENTER keeps its notice
+# (THIRD_PARTY_NOTICES.md); code from HIT_ENTER_2 (the owner's) may move in
+# under MIT. Record each piece in docs/SESSION_LOG.md.
+license = "MIT"
+
+# Single source of truth for versions. Members write `dep = { workspace = true }`
+# so two crates can never disagree. Only what M0's spikes settled is listed;
+# a crate adds a line here when it first needs one.
+[workspace.dependencies]
+hit-event = { path = "crates/hit-event" }
+hit-proto = { path = "crates/hit-proto" }
+hit-store = { path = "crates/hit-store" }
+hit-group = { path = "crates/hit-group" }
+hit-node = { path = "crates/hit-node" }
+hit-voice = { path = "crates/hit-voice" }
+hit-zap = { path = "crates/hit-zap" }
+hit-app-core = { path = "crates/hit-app-core" }
+
+# Pinned exactly: S1's first build, S2 and S5 answered their questions for
+# 1.3.0, and `iroh-gossip 0.101` resolves against nothing older. A different
+# version has answered a different question — re-run the spikes before moving.
+iroh = "=1.3.0"
+iroh-gossip = "=0.101.0"
+# The device key's types, without the transport: `hit-event` signs and checks
+# device proofs with it and must not pull in an endpoint (M1).
+iroh-base = { version = "=1.3.0", default-features = false, features = ["key"] }
+# Events, keys and signing (S1). `os-rng` is what `Keys::generate()` needs;
+# `nip49` is the `ncryptsec` backup and import. `nip59` (gift wrap) is M7's
+# DMs, and is also on now because 0.45.5 does not build `nip49` without it:
+# its NIP-49 code calls `Error::crypto`, which is compiled only under `nip46`
+# or `nip59`. Drop this note if a later release fixes that.
+nostr = { version = "0.45", features = ["std", "os-rng", "nip49", "nip59"] }
+# The OS keychain (DESIGN.md §3). keyring 4's default `v1` mode picks the
+# platform store: Keychain on macOS, Credential Manager on Windows, and the
+# Secret Service over zbus — pure Rust, no libdbus — on Linux.
+keyring = "4.2"
+# Secrets in memory are wiped on drop, including strings read back from the
+# keychain.
+zeroize = "1.8"
+hex = "0.4"
+# Invite codes (M3). Already in the tree through iroh.
+getrandom = "0.4"
+# NIP-77 set reconciliation (S1).
+negentropy = "0.5"
+# Our own SQLite is the store (S1, both builds). `macros` because SQL is
+# checked at compile time (CLAUDE.md).
+sqlx = { version = "0.9", default-features = false, features = ["sqlite", "runtime-tokio", "macros", "migrate"] }
+tokio = { version = "1.53", features = ["macros", "rt-multi-thread", "sync", "time"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
+anyhow = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tempfile = "3"
+# Files (M8): content-addressed by BLAKE3, verified on the way in. 0.103.1
+# accepts iroh ^1.0; HIT_ENTER_2 ran 0.103.0 on iroh 1.1, and its spike
+# (`../HIT_ENTER_2/spikes/blobs/README.md`) is why the upload and serve paths
+# look as they do. No `rpc`: nothing here talks to a blob store in another
+# process.
+iroh-blobs = { version = "=0.103.1", default-features = false, features = ["fs-store"] }
+# A file's SHA-256 for its `imeta` (NIP-94's `x`), so an anchor could mirror
+# to Blossom later. Already in the tree.
+sha2 = "0.10"
+# DM files (M8b, NIP-17 kind 15): AES-256-GCM, RustCrypto's. Already in the
+# tree under iroh. No cipher code of ours.
+aes-gcm = "0.10"
+# Gossip payloads and the receiver stream (M3), as iroh-gossip uses them.
+bytes = "1"
+n0-future = "0.3"
+# The CLI's argument parser (`hit-cli`, `hit-anchor`).
+clap = { version = "4", features = ["derive"] }
+# The anchor's `ws://` bridge for NIP-29 clients — `hit-anchor` only (M6).
+# HIT_ENTER_2's version and features, plus `ws`.
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "ws"] }
+# Tests of that bridge, as a NIP-29 client would speak to it. Already in the
+# tree under axum's `ws`.
+tokio-tungstenite = "0.29"
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+# Zaps (M10) — `hit-zap` only: the one crate with an HTTP client (LNURL-pay)
+# and a WebSocket client (NWC, zap receipts). Both already in the tree under
+# iroh (reqwest 0.13 on rustls, webpki-roots), with iroh's `ring` provider:
+# no second crypto library, no aws-lc C build.
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+
+# CLAUDE.md: no `unwrap()`/`expect()` outside tests and `main()`. As lints, so
+# the rule is a build failure rather than a review comment. `clippy.toml`
+# allows both in tests; a `main()` that needs one says so with a local
+# `#[allow]`, which is visible in review.
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+
+[profile.dev.package."*"]
+# iroh, sqlx and secp256k1 are large; optimise dependencies once so the debug
+# loop is bearable, and keep our own crates at opt-level 0.
+opt-level = 2
+
+[profile.release]
+lto = "thin"
+strip = true

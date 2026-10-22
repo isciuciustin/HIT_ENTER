@@ -1,0 +1,22 @@
+[package]
+name = "hit-group"
+description = "Group state and permissions: a pure function every peer runs on every event."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+# MIT, but never goes to crates.io.
+publish = false
+repository.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+hit-event = { workspace = true }
+nostr = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

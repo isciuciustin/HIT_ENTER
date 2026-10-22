@@ -1,0 +1,53 @@
+[package]
+name = "hit-anchor"
+description = "The always-on peer: hit-node headless, pinning groups, optionally serving NIP-29 clients over ws://."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+# MIT, but never goes to crates.io.
+publish = false
+repository.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+name = "hit_anchor"
+path = "src/lib.rs"
+
+[[bin]]
+name = "hit-anchor"
+path = "src/main.rs"
+
+[dependencies]
+hit-node = { workspace = true }
+hit-event = { workspace = true }
+hit-group = { workspace = true }
+hit-proto = { workspace = true }
+iroh = { workspace = true }
+nostr = { workspace = true }
+tokio = { workspace = true, features = ["signal", "net"] }
+clap = { workspace = true }
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+zeroize = { workspace = true }
+getrandom = { workspace = true }
+hex = { workspace = true }
+# The `ws://` bridge for NIP-29 clients (DESIGN.md §2, §9) — **this crate
+# only**: CLAUDE.md's rule is no HTTP or WebSocket in the chat plane, and
+# `wss://` only on an anchor that opted in. TLS is a reverse proxy's job
+# (docs/SELF_HOSTING.md), so no certificate code lives here.
+axum = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+hit-zap = { workspace = true, features = ["fake"] }
+sha2 = { workspace = true }
+tokio-tungstenite = { workspace = true }
+futures-util = { workspace = true }

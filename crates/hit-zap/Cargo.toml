@@ -1,0 +1,46 @@
+[package]
+name = "hit-zap"
+description = "Zaps: Lightning addresses, NIP-57 zap requests and receipts, NIP-47 wallet connect, the 1% fee. The only crate with an HTTP client."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+# MIT, but never goes to crates.io.
+publish = false
+repository.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+# An in-process Lightning network for tests: LNURL servers, wallets that
+# speak NWC, and a relay — no sats, no internet. Never in a release build.
+fake = ["dep:axum"]
+
+[dependencies]
+hit-event = { workspace = true }
+# NIP-47: wallet-connect URIs, requests and responses, NIP-04/44 for them.
+nostr = { workspace = true, features = ["nip47"] }
+reqwest = { workspace = true }
+rustls = { workspace = true }
+# NWC and zap receipts are Nostr over WebSocket. `wss://` with the Mozilla
+# roots (webpki-roots, already in the tree under iroh's relay client).
+tokio-tungstenite = { workspace = true, features = ["rustls-tls-webpki-roots"] }
+futures-util = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+getrandom = { workspace = true }
+axum = { workspace = true, optional = true, features = ["query", "json"] }
+
+[dev-dependencies]
+hit-zap = { path = ".", features = ["fake"] }
+
+[[example]]
+name = "fake_network"
+required-features = ["fake"]

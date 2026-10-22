@@ -1,0 +1,329 @@
+// Direct messages (M12-6) — DmView.svelte: conversations on the left, one
+// open on the right. NIP-17 end to end; the line under the composer says
+// what that means and where a message waits while the other person is away.
+import { Panel } from "panel.slint";
+import { ListView } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+import { ConvUi, DmUi, FileUi, ViewUi, CallUi } from "types.slint";
+import { CallBar } from "voice.slint";
+import { Ink, Badge, Row, Mini, FileView, Composer } from "chat.slint";
+
+component Bubble inherits Rectangle {
+    in property <DmUi> d;
+    // The list's visible width: a bubble is at most three quarters of it.
+    // Its own width would follow the list's content, which follows the
+    // bubble — and an unwrapped line widened the whole pane.
+    in property <length> room;
+    callback show-file(FileUi);
+    callback save-file(FileUi);
+    height: lay.preferred-height;
+    // Focusable, as a message is: Ctrl+S saves its file, Enter shows a
+    // picture held back for its size (Tab cannot reach the file's own
+    // controls inside a list row).
+    keys := FocusScope {
+        key-pressed(event) => {
+            if (!root.d.has-file) {
+                return reject;
+            }
+            if (event.modifiers.control && (event.text == "s" || event.text == "S")) {
+                root.save-file(root.d.file);
+                return accept;
+            }
+            if (event.text == Key.Return && root.d.file.image && !root.d.file.shown) {
+                root.show-file(root.d.file);
+                return accept;
+            }
+            reject
+        }
+    }
+    accessible-role: list-item;
+    accessible-label: (root.d.mine ? "you: " : "") + (root.d.has-file ? root.d.file.name : root.d.text);
+    lay := HorizontalLayout {
+        padding-left: 16px;
+        padding-right: 16px;
+        padding-top: 4px;
+        padding-bottom: 4px;
+        alignment: root.d.mine ? end : start;
+        Panel {
+            border-radius: 8px;
+            background: root.d.mine ? #3ddc8426 : #ffffff0d;
+            border-width: keys.has-focus ? 1px : 0px;
+            border-color: Theme.accent;
+            max-width: root.room * 0.75;
+            inner := VerticalLayout {
+                padding-left: 12px;
+                padding-right: 12px;
+                padding-top: 6px;
+                padding-bottom: 6px;
+                spacing: 2px;
+                if root.d.has-file : FileView {
+                    file: root.d.file;
+                    room: root.room * 0.75 - 24px;
+                    show(f) => { root.show-file(f); }
+                    save(f) => { root.save-file(f); }
+                }
+                if !root.d.has-file : Text {
+                    text: root.d.text;
+                    wrap: word-wrap;
+                    font-size: 14px;
+                    color: root.d.mine ? #f5f5f5 : Ink.n200;
+                }
+                Text {
+                    text: root.d.time;
+                    font-size: 10px;
+                    color: Ink.n500;
+                    horizontal-alignment: right;
+                }
+            }
+        }
+    }
+}
+
+export component DmPane inherits Rectangle {
+    in property <[ConvUi]> convs;
+    in property <[DmUi]> thread;
+    // The open conversation's person, or "".
+    in property <string> with;
+    in property <string> with-name;
+    in property <string> with-key;
+    // For the composer: placeholder, send error, the length limit.
+    in property <ViewUi> view;
+    in-out property <string> draft;
+    callback open(string);
+    callback new-contact();
+    callback send(string);
+    callback attach();
+    callback show-file(FileUi);
+    callback save-file(FileUi);
+    // Voice: this person's call, a 1:1 call to the open conversation.
+    in property <CallUi> call;
+    in property <bool> call-busy;
+    callback ring();
+    callback leave();
+    callback mute();
+    callback deafen();
+    callback ptt();
+    callback audio();
+    callback hold(bool);
+    property <bool> with-them: root.call.active && root.call.dm && root.call.with == root.with;
+
+    property <bool> stick: true;
+    property <int> count: root.thread.length;
+
+    public function focus-input() { composer.focus-input(); }
+    public function type-in(t: string) { composer.type-in(t); }
+    public function to-bottom() {
+        root.stick = true;
+        list.content-y = min(0px, list.visible-height - list.content-height);
+    }
+    changed count => {
+        if (root.stick) { settle.running = true; }
+    }
+    settle := Timer {
+        interval: 16ms;
+        running: false;
+        triggered => {
+            self.running = false;
+            root.to-bottom();
+        }
+    }
+
+    HorizontalLayout {
+        Rectangle {
+            width: 224px;
+            background: Theme.panel;
+            Rectangle {
+                x: parent.width - 1px;
+                width: 1px;
+                background: Theme.edge;
+            }
+            VerticalLayout {
+                Rectangle {
+                    height: 45px;
+                    HorizontalLayout {
+                        padding-left: 16px;
+                        padding-right: 12px;
+                        spacing: 8px;
+                        Text {
+                            horizontal-stretch: 1;
+                            text: "Direct messages";
+                            font-size: 13px;
+                            font-weight: 600;
+                            color: Theme.text;
+                            vertical-alignment: center;
+                        }
+                        VerticalLayout {
+                            alignment: center;
+                            Mini {
+                                text: "+ new";
+                                label: "Write to someone you share no group with, from their contact link";
+                                font-size: 11px;
+                                ink: Ink.n500;
+                                hover-color: Theme.accent;
+                                clicked => { root.new-contact(); }
+                            }
+                        }
+                    }
+                    Rectangle {
+                        y: parent.height - 1px;
+                        height: 1px;
+                        background: Theme.edge;
+                    }
+                }
+                // Above the list, which otherwise takes the height and pushes this out.
+                if root.convs.length == 0 : VerticalLayout {
+                    padding: 16px;
+                    Text {
+                        wrap: word-wrap;
+                        font-size: 12px;
+                        color: Ink.n600;
+                        text: "No conversations yet. Open someone in a group's member list and choose message — or + new with someone's contact link.";
+                    }
+                }
+                ListView {
+                    vertical-stretch: 1;
+                    for c in root.convs : Row {
+                        height: 44px;
+                        label: c.name;
+                        selected: c.active;
+                        clicked => { root.open(c.with); }
+                        HorizontalLayout {
+                            padding-left: 16px;
+                            padding-right: 12px;
+                            spacing: 6px;
+                            VerticalLayout {
+                                horizontal-stretch: 1;
+                                alignment: center;
+                                Text {
+                                    text: c.name;
+                                    font-size: 13px;
+                                    font-weight: c.unread > 0 && !c.active ? 700 : 400;
+                                    color: c.unread > 0 || c.active ? #f5f5f5 : Ink.n300;
+                                    overflow: elide;
+                                }
+                                Text {
+                                    text: c.last;
+                                    font-size: 11px;
+                                    color: Ink.n500;
+                                    overflow: elide;
+                                }
+                            }
+                            if c.unread > 0 && !c.active : VerticalLayout {
+                                alignment: center;
+                                Badge { n: c.unread; }
+                            }
+                        }
+                    }
+                }
+                if root.call.active : CallBar {
+                    call: root.call;
+                    leave => { root.leave(); }
+                    mute => { root.mute(); }
+                    deafen => { root.deafen(); }
+                    ptt => { root.ptt(); }
+                    audio => { root.audio(); }
+                    hold(d) => { root.hold(d); }
+                }
+            }
+        }
+        VerticalLayout {
+            horizontal-stretch: 1;
+            min-width: 120px;
+            Rectangle {
+                height: 45px;
+                HorizontalLayout {
+                    padding-left: 16px;
+                    padding-right: 16px;
+                    spacing: 8px;
+                    Text {
+                        text: root.with-name;
+                        font-size: 13px;
+                        font-weight: 600;
+                        color: Theme.text;
+                        vertical-alignment: center;
+                        overflow: elide;
+                    }
+                    Text {
+                        horizontal-stretch: 1;
+                        text: root.with-key;
+                        font-size: 10px;
+                        color: Ink.n600;
+                        vertical-alignment: center;
+                    }
+                    if root.with != "" && root.with-them : VerticalLayout {
+                        alignment: center;
+                        Mini {
+                            text: root.call.sub == "ringing…" ? "ringing… · hang up" : "hang up";
+                            label: "Hang up";
+                            font-size: 11px;
+                            ink: #f87171;
+                            hover-color: #fca5a5;
+                            clicked => { root.leave(); }
+                        }
+                    }
+                    if root.with != "" && !root.with-them : VerticalLayout {
+                        alignment: center;
+                        Mini {
+                            text: root.call-busy ? "calling…" : "call";
+                            label: "Call — direct between your two apps, end to end. Their app rings only if you share a group or they have written to you.";
+                            font-size: 11px;
+                            hover-color: Theme.accent;
+                            clicked => { if (!root.call-busy) { root.ring(); } }
+                        }
+                    }
+                }
+                Rectangle {
+                    y: parent.height - 1px;
+                    height: 1px;
+                    background: Theme.edge;
+                }
+            }
+            Rectangle {
+                vertical-stretch: 1;
+                // Set, so the list's content cannot raise the window's
+                // least width (Hyprland then clips what does not fit).
+                min-width: 100px;
+                list := ListView {
+                    changed content-y => {
+                        root.stick = list.content-height + list.content-y - list.visible-height < 80px;
+                    }
+                    for d in root.thread : Bubble {
+                        d: d;
+                        room: list.visible-width;
+                        show-file(f) => { root.show-file(f); }
+                        save-file(f) => { root.save-file(f); }
+                    }
+                }
+                if root.thread.length == 0 : Text {
+                    text: root.with == "" ? "no conversation open" : "Say hello to \{root.with-name}.";
+                    font-size: 13px;
+                    color: Ink.n600;
+                }
+            }
+            Rectangle {
+                height: 1px;
+                background: Theme.edge;
+            }
+            composer := Composer {
+                min-width: 100px;
+                visible: root.with != "";
+                view: root.view;
+                draft <=> root.draft;
+                send(t) => { root.send(t); }
+                attach => { root.attach(); }
+            }
+            if root.with != "" && root.view.send-error == "" : HorizontalLayout {
+                padding-left: 16px;
+                padding-right: 16px;
+                padding-bottom: 8px;
+                Text {
+                    // Wraps: one long line would set the pane's least width.
+                    wrap: word-wrap;
+                    font-size: 11px;
+                    color: Ink.n600;
+                    text: "end to end encrypted · if they are away it waits with their anchor, if they named one, or here";
+                }
+            }
+        }
+    }
+}

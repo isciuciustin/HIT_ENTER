@@ -1,0 +1,710 @@
+import { Panel } from "panel.slint";
+import { AboutSlint } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+import { Pill, Link, Note } from "widgets.slint";
+import { Onboarding, StatusUi } from "onboarding.slint";
+import { GroupUi, ChannelUi, MessageUi, MemberUi, ViewUi, ChipUi, SettingsUi, BanUi, PersonUi, RoleUi, FileUi, PendingUi, ConvUi, DmUi, VoicePersonUi, CallUi, DeviceUi, ProfileUi, ZapUi } from "types.slint";
+import { DmPane } from "dms.slint";
+import { CallBar, IncomingCall } from "voice.slint";
+import { Rail, ChannelList, MessagePane, Composer, MemberList, Header } from "chat.slint";
+import { Emoji } from "art.slint";
+import { AddGroupDialog, InviteDialog, SettingsDialog, MemberDialog, ContactDialog, AudioDialog, ProfileDialog, ZapDialog } from "dialogs.slint";
+import "../assets/JetBrainsMono.ttf";
+// Slint's software renderer cannot draw colour emoji fonts (the system's
+// Noto Color Emoji draws nothing): emoji are drawn in this one, monochrome.
+import "../assets/NotoEmoji.ttf";
+
+export { Emoji, StatusUi, GroupUi, ChannelUi, MessageUi, MemberUi, ViewUi, ChipUi, SettingsUi, BanUi, PersonUi, RoleUi, FileUi, PendingUi, ConvUi, DmUi, VoicePersonUi, CallUi, DeviceUi, ProfileUi, ZapUi }
+
+export component MainWindow inherits Window {
+    title: "HIT_ENTER";
+    icon: @image-url("../packaging/icons/128x128.png");
+    preferred-width: 1100px;
+    preferred-height: 720px;
+    min-width: 640px;
+    min-height: 420px;
+    background: Theme.ink;
+    default-font-family: "JetBrains Mono";
+    default-font-size: Theme.font-size;
+
+    in property <StatusUi> status: { stage: "opening" };
+    // Why the app could not open — shown instead of dying silently.
+    in property <string> fatal;
+    in property <bool> busy;
+    in property <string> error;
+    in property <string> shown-key;
+    in property <bool> copied;
+
+    callback create();
+    callback import-key(string, string);
+    callback save-file(string, string);
+    callback reveal();
+    callback copy-key();
+    callback confirm(string);
+    callback set-name(string);
+    pure callback is-encrypted(string) -> bool;
+
+    // ---- the main window (M12-4), filled by src/chat.rs ----
+    in property <[GroupUi]> groups;
+    in property <[ChannelUi]> channels;
+    in property <[MessageUi]> messages;
+    in property <[MemberUi]> members;
+    in property <ViewUi> view;
+    in-out property <string> draft;
+    in-out property <bool> show-members: true;
+    callback select-group(string);
+    callback select-channel(string);
+    callback send(string);
+    // A message's bar (M12-5): toggle a reaction, withdraw mine, remove
+    // someone else's as a moderator. Its failure shows over the messages.
+    callback react(string, string);
+    callback withdraw(string);
+    callback remove-message(string);
+    in property <string> message-error;
+    // Whether a key's text is something typed (not Tab, an arrow, …): typing
+    // anywhere in the main view goes to the composer.
+    pure callback typed(string) -> bool;
+    // Files (M12-6): attach to the group composer, show a picture, save.
+    in property <[PendingUi]> pending;
+    callback attach();
+    callback unattach(string);
+    callback show-file(FileUi);
+    // `save-file` is the backup's (onboarding).
+    callback save-attachment(FileUi);
+
+    // ---- you and zaps (M12-8) ----
+    in property <ProfileUi> profile;
+    callback copy-text(string);
+    callback set-my-name(string);
+    callback set-address(string);
+    callback connect-wallet(string);
+    callback disconnect-wallet();
+    callback toggle-inbox();
+    callback backup-again(string);
+    in property <ZapUi> zap;
+    in-out property <string> zap-amount: "1000";
+    in-out property <string> zap-comment;
+    in-out property <bool> zap-anon;
+    callback open-zap(string);
+    callback zap-quote();
+    callback zap-wallet();
+    callback zap-qr();
+    callback zap-copy();
+    callback zap-fee-paid();
+
+    // ---- voice (M12-7), filled by src/chat.rs ----
+    in property <CallUi> call;
+    // Joining, ringing or answering: the node is opening the audio.
+    in property <bool> call-busy;
+    // Why the last join, call or answer failed.
+    in property <string> voice-error;
+    // Someone calling this person: their name, or "".
+    in property <string> incoming;
+    callback join-voice(string);
+    callback ring(string);
+    callback leave-call();
+    // `mute(int)` is moderation's: this one mutes this person's microphone.
+    callback mute-mic();
+    callback deafen();
+    callback ptt();
+    callback hold(bool);
+    callback answer();
+    callback decline();
+    // The audio dialog.
+    in property <[DeviceUi]> audio-inputs;
+    in property <[DeviceUi]> audio-outputs;
+    in-out property <string> audio-input;
+    in-out property <string> audio-output;
+    in-out property <bool> audio-echo: true;
+    in property <bool> audio-loaded;
+    callback save-audio();
+
+    // ---- direct messages (M12-6), filled by src/chat.rs ----
+    // Set by Rust: true while the DM pane is shown instead of a group.
+    in property <bool> dms-open;
+    in property <int> dm-unread;
+    in property <[ConvUi]> convs;
+    in property <[DmUi]> thread;
+    in property <string> dm-with;
+    in property <string> dm-with-name;
+    in property <string> dm-with-key;
+    in property <ViewUi> dm-view;
+    in-out property <string> dm-draft;
+    callback show-dms();
+    callback open-dm(string);
+    callback send-dm(string);
+    callback attach-dm();
+    callback add-contact(string);
+    // Rust calls this when a conversation is on screen.
+    callback dm-opened();
+    dm-opened => {
+        dms.to-bottom();
+        dms.focus-input();
+    }
+    // Rust calls this when another channel's messages are on screen.
+    callback channel-opened();
+    channel-opened => {
+        pane.to-bottom();
+        composer.focus-input();
+    }
+
+    // ---- dialogs: "", "add", "join", "invite", "settings" or "member" ----
+    in-out property <string> dialog;
+    in property <bool> dialog-busy;
+    in property <string> dialog-error;
+    in property <string> dialog-done;
+    in property <SettingsUi> settings;
+    in property <[BanUi]> bans;
+    in property <PersonUi> person;
+    in-out property <[RoleUi]> roles;
+    callback rename(string);
+    callback save-channel(string, string, int, bool);
+    callback set-private(string, bool);
+    callback delete-channel(string);
+    callback unban(string, string);
+    callback compact();
+    callback open-member(string);
+    callback save-roles();
+    callback mute(int);
+    callback kick();
+    callback ban();
+    in property <string> invite-link;
+    in property <bool> invite-copied;
+    callback open-dialog(string);
+    callback create-group(string);
+    callback join(string);
+    callback make-invite(int);
+    callback copy-invite();
+    // A screen that replaces the one holding focus must take it, or the
+    // window gets no keys at all — WebKitGTK's lesson, true here too. One
+    // frame later, once the new screen is visible.
+    property <bool> home: root.main && (root.view.has-groups || root.dms-open);
+    changed main => {
+        take-focus.running = true;
+        // A link that arrived during onboarding opens now.
+        root.take-link();
+    }
+    changed home => { take-focus.running = true; }
+    take-focus := Timer {
+        interval: 16ms;
+        running: false;
+        triggered => {
+            self.running = false;
+            if (root.home) {
+                root.focus-composer();
+            } else if (root.main) {
+                make-group.focus();
+            }
+        }
+    }
+    // Closing a dialog gives the keyboard back to the composer.
+    changed dialog => {
+        if (root.dialog == "") {
+            root.dialog-link = "";
+        }
+        if (root.dialog == "" && root.home) {
+            root.focus-composer();
+        }
+    }
+    // A `hit-enter:` link from the desktop (src/instance.rs): "join" or
+    // "contact", opened in its dialog once the main window is up.
+    in-out property <string> pending-link;
+    in property <string> pending-kind;
+    property <string> dialog-link;
+    public function take-link() {
+        if (root.pending-link == "" || !root.main) {
+            return;
+        }
+        root.dialog-link = root.pending-link;
+        root.pending-link = "";
+        root.open-dialog(root.pending-kind);
+    }
+
+    // Rust, after a native dialog: the keyboard back to the composer.
+    callback refocus();
+    refocus => { root.focus-composer(); }
+    // The composer on screen: a group's, or the open conversation's.
+    function focus-composer() {
+        if (root.dms-open) {
+            dms.focus-input();
+        } else {
+            composer.focus-input();
+        }
+    }
+
+    property <bool> show-about;
+
+    // Set on a resize rather than bound: a binding would run through the
+    // window's own size constraints and back (Slint's binding-loop warning).
+    property <bool> narrow-header;
+    // Room for the member list beside the messages; without it, the list
+    // is a drawer over them (as Discord does), or the window's least width
+    // would exceed the window and the compositor would cut its right edge.
+    property <bool> members-fit: true;
+    function measure() {
+        if (root.members-fit && root.width < 880px) {
+            // Narrowed: the drawer starts closed.
+            root.show-members = false;
+        }
+        root.members-fit = root.width >= 880px;
+        root.narrow-header = root.width - 64px - 224px - (root.show-members && root.members-fit ? 224px : 0px) < 640px;
+    }
+    init => { root.measure(); }
+    changed width => { root.measure(); }
+    changed show-members => { root.measure(); }
+
+    if root.fatal != "" || root.status.stage == "opening" : VerticalLayout {
+        alignment: center;
+        padding: 32px;
+        Text {
+            horizontal-alignment: center;
+            wrap: word-wrap;
+            color: root.fatal != "" ? Theme.danger : Theme.muted;
+            text: root.fatal != "" ? root.fatal : "opening…";
+        }
+    }
+
+    if root.fatal == "" && root.status.stage != "opening"
+        && (root.status.stage != "ready" || root.status.name == "") : Onboarding {
+        status: root.status;
+        busy: root.busy;
+        error: root.error;
+        shown-key: root.shown-key;
+        copied: root.copied;
+        create => { root.create(); }
+        import-key(s, p) => { root.import-key(s, p); }
+        save-file(p, p2) => { root.save-file(p, p2); }
+        reveal => { root.reveal(); }
+        copy-key => { root.copy-key(); }
+        confirm(t) => { root.confirm(t); }
+        set-name(n) => { root.set-name(n); }
+        is-encrypted(s) => { return root.is-encrypted(s); }
+    }
+
+    property <bool> main: root.fatal == "" && root.status.stage == "ready" && root.status.name != "";
+
+    // No groups yet: say what to do, with the one thing to press focused.
+    VerticalLayout {
+        visible: root.main && !root.view.has-groups && !root.dms-open;
+        alignment: center;
+        padding: 32px;
+        spacing: 16px;
+        HorizontalLayout {
+            alignment: center;
+            Text { text: "HIT"; font-size: 36px; font-weight: 700; color: Theme.text; }
+            Text { text: "_"; font-size: 36px; font-weight: 700; color: Theme.accent; }
+            Text { text: "ENTER"; font-size: 36px; font-weight: 700; color: Theme.text; }
+        }
+        HorizontalLayout {
+            alignment: center;
+            Note {
+                width: 380px;
+                horizontal-alignment: center;
+                text: "You are in no groups yet. Join one with a link somebody sent you, or make your own.";
+            }
+        }
+        HorizontalLayout {
+            alignment: center;
+            spacing: 8px;
+            make-group := Pill {
+                text: "make a group";
+                primary: true;
+                clicked => { root.open-dialog("add"); }
+            }
+            Pill {
+                text: "join with a link";
+                clicked => { root.open-dialog("join"); }
+            }
+        }
+    }
+
+    // Built always and hidden when unused, so `pane` and `composer` can be
+    // reached from the callbacks above (ids inside an `if` cannot).
+    // Escape, from anywhere in it, gives the keyboard back to the composer:
+    // the lists take focus without showing it, and nobody should have to
+    // count Tabs to get back to typing.
+    FocusScope {
+      visible: root.home;
+      focus-on-tab-navigation: false;
+      // Push to talk: ` held, whatever has the keyboard — except a text
+      // field, which types it (the web window's rule).
+      key-released(event) => {
+        if (event.text == "`" && root.call.active && root.call.push-to-talk) {
+            root.hold(false);
+            return accept;
+        }
+        reject
+      }
+      key-pressed(event) => {
+        if (event.text == "`" && root.call.active && root.call.push-to-talk) {
+            if (!event.repeat) {
+                root.hold(true);
+            }
+            return accept;
+        }
+        if (event.text == Key.Escape) {
+            // The member drawer covers its own switch: Escape closes it.
+            if (root.show-members && !root.members-fit) {
+                root.show-members = false;
+            }
+            root.focus-composer();
+            return accept;
+        }
+        // A key nothing focused wanted, that types something: the composer
+        // takes the keyboard and the character.
+        if (!event.modifiers.control && !event.modifiers.alt && !event.modifiers.meta
+            && root.typed(event.text)) {
+            if (root.dms-open) {
+                dms.type-in(event.text);
+            } else {
+                composer.type-in(event.text);
+            }
+            return accept;
+        }
+        reject
+      }
+      HorizontalLayout {
+        Rail {
+            groups: root.groups;
+            about-open: root.show-about;
+            dms-open: root.dms-open;
+            dm-unread: root.dm-unread;
+            dms => { root.show-dms(); }
+            you => { root.open-dialog("profile"); }
+            select(id) => { root.select-group(id); }
+            add => { root.open-dialog("add"); }
+            about => { root.show-about = !root.show-about; }
+        }
+        // The group, or the DM pane over the same space. Both are built
+        // always, so `composer` and `dms` can be reached by id.
+        Rectangle {
+          horizontal-stretch: 1;
+          HorizontalLayout {
+            visible: !root.dms-open;
+            VerticalLayout {
+              ChannelList {
+                vertical-stretch: 1;
+                view: root.view;
+                channels: root.channels;
+                has-settings: root.settings.has-any;
+                select(id) => { root.select-channel(id); }
+                join(id) => { root.join-voice(id); }
+                invite => { root.open-dialog("invite"); }
+                settings => { root.open-dialog("settings"); }
+              }
+              if root.voice-error != "" : Rectangle {
+                width: 224px;
+                background: Theme.panel;
+                height: ve.preferred-height + 12px;
+                ve := Text {
+                    x: 10px;
+                    width: parent.width - 20px;
+                    text: "voice: " + root.voice-error;
+                    wrap: word-wrap;
+                    font-size: 11px;
+                    color: Theme.danger;
+                }
+              }
+              if root.call.active : CallBar {
+                width: 224px;
+                call: root.call;
+                leave => { root.leave-call(); }
+                mute => { root.mute-mic(); }
+                deafen => { root.deafen(); }
+                ptt => { root.ptt(); }
+                audio => { root.open-dialog("audio"); }
+                hold(d) => { root.hold(d); }
+              }
+            }
+            VerticalLayout {
+                horizontal-stretch: 1;
+                Header {
+                    narrow: root.narrow-header;
+                    view: root.view;
+                    show-members <=> root.show-members;
+                }
+                if root.view.banner != "" : Rectangle {
+                    background: #ef44441a;
+                    VerticalLayout {
+                        padding-left: 16px;
+                        padding-right: 16px;
+                        padding-top: 8px;
+                        padding-bottom: 8px;
+                        Text { text: root.view.banner; wrap: word-wrap; font-size: 13px; color: #fca5a5; }
+                    }
+                }
+                if root.view.joining : Rectangle {
+                    background: #0ea5e91a;
+                    VerticalLayout {
+                        padding-left: 16px;
+                        padding-right: 16px;
+                        padding-top: 8px;
+                        padding-bottom: 8px;
+                        Text {
+                            text: "Joined — waiting for a member's app to send the group's history.";
+                            wrap: word-wrap;
+                            font-size: 13px;
+                            color: #bae6fd;
+                        }
+                    }
+                }
+                pane := MessagePane {
+                    vertical-stretch: 1;
+                    messages: root.messages;
+                    has-channel: root.view.channel-name != "";
+                    error: root.message-error;
+                    react(id, e) => { root.react(id, e); }
+                    zap(id) => { root.open-zap(id); }
+                    show-file(f) => { root.show-file(f); }
+                    save-file(f) => { root.save-attachment(f); }
+                    // The row goes, and its focus with it: the composer takes it.
+                    withdraw(id) => { composer.focus-input(); root.withdraw(id); }
+                    remove(id) => { composer.focus-input(); root.remove-message(id); }
+                }
+                Rectangle {
+                    height: 1px;
+                    background: Theme.edge;
+                }
+                composer := Composer {
+                    view: root.view;
+                    draft <=> root.draft;
+                    pending: root.pending;
+                    send(text) => { root.send(text); }
+                    attach => { root.attach(); }
+                    unattach(h) => { root.unattach(h); }
+                }
+            }
+            if root.show-members && root.members-fit : MemberList {
+                members: root.members;
+                open(npub) => { root.open-member(npub); }
+            }
+          }
+          // The member list as a drawer, when it does not fit beside.
+          if root.show-members && !root.members-fit && !root.dms-open : MemberList {
+            x: parent.width - self.width;
+            height: parent.height;
+            members: root.members;
+            open(npub) => { root.open-member(npub); }
+          }
+          dms := DmPane {
+            visible: root.dms-open;
+            // Sized by its place, not by what it holds: a long line in a
+            // bubble would otherwise widen the pane past the window.
+            width: parent.width;
+            height: parent.height;
+            convs: root.convs;
+            thread: root.thread;
+            with: root.dm-with;
+            with-name: root.dm-with-name;
+            with-key: root.dm-with-key;
+            view: root.dm-view;
+            draft <=> root.dm-draft;
+            open(w) => { root.open-dm(w); }
+            new-contact => { root.open-dialog("contact"); }
+            send(t) => { root.send-dm(t); }
+            attach => { root.attach-dm(); }
+            show-file(f) => { root.show-file(f); }
+            save-file(f) => { root.save-attachment(f); }
+            call: root.call;
+            call-busy: root.call-busy;
+            ring => { root.ring(root.dm-with); }
+            leave => { root.leave-call(); }
+            mute => { root.mute-mic(); }
+            deafen => { root.deafen(); }
+            ptt => { root.ptt(); }
+            audio => { root.open-dialog("audio"); }
+            hold(d) => { root.hold(d); }
+          }
+        }
+      }
+    }
+
+    // A dialog over everything: a dimmed backdrop that swallows clicks, and
+    // Escape closes it.
+    if root.dialog != "" : Rectangle {
+        background: #000000a0;
+        TouchArea { }
+        // Tab from the last control comes back here, to the dialog itself
+        // (its border lit), and on to the first: the keyboard never walks
+        // out onto the window behind the backdrop.
+        shell := FocusScope {
+            key-pressed(event) => {
+                if (event.text == Key.Escape) {
+                    root.dialog = "";
+                    return accept;
+                }
+                reject
+            }
+            // Placed by layouts, not by x/y from its preferred height: a
+            // layout measures wrapped text at the width it will have; a
+            // preferred height outside one is measured unwrapped, and the
+            // card came out a line or two short.
+            VerticalLayout {
+              alignment: start;
+              padding-top: max(24px, (root.height - 640px) / 3);
+              padding-bottom: 24px;
+              HorizontalLayout {
+              alignment: center;
+              Panel {
+                width: min(472px, root.width - 32px);
+                background: Theme.panel;
+                border-color: shell.has-focus ? Theme.accent : Theme.edge;
+                border-width: 1px;
+                border-radius: 8px;
+                body := VerticalLayout {
+                    padding: 16px;
+                    if root.dialog == "add" || root.dialog == "join" : AddGroupDialog {
+                        wrap => { shell.focus(); }
+                        start-mode: root.dialog == "join" ? "join" : "create";
+                        start-link: root.dialog-link;
+                        busy: root.dialog-busy;
+                        error: root.dialog-error;
+                        create(name) => { root.create-group(name); }
+                        join(link) => { root.join(link); }
+                        cancel => { root.dialog = ""; }
+                    }
+                    if root.dialog == "invite" : InviteDialog {
+                        wrap => { shell.focus(); }
+                        group-name: root.view.group-name;
+                        busy: root.dialog-busy;
+                        error: root.dialog-error;
+                        link: root.invite-link;
+                        copied: root.invite-copied;
+                        make(hours) => { root.make-invite(hours); }
+                        copy => { root.copy-invite(); }
+                        done => { root.dialog = ""; }
+                    }
+                    if root.dialog == "profile" : ProfileDialog {
+                        wrap => { shell.focus(); }
+                        max-h: root.height - 120px;
+                        p: root.profile;
+                        busy: root.dialog-busy;
+                        error: root.dialog-error;
+                        done: root.dialog-done;
+                        set-name(n) => { root.set-my-name(n); }
+                        copy(t) => { root.copy-text(t); }
+                        set-address(a) => { root.set-address(a); }
+                        connect(c) => { root.connect-wallet(c); }
+                        disconnect => { root.disconnect-wallet(); }
+                        toggle-inbox => { root.toggle-inbox(); }
+                        backup(pw) => { root.backup-again(pw); }
+                        close => { root.dialog = ""; }
+                    }
+                    if root.dialog == "zap" : ZapDialog {
+                        wrap => { shell.focus(); }
+                        zu: root.zap;
+                        busy: root.dialog-busy;
+                        error: root.dialog-error;
+                        amount <=> root.zap-amount;
+                        comment <=> root.zap-comment;
+                        anon <=> root.zap-anon;
+                        quote => { root.zap-quote(); }
+                        from-wallet => { root.zap-wallet(); }
+                        by-qr => { root.zap-qr(); }
+                        copy-invoice => { root.zap-copy(); }
+                        fee-paid => { root.zap-fee-paid(); }
+                        close => { root.dialog = ""; }
+                    }
+                    if root.dialog == "audio" : AudioDialog {
+                        wrap => { shell.focus(); }
+                        inputs: root.audio-inputs;
+                        outputs: root.audio-outputs;
+                        input <=> root.audio-input;
+                        output <=> root.audio-output;
+                        echo <=> root.audio-echo;
+                        loaded: root.audio-loaded;
+                        in-call: root.call.active;
+                        error: root.dialog-error;
+                        done: root.dialog-done;
+                        save => { root.save-audio(); }
+                        close => { root.dialog = ""; }
+                    }
+                    if root.dialog == "contact" : ContactDialog {
+                        wrap => { shell.focus(); }
+                        start-link: root.dialog-link;
+                        busy: root.dialog-busy;
+                        error: root.dialog-error;
+                        add(link) => { root.add-contact(link); }
+                        cancel => { root.dialog = ""; }
+                    }
+                    if root.dialog == "settings" : SettingsDialog {
+                        wrap => { shell.focus(); }
+                        settings: root.settings;
+                        channels: root.channels;
+                        bans: root.bans;
+                        busy: root.dialog-busy;
+                        error: root.dialog-error;
+                        done: root.dialog-done;
+                        rename(n) => { root.rename(n); }
+                        save-channel(id, n, s, v) => { root.save-channel(id, n, s, v); }
+                        set-private(id, p) => { root.set-private(id, p); }
+                        delete-channel(id) => { root.delete-channel(id); }
+                        unban(npub, name) => { root.unban(npub, name); }
+                        compact => { root.compact(); }
+                        close => { root.dialog = ""; }
+                    }
+                    if root.dialog == "member" : MemberDialog {
+                        wrap => { shell.focus(); }
+                        person: root.person;
+                        roles <=> root.roles;
+                        busy: root.dialog-busy;
+                        error: root.dialog-error;
+                        done: root.dialog-done;
+                        message => { root.open-dm(root.person.npub); root.dialog = ""; }
+                        save-roles => { root.save-roles(); }
+                        mute(m) => { root.mute(m); }
+                        kick => { root.kick(); }
+                        ban => { root.ban(); }
+                        close => { root.dialog = ""; }
+                    }
+                }
+              }
+            }
+            }
+        }
+    }
+
+    // A call ringing here, over whatever is open, top right.
+    if root.incoming != "" && root.home : IncomingCall {
+        x: parent.width - self.width - 16px;
+        y: 56px;
+        from: root.incoming;
+        in-call: root.call.active;
+        busy: root.call-busy;
+        answer => { root.answer(); }
+        decline => { root.decline(); }
+    }
+
+    // About, from every screen — Slint's Royalty-Free licence asks that its
+    // About box be reachable from the top level (about.toml).
+    if !root.home : Link {
+        // A Rectangle with no width takes its parent's.
+        width: 72px;
+        x: parent.width - self.width - 12px;
+        y: 12px;
+        text: root.show-about ? "close" : "about";
+        clicked => { root.show-about = !root.show-about; }
+    }
+    if root.show-about : Panel {
+        x: root.home ? 72px : parent.width - self.width - 12px;
+        y: root.home ? parent.height - self.height - 12px : 48px;
+        width: 320px;
+        height: 300px;
+        background: Theme.panel;
+        border-color: Theme.edge;
+        border-width: 1px;
+        border-radius: Theme.radius;
+        // Clicks on the box stay on it.
+        TouchArea { }
+        VerticalLayout {
+            padding: 16px;
+            spacing: 8px;
+            Text {
+                text: "HIT_ENTER — free software, MIT licence.";
+                color: Theme.text;
+                horizontal-alignment: center;
+            }
+            AboutSlint { }
+        }
+    }
+}

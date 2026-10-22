@@ -1,0 +1,27 @@
+# Rust
+/target
+# Spikes build into their own target directories; `/target` is anchored to
+# the root and does not cover them.
+spikes/*/target/
+**/*.rs.bk
+
+# Local databases — never commit chat history
+*.db
+*.db-shm
+*.db-wal
+
+# Device keys. Whoever has one *is* that device.
+*.key
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/
+
+# sqlx: a local DATABASE_URL for `cargo sqlx prepare`. Never committed.
+.env
+
+# Tauri's generated schemas, and the frontend's dependencies and build.
+src-tauri/gen/
+web/node_modules/
+web/dist/

@@ -1,0 +1,31 @@
+[package]
+name = "hit-proto"
+description = "The hit/nostr/1 framing, ALPNs and wire limits. No I/O."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+# MIT, but never goes to crates.io.
+publish = false
+repository.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+# The async driver for the frame codec, generic over tokio's I/O traits and
+# innocent of sockets. Off by default so the crate stays "no I/O" for a
+# consumer that wants only the types; `hit-node` turns it on.
+io = ["dep:tokio"]
+
+[dependencies]
+nostr = { workspace = true }
+# `EndpointId` in invite links, without the transport.
+iroh-base = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, optional = true, features = ["io-util"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["io-util", "macros", "rt"] }

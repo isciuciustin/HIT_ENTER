@@ -1,0 +1,1236 @@
+// Dialogs: the shell, "make or join a group", and the invite link —
+// AddGroupDialog.svelte and InviteDialog.svelte.
+//
+// The shell (in main.slint) keeps two of the web window's promises: focus
+// starts inside, on the field or the button to press, and Escape closes it.
+// The third — Tab stays inside — is each dialog's `at-end` and `wrap`.
+//
+// Every wrapping text here has its width set (440 px, the card's inside):
+// Slint measures a wrapped text's height before a layout has given it a
+// width, so without one it counts a single line and the card comes out
+// short — the close button hanging off its bottom.
+import { Panel } from "panel.slint";
+import { ScrollView } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+import { Pill, Link, Field, Note } from "widgets.slint";
+import { ChannelUi, SettingsUi, BanUi, PersonUi, RoleUi, DeviceUi, ProfileUi, ZapUi } from "types.slint";
+
+export component AddGroupDialog inherits Rectangle {
+    // "create" or "join": which half it opens on.
+    in property <string> start-mode: "create";
+    in property <bool> busy;
+    in property <string> error;
+    callback create(string);
+    callback join(string);
+    callback cancel();
+    property <string> mode: root.start-mode;
+    at-end: go.has-focus;
+    // A link the desktop handed over, already in the field.
+    in property <string> start-link;
+    property <string> name;
+    property <string> link: root.start-link;
+    width: 440px;
+    // Through the FocusScope below, which passes no layout on.
+    min-height: body.min-height;
+    preferred-height: body.preferred-height;
+    // The keyboard is on the dialog's last control: Tab goes back to the
+    // top (main.slint's shell) rather than out onto the window behind.
+    out property <bool> at-end;
+    callback wrap();
+    FocusScope {
+      // Only a catcher of keys, never a stop of its own.
+      focus-on-tab-navigation: false;
+      capture-key-pressed(event) => {
+        if (event.text == Key.Tab && root.at-end) {
+            root.wrap();
+            return accept;
+        }
+        reject
+      }
+    body := VerticalLayout {
+        spacing: 12px;
+        HorizontalLayout {
+            alignment: start;
+            spacing: 4px;
+            Link {
+                text: "make a group";
+                selected: root.mode == "create";
+                clicked => { root.mode = "create"; }
+            }
+            Link {
+                text: "join with a link";
+                selected: root.mode == "join";
+                clicked => { root.mode = "join"; }
+            }
+        }
+        if root.mode == "create" : VerticalLayout {
+            spacing: 12px;
+            Note {
+                width: 440px;
+                font-size: 12px;
+                text: "A new group, owned by you. Its key goes into your keychain; its messages are kept, in plain text, by every member's app.";
+            }
+            Field {
+                placeholder: "group name";
+                text <=> root.name;
+                init => { self.focus(); }
+                accepted => {
+                    if (root.name != "" && !root.busy) {
+                        root.create(root.name);
+                    }
+                }
+            }
+        }
+        if root.mode == "join" : VerticalLayout {
+            spacing: 12px;
+            Note {
+                width: 440px;
+                font-size: 12px;
+                text: "Paste the hit-enter:join?… link a member sent you. The member who made it — or another one it names — must be online to let you in.";
+            }
+            // One line: a link has no line breaks, and Enter joins.
+            Field {
+                mono: true;
+                placeholder: "hit-enter:join?g=npub1…";
+                text <=> root.link;
+                init => { self.focus(); }
+                accepted => {
+                    if (root.link != "" && !root.busy) {
+                        root.join(root.link);
+                    }
+                }
+            }
+        }
+        if root.error != "" : Text {
+            width: 440px;
+            text: root.error;
+            wrap: word-wrap;
+            font-size: 13px;
+            color: Theme.danger;
+        }
+        HorizontalLayout {
+            alignment: end;
+            spacing: 8px;
+            Link {
+                text: "cancel";
+                clicked => { root.cancel(); }
+            }
+            go := Pill {
+                primary: true;
+                text: root.busy ? (root.mode == "create" ? "making…" : "joining…")
+                    : (root.mode == "create" ? "make it" : "join");
+                enabled: !root.busy && (root.mode == "create" ? root.name != "" : root.link != "");
+                clicked => {
+                    if (root.mode == "create") {
+                        root.create(root.name);
+                    } else {
+                        root.join(root.link);
+                    }
+                }
+            }
+        }
+    }
+    }
+}
+
+export component InviteDialog inherits Rectangle {
+    in property <string> group-name;
+    in property <bool> busy;
+    in property <string> error;
+    in property <string> link;
+    in property <bool> copied;
+    // Hours the link is valid, or -1: until the group's state is compacted.
+    callback make(int);
+    callback copy();
+    callback done();
+    property <int> hours: 24;
+    width: 440px;
+    // Through the FocusScope below, which passes no layout on.
+    min-height: body.min-height;
+    preferred-height: body.preferred-height;
+    // The keyboard is on the dialog's last control: Tab goes back to the
+    // top (main.slint's shell) rather than out onto the window behind.
+    out property <bool> at-end;
+    callback wrap();
+    FocusScope {
+      // Only a catcher of keys, never a stop of its own.
+      focus-on-tab-navigation: false;
+      capture-key-pressed(event) => {
+        if (event.text == Key.Tab && root.at-end) {
+            root.wrap();
+            return accept;
+        }
+        reject
+      }
+    body := VerticalLayout {
+        spacing: 12px;
+        Text {
+            text: "Invite to \{root.group-name}";
+            font-size: 13px;
+            font-weight: 600;
+            color: Theme.text;
+        }
+        if root.link == "" : VerticalLayout {
+            spacing: 12px;
+            Note {
+                width: 440px;
+                font-size: 12px;
+                text: "Anyone with the link can join while it is valid. It names this device, so this app must be running when they use it.";
+            }
+            HorizontalLayout {
+                alignment: start;
+                spacing: 4px;
+                Text {
+                    text: "valid for";
+                    font-size: 12px;
+                    color: Theme.muted;
+                    vertical-alignment: center;
+                }
+                Link {
+                    text: "an hour";
+                    selected: root.hours == 1;
+                    clicked => { root.hours = 1; }
+                }
+                Link {
+                    text: "a day";
+                    selected: root.hours == 24;
+                    clicked => { root.hours = 24; }
+                }
+                Link {
+                    text: "a week";
+                    selected: root.hours == 168;
+                    clicked => { root.hours = 168; }
+                }
+                Link {
+                    text: "until compacted";
+                    selected: root.hours == -1;
+                    clicked => { root.hours = -1; }
+                }
+            }
+            if root.error != "" : Text {
+                width: 440px;
+                text: root.error;
+                wrap: word-wrap;
+                font-size: 13px;
+                color: Theme.danger;
+            }
+            HorizontalLayout {
+                alignment: end;
+                spacing: 8px;
+                Link {
+                    text: "cancel";
+                    clicked => { root.done(); }
+                }
+                // Focused on opening: Enter makes a link valid for a day,
+                // the common case; Tab reaches the other lengths.
+                Pill {
+                    primary: true;
+                    // `changed` does not fire for a focus taken in `init`.
+                    init => { self.focus(); root.at-end = true; }
+                    changed has-focus => { root.at-end = self.has-focus; }
+                    text: root.busy ? "making…" : "make link";
+                    enabled: !root.busy;
+                    clicked => { root.make(root.hours); }
+                }
+            }
+        }
+        if root.link != "" : VerticalLayout {
+            spacing: 12px;
+            Field {
+                multi-line: true;
+                mono: true;
+                read-only: true;
+                text: root.link;
+            }
+            Note {
+                width: 440px;
+                font-size: 12px;
+                text: (root.copied ? "Copied to the clipboard." : "Select it and copy it.")
+                    + " Send it however you like — it is a key to the group, so not anywhere public.";
+            }
+            HorizontalLayout {
+                alignment: end;
+                spacing: 8px;
+                Pill {
+                    text: "copy";
+                    clicked => { root.copy(); }
+                }
+                Pill {
+                    primary: true;
+                    text: "done";
+                    // `changed` does not fire for a focus taken in `init`.
+                    init => { self.focus(); root.at-end = true; }
+                    changed has-focus => { root.at-end = self.has-focus; }
+                    clicked => { root.done(); }
+                }
+            }
+        }
+    }
+    }
+}
+
+// A dialog's section heading.
+component Heading inherits Text {
+    font-size: 12px;
+    font-weight: 600;
+    color: Theme.muted;
+}
+
+// What the last action did, or why it failed.
+component Outcome inherits VerticalLayout {
+    in property <string> done;
+    in property <string> error;
+    if root.done != "" : Text { width: 440px; text: root.done; font-size: 12px; color: Theme.accent; wrap: word-wrap; }
+    if root.error != "" : Text { width: 440px; text: root.error; font-size: 12px; color: Theme.danger; wrap: word-wrap; }
+}
+
+// GroupSettingsDialog.svelte: the group's name (the owner's), its channels
+// and their slowmode (MANAGE_CHANNELS), who is banned (BAN_MEMBERS), and
+// compaction (whoever holds the group key).
+export component SettingsDialog inherits Rectangle {
+    in property <SettingsUi> settings;
+    in property <[ChannelUi]> channels;
+    in property <[BanUi]> bans;
+    in property <bool> busy;
+    in property <string> error;
+    in property <string> done;
+    callback rename(string);
+    // Channel id ("" for a new one), name, slowmode seconds, voice.
+    callback save-channel(string, string, int, bool);
+    callback set-private(string, bool);
+    callback delete-channel(string);
+    callback unban(string, string);
+    callback compact();
+    callback close();
+    property <string> name: root.settings.name;
+    property <string> new-channel;
+    at-end: close.has-focus;
+    property <bool> new-voice;
+    // The slowmodes offered, as the web window's list.
+    function next-slowmode(s: int) -> int {
+        if (s < 5) { return 5; }
+        if (s < 30) { return 30; }
+        if (s < 60) { return 60; }
+        if (s < 300) { return 300; }
+        if (s < 3600) { return 3600; }
+        return 0;
+    }
+    function slowmode-label(s: int) -> string {
+        if (s == 0) { return "off"; }
+        if (s == 60) { return "1 min"; }
+        if (s == 300) { return "5 min"; }
+        if (s == 3600) { return "1 hour"; }
+        return "\{s} s";
+    }
+    width: 440px;
+    // Through the FocusScope below, which passes no layout on.
+    min-height: body.min-height;
+    preferred-height: body.preferred-height;
+    // The keyboard is on the dialog's last control: Tab goes back to the
+    // top (main.slint's shell) rather than out onto the window behind.
+    out property <bool> at-end;
+    callback wrap();
+    FocusScope {
+      // Only a catcher of keys, never a stop of its own.
+      focus-on-tab-navigation: false;
+      capture-key-pressed(event) => {
+        if (event.text == Key.Tab && root.at-end) {
+            root.wrap();
+            return accept;
+        }
+        reject
+      }
+    body := VerticalLayout {
+        spacing: 12px;
+        Text {
+            text: "\{root.settings.name} — settings";
+            font-size: 13px;
+            font-weight: 600;
+            color: Theme.text;
+            overflow: elide;
+        }
+        if root.settings.can-rename : HorizontalLayout {
+            spacing: 8px;
+            first := Field {
+                horizontal-stretch: 1;
+                text <=> root.name;
+                placeholder: "group name";
+                init => { self.focus(); }
+                accepted => {
+                    if (!root.busy && root.name != "" && root.name != root.settings.name) {
+                        root.rename(root.name);
+                    }
+                }
+            }
+            Pill {
+                text: "rename";
+                enabled: !root.busy && root.name != "" && root.name != root.settings.name;
+                clicked => { root.rename(root.name); }
+            }
+        }
+        if root.settings.can-manage : VerticalLayout {
+            spacing: 6px;
+            Heading { text: "channels"; }
+            Note {
+                width: 440px;
+                font-size: 11px;
+                text: "Slowmode is checked by every member's app against the messages it holds. It stops honest apps and bursts; a patched app that dates its messages apart gets through — clocks here are the sender's own.";
+            }
+            for c in root.channels : HorizontalLayout {
+                spacing: 4px;
+                Text {
+                    text: c.voice ? "🔊" : "#";
+                    font-family: c.voice ? "Noto Emoji" : "JetBrains Mono";
+                    font-size: 13px;
+                    color: Theme.muted;
+                    vertical-alignment: center;
+                }
+                Text {
+                    horizontal-stretch: 1;
+                    text: c.name;
+                    font-size: 13px;
+                    color: Theme.text;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+                if !c.voice : Link {
+                    text: "slowmode: " + root.slowmode-label(c.slowmode);
+                    clicked => {
+                        if (!root.busy) {
+                            root.save-channel(c.id, c.name, root.next-slowmode(c.slowmode), false);
+                        }
+                    }
+                }
+                if root.settings.me-owner : Link {
+                    text: c.private ? "private ✓" : "private";
+                    selected: c.private;
+                    clicked => {
+                        if (!root.busy) {
+                            root.set-private(c.id, !c.private);
+                        }
+                    }
+                }
+                if root.channels.length > 1 : Link {
+                    text: "delete";
+                    clicked => {
+                        if (!root.busy) {
+                            close.focus();
+                            root.delete-channel(c.id);
+                        }
+                    }
+                }
+            }
+            HorizontalLayout {
+                spacing: 4px;
+                Field {
+                    horizontal-stretch: 1;
+                    placeholder: "new channel";
+                    text <=> root.new-channel;
+                    accepted => {
+                        if (!root.busy && root.new-channel != "") {
+                            root.save-channel("", root.new-channel, 0, root.new-voice);
+                            root.new-channel = "";
+                        }
+                    }
+                }
+                Link {
+                    text: root.new-voice ? "voice ✓" : "voice";
+                    selected: root.new-voice;
+                    clicked => { root.new-voice = !root.new-voice; }
+                }
+                Pill {
+                    text: "add";
+                    enabled: !root.busy && root.new-channel != "";
+                    clicked => {
+                        root.save-channel("", root.new-channel, 0, root.new-voice);
+                        root.new-channel = "";
+                    }
+                }
+            }
+        }
+        if root.settings.can-ban : VerticalLayout {
+            spacing: 4px;
+            Heading { text: "banned — \{root.bans.length}"; }
+            for b in root.bans : HorizontalLayout {
+                Text {
+                    horizontal-stretch: 1;
+                    text: b.name;
+                    font-size: 13px;
+                    color: Theme.text;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+                Link {
+                    text: "unban";
+                    clicked => {
+                        if (!root.busy) {
+                            close.focus();
+                            root.unban(b.npub, b.name);
+                        }
+                    }
+                }
+            }
+            if root.bans.length == 0 : Text { text: "nobody"; font-size: 12px; color: Theme.muted; }
+        }
+        if root.settings.can-compact : VerticalLayout {
+            spacing: 6px;
+            Heading { text: "compact — now at seq \{root.settings.seq}"; }
+            Note {
+                width: 440px;
+                font-size: 11px;
+                text: "Signs the group's state as it is on this device, with the group key, so new members do not replay its whole history. The owner has the last word: a moderator's action this device has not seen yet, made before now, is lost by it — visibly, and it can be done again. Best done after a sync with the moderators.";
+            }
+            HorizontalLayout {
+                alignment: start;
+                Pill {
+                    text: root.busy ? "working…" : "compact now";
+                    enabled: !root.busy;
+                    clicked => { root.compact(); }
+                }
+            }
+        }
+        Outcome { done: root.done; error: root.error; }
+        HorizontalLayout {
+            alignment: end;
+            close := Pill {
+                text: "close";
+                // Nothing to type first (a moderator who may not rename):
+                // the keyboard starts here.
+                init => {
+                    if (!root.settings.can-rename) {
+                        self.focus();
+                    }
+                }
+                clicked => { root.close(); }
+            }
+        }
+    }
+    }
+}
+
+// MemberDialog.svelte: one member, and what this person may do to them.
+// Each button is offered only when this node's judgement would pass it —
+// and every peer judges it again on arrival.
+export component MemberDialog inherits Rectangle {
+    in property <PersonUi> person;
+    in-out property <[RoleUi]> roles;
+    in property <bool> busy;
+    in property <string> error;
+    in property <string> done;
+    callback message();
+    callback save-roles();
+    callback mute(int);
+    callback kick();
+    callback ban();
+    callback close();
+    at-end: close.has-focus;
+    // "", "kick" or "ban": the warning before the button that does it.
+    property <string> confirm;
+    property <bool> anything: root.person.can-kick || root.person.can-ban
+        || root.person.can-mute || root.person.can-set-roles;
+    width: 440px;
+    // Through the FocusScope below, which passes no layout on.
+    min-height: body.min-height;
+    preferred-height: body.preferred-height;
+    // The keyboard is on the dialog's last control: Tab goes back to the
+    // top (main.slint's shell) rather than out onto the window behind.
+    out property <bool> at-end;
+    callback wrap();
+    FocusScope {
+      // Only a catcher of keys, never a stop of its own.
+      focus-on-tab-navigation: false;
+      capture-key-pressed(event) => {
+        if (event.text == Key.Tab && root.at-end) {
+            root.wrap();
+            return accept;
+        }
+        reject
+      }
+    body := VerticalLayout {
+        spacing: 12px;
+        VerticalLayout {
+            spacing: 4px;
+            Text { text: root.person.name; font-size: 13px; font-weight: 600; color: Theme.text; overflow: elide; }
+            Text { text: root.person.npub; font-size: 11px; color: Theme.muted; overflow: elide; }
+            Text {
+                text: root.person.rank + (root.person.muted-for > 0 ? " · muted for \{root.person.muted-for} more min" : "");
+                font-size: 12px;
+                color: Theme.muted;
+            }
+        }
+        if !root.person.me : HorizontalLayout {
+            alignment: start;
+            Pill {
+                primary: true;
+                text: "message";
+                clicked => { root.message(); }
+            }
+        }
+        if root.person.can-set-roles && root.roles.length > 0 : VerticalLayout {
+            spacing: 6px;
+            Heading { text: "roles"; }
+            HorizontalLayout {
+                alignment: start;
+                spacing: 4px;
+                for r[i] in root.roles : Link {
+                    text: (r.chosen ? "✓ " : "") + r.name;
+                    selected: r.chosen;
+                    clicked => {
+                        if (r.assignable && !root.busy) {
+                            r.chosen = !r.chosen;
+                        }
+                    }
+                }
+            }
+            HorizontalLayout {
+                alignment: start;
+                Pill {
+                    text: "save roles";
+                    enabled: !root.busy;
+                    clicked => { root.save-roles(); }
+                }
+            }
+        }
+        if root.person.can-mute : VerticalLayout {
+            spacing: 6px;
+            Heading { text: "mute"; }
+            Note {
+                width: 440px;
+                font-size: 11px;
+                text: "Their messages and reactions are refused by every honest member's app until it ends — including any they sent while the mute was on its way.";
+            }
+            HorizontalLayout {
+                alignment: start;
+                spacing: 4px;
+                Link { text: "10 min"; clicked => { if (!root.busy) { root.mute(10); } } }
+                Link { text: "1 hour"; clicked => { if (!root.busy) { root.mute(60); } } }
+                Link { text: "1 day"; clicked => { if (!root.busy) { root.mute(1440); } } }
+                if root.person.muted-for > 0 : Link {
+                    text: "lift the mute";
+                    // It goes once the mute is lifted: the keyboard first
+                    // moves to a control that stays (WebKitGTK's lesson).
+                    clicked => { if (!root.busy) { close.focus(); root.mute(-1); } }
+                }
+            }
+        }
+        if (root.person.can-kick || root.person.can-ban) && root.confirm == "" : VerticalLayout {
+            spacing: 6px;
+            Heading { text: "remove"; }
+            HorizontalLayout {
+                alignment: start;
+                spacing: 4px;
+                if root.person.can-kick : Link { text: "kick…"; clicked => { root.confirm = "kick"; } }
+                if root.person.can-ban : Link { text: "ban…"; clicked => { root.confirm = "ban"; } }
+            }
+        }
+        // DESIGN.md §6: say what enforcement means when everybody holds a
+        // copy, before the button, not after.
+        if root.confirm != "" : Panel {
+            border-radius: Theme.radius;
+            border-width: 1px;
+            border-color: #ef444466;
+            background: #ef44441a;
+            height: warn.preferred-height;
+            warn := VerticalLayout {
+                padding: 12px;
+                spacing: 6px;
+                Text {
+                    // The card's width less this box's padding (see Note).
+                    width: 440px - 24px;
+                    wrap: word-wrap;
+                    font-size: 12px;
+                    color: #fecaca;
+                    text: root.confirm == "kick"
+                        ? "A kick takes them out of the group. They can come back with any valid invite link."
+                        : "A ban takes them out and keeps them out. What it does: every honest member's app stops storing, passing on and showing anything new from them; nobody serves them the group any more, and invites stop working for them; what they sent after the ban, and reached someone first, is dropped once the ban arrives.\n\nWhat it cannot do: take back what they already saw, or copied — it is on their disk; stop their own app signing messages — it only stops anyone carrying them.";
+                }
+                HorizontalLayout {
+                    alignment: start;
+                    spacing: 8px;
+                    // Focused on showing: the "ban…" that opened this is gone.
+                    Pill {
+                        danger: true;
+                        text: root.confirm == "ban" ? "ban them" : "kick them";
+                        enabled: !root.busy;
+                        init => { self.focus(); }
+                        clicked => {
+                            if (root.confirm == "ban") {
+                                root.ban();
+                            } else {
+                                root.kick();
+                            }
+                        }
+                    }
+                    Link { text: "cancel"; clicked => { close.focus(); root.confirm = ""; } }
+                }
+            }
+        }
+        if !root.anything : Note {
+            font-size: 12px;
+            text: root.person.me ? "This is you." : "You have no moderation powers over them.";
+        }
+        Outcome { done: root.done; error: root.error; }
+        HorizontalLayout {
+            alignment: end;
+            close := Pill {
+                text: "close";
+                init => { self.focus(); }
+                clicked => { root.close(); }
+            }
+        }
+    }
+    }
+}
+
+// ContactDialog.svelte: someone you share no group with. Their contact link
+// opens the conversation; one of their devices has to answer, once.
+export component ContactDialog inherits Rectangle {
+    in property <bool> busy;
+    in property <string> error;
+    callback add(string);
+    callback cancel();
+    out property <bool> at-end: go.has-focus;
+    callback wrap();
+    // A link the desktop handed over, already in the field.
+    in property <string> start-link;
+    property <string> link: root.start-link;
+    width: 440px;
+    min-height: body.min-height;
+    preferred-height: body.preferred-height;
+    FocusScope {
+      focus-on-tab-navigation: false;
+      capture-key-pressed(event) => {
+        if (event.text == Key.Tab && root.at-end) {
+            root.wrap();
+            return accept;
+        }
+        reject
+      }
+    body := VerticalLayout {
+        spacing: 12px;
+        Text { text: "Write to someone new"; font-size: 13px; font-weight: 600; color: Theme.text; }
+        Note {
+            width: 440px;
+            font-size: 12px;
+            text: "Paste the hit-enter:contact?… link they gave you. Their app has to be running for this step; after it, your messages reach them as any DM does. They can call you once you have written to them; you can call them once they have written back.";
+        }
+        Field {
+            mono: true;
+            placeholder: "hit-enter:contact?p=npub1…";
+            text <=> root.link;
+            init => { self.focus(); }
+            accepted => {
+                if (root.link != "" && !root.busy) {
+                    root.add(root.link);
+                }
+            }
+        }
+        if root.error != "" : Text {
+            width: 440px;
+            text: root.error;
+            wrap: word-wrap;
+            font-size: 13px;
+            color: Theme.danger;
+        }
+        HorizontalLayout {
+            alignment: end;
+            spacing: 8px;
+            Link { text: "cancel"; clicked => { root.cancel(); } }
+            go := Pill {
+                primary: true;
+                text: root.busy ? "reaching them…" : "add";
+                enabled: !root.busy && root.link != "";
+                clicked => { root.add(root.link); }
+            }
+        }
+    }
+    }
+}
+
+// AudioDialog.svelte: microphone, speakers, echo cancellation. Saved to
+// app.json; used from the next call joined.
+export component AudioDialog inherits Rectangle {
+    in property <[DeviceUi]> inputs;
+    in property <[DeviceUi]> outputs;
+    // "" is the system's default.
+    in-out property <string> input;
+    in-out property <string> output;
+    in-out property <bool> echo: true;
+    in property <bool> loaded;
+    in property <bool> in-call;
+    in property <string> error;
+    in property <string> done;
+    callback save();
+    callback close();
+    out property <bool> at-end: go.has-focus;
+    callback wrap();
+    width: 440px;
+    min-height: body.min-height;
+    preferred-height: body.preferred-height;
+    FocusScope {
+      focus-on-tab-navigation: false;
+      capture-key-pressed(event) => {
+        if (event.text == Key.Tab && root.at-end) {
+            root.wrap();
+            return accept;
+        }
+        reject
+      }
+    body := VerticalLayout {
+        spacing: 10px;
+        Text { text: "Audio"; font-size: 13px; font-weight: 600; color: Theme.text; }
+        if !root.loaded : Note { width: 440px; font-size: 12px; text: root.error != "" ? root.error : "looking for devices…"; }
+        if root.loaded : VerticalLayout {
+            spacing: 4px;
+            Heading { text: "microphone"; }
+            Link {
+                text: (root.input == "" ? "✓ " : "") + "system default";
+                selected: root.input == "";
+                clicked => { root.input = ""; }
+            }
+            // ALSA alone lists dozens: the list scrolls rather than run
+            // the dialog off the window.
+            ScrollView {
+                height: min(150px, il.preferred-height);
+                il := VerticalLayout {
+                    alignment: start;
+                    for d in root.inputs : Link {
+                        text: (root.input == d.id ? "✓ " : "") + d.name;
+                        selected: root.input == d.id;
+                        clicked => { root.input = d.id; }
+                    }
+                }
+            }
+        }
+        if root.loaded : VerticalLayout {
+            spacing: 4px;
+            Heading { text: "speakers or headphones"; }
+            Link {
+                text: (root.output == "" ? "✓ " : "") + "system default";
+                selected: root.output == "";
+                clicked => { root.output = ""; }
+            }
+            // ALSA alone lists dozens: the list scrolls rather than run
+            // the dialog off the window.
+            ScrollView {
+                height: min(150px, ol.preferred-height);
+                ol := VerticalLayout {
+                    alignment: start;
+                    for d in root.outputs : Link {
+                        text: (root.output == d.id ? "✓ " : "") + d.name;
+                        selected: root.output == d.id;
+                        clicked => { root.output = d.id; }
+                    }
+                }
+            }
+        }
+        if root.loaded : VerticalLayout {
+            spacing: 4px;
+            Link {
+                text: (root.echo ? "✓ " : "") + "echo cancellation";
+                selected: root.echo;
+                clicked => { root.echo = !root.echo; }
+            }
+            Note {
+                width: 440px;
+                font-size: 11px;
+                text: "Keeps what your speakers play out of your microphone. Leave it on unless your headset cancels its own echo and the two fight.";
+            }
+        }
+        if root.in-call : Text { text: "Changes apply the next time you join a call."; font-size: 11px; color: #fbbf24; }
+        Outcome { done: root.done; error: root.loaded ? root.error : ""; }
+        HorizontalLayout {
+            alignment: end;
+            spacing: 8px;
+            Link { text: "close"; clicked => { root.close(); } }
+            go := Pill {
+                text: "save";
+                enabled: root.loaded;
+                init => { self.focus(); }
+                clicked => { root.save(); }
+            }
+        }
+    }
+    }
+}
+
+// A line of mono text with a copy button.
+component Copyable inherits HorizontalLayout {
+    in property <string> text;
+    in property <string> label;
+    callback copy();
+    spacing: 8px;
+    Text {
+        horizontal-stretch: 1;
+        text: root.text;
+        font-size: 11px;
+        color: Theme.muted;
+        overflow: elide;
+        vertical-alignment: center;
+    }
+    Link { text: "copy"; accessible-label: "copy \{root.label}"; clicked => { root.copy(); } }
+}
+
+// ProfileDialog.svelte: the name, the keys, the contact link, zaps (address
+// and wallet), DMs while away, and another backup file. Long: it scrolls
+// within the window.
+export component ProfileDialog inherits Rectangle {
+    in property <ProfileUi> p;
+    in property <bool> busy;
+    in property <string> error;
+    in property <string> done;
+    // The window's room for it.
+    in property <length> max-h: 600px;
+    callback set-name(string);
+    callback copy(string);
+    callback set-address(string);
+    callback connect(string);
+    callback disconnect();
+    callback toggle-inbox();
+    callback backup(string);
+    callback close();
+    out property <bool> at-end: close.has-focus;
+    callback wrap();
+    property <string> name: root.p.name;
+    property <string> address: root.p.address;
+    property <string> connection;
+    property <string> password;
+    width: 440px;
+    // The scrolling part, plus the outcome and the close row under it.
+    height: min(body.preferred-height + 96px, root.max-h);
+    FocusScope {
+      focus-on-tab-navigation: false;
+      capture-key-pressed(event) => {
+        if (event.text == Key.Tab && root.at-end) {
+            root.wrap();
+            return accept;
+        }
+        reject
+      }
+    VerticalLayout {
+      spacing: 10px;
+      ScrollView {
+        vertical-stretch: 1;
+        body := VerticalLayout {
+        width: 428px;
+        spacing: 10px;
+        Text { text: "You"; font-size: 13px; font-weight: 600; color: Theme.text; }
+        HorizontalLayout {
+            spacing: 8px;
+            Field {
+                horizontal-stretch: 1;
+                placeholder: "your name";
+                text <=> root.name;
+                init => { self.focus(); }
+                accepted => {
+                    if (!root.busy && root.name != "" && root.name != root.p.name) { root.set-name(root.name); }
+                }
+            }
+            Pill {
+                primary: true;
+                text: "save";
+                enabled: !root.busy && root.name != "" && root.name != root.p.name;
+                clicked => { root.set-name(root.name); }
+            }
+        }
+        Note { width: 428px; font-size: 11px; text: "Shown to the people you share a group with, and nobody else."; }
+        Heading { text: "your public key (npub)"; }
+        Copyable { text: root.p.npub; label: "your npub"; copy => { root.copy(root.p.npub); } }
+        Heading { text: "this device"; }
+        Text { text: root.p.device; font-size: 11px; color: Theme.muted; overflow: elide; }
+        Heading { text: "network"; }
+        Note {
+            width: 428px;
+            font-size: 11px;
+            text: root.p.relays
+                ? "Through iroh's relays until a direct path is found. On a direct path, the members you talk to can see your IP address."
+                : "Relays off: direct connections only, so members see your IP address.";
+        }
+        if root.p.contact != "" : VerticalLayout {
+            spacing: 6px;
+            Heading { text: "your contact link"; }
+            Note {
+                width: 428px;
+                font-size: 11px;
+                text: "For someone you share no group with: with it they can write to you. They can call you only once you have written back. It names this device, so whoever holds it can learn your IP address — share it like a phone number, not in public.";
+            }
+            Copyable { text: root.p.contact; label: "your contact link"; copy => { root.copy(root.p.contact); } }
+        }
+        if root.p.loaded : VerticalLayout {
+            spacing: 6px;
+            Heading { text: "zaps"; }
+            Note {
+                width: 428px;
+                font-size: 11px;
+                text: "Your Lightning address is where zaps to you are paid — your own wallet's. HIT_ENTER never holds money."
+                    + (root.p.fee-on ? " Zaps you send from \{root.p.fee-min} sats up carry a \{root.p.fee-percent}% HIT_ENTER fee, paid separately on top; the person you zap gets the whole amount." : "");
+            }
+            HorizontalLayout {
+                spacing: 8px;
+                address-field := Field {
+                    horizontal-stretch: 1;
+                    placeholder: "you@your-wallet.com";
+                    text <=> root.address;
+                    accepted => { if (!root.busy && root.address != root.p.address) { root.set-address(root.address); } }
+                }
+                Pill {
+                    text: "save";
+                    enabled: !root.busy && root.address != root.p.address;
+                    clicked => { root.set-address(root.address); }
+                }
+            }
+            if root.p.address != "" && !root.p.zappable : Text {
+                text: "Save it again so zaps to you can be counted.";
+                font-size: 11px;
+                color: #fbbf24;
+            }
+            if root.p.connected : VerticalLayout {
+                spacing: 6px;
+                Note {
+                    width: 428px;
+                    font-size: 11px;
+                    text: "Wallet connected (Nostr Wallet Connect, through \{root.p.wallet-relays}). It pays only what you confirm, within the budget your wallet gave it.";
+                }
+                HorizontalLayout {
+                    alignment: start;
+                    Pill {
+                        text: "disconnect";
+                        enabled: !root.busy;
+                        // The button goes: the keyboard to a field that stays.
+                        clicked => { address-field.focus(); root.disconnect(); }
+                    }
+                }
+            }
+            if !root.p.connected : VerticalLayout {
+                spacing: 6px;
+                HorizontalLayout {
+                    spacing: 8px;
+                    Field {
+                        horizontal-stretch: 1;
+                        // Never shown: it is a key to your wallet.
+                        input-type: InputType.password;
+                        placeholder: "nostr+walletconnect://… from your wallet";
+                        text <=> root.connection;
+                        accepted => {
+                            if (!root.busy && root.connection != "") {
+                                address-field.focus();
+                                root.connect(root.connection);
+                                root.connection = "";
+                            }
+                        }
+                    }
+                    Pill {
+                        text: "connect";
+                        enabled: !root.busy && root.connection != "";
+                        clicked => {
+                            address-field.focus();
+                            root.connect(root.connection);
+                            root.connection = "";
+                        }
+                    }
+                }
+                Note { width: 428px; font-size: 11px; text: "Optional: without one, zaps are paid by QR code from any wallet. Give it a budget in your wallet."; }
+            }
+        }
+        if root.p.inbox-loaded : VerticalLayout {
+            spacing: 6px;
+            Heading { text: "DMs while you are away"; }
+            Note {
+                width: 428px;
+                font-size: 11px;
+                text: "Off: a DM to you waits on the sender's device until you are both online. On: the anchors of your groups keep it for you. They cannot read it or tell who sent it; they can tell that someone wrote to you, and when.";
+            }
+            if root.p.inbox-available == 0 && !root.p.inbox-enabled : Text { text: "None of your groups has an anchor."; font-size: 11px; color: Theme.muted; }
+            if root.p.inbox-available > 0 || root.p.inbox-enabled : HorizontalLayout {
+                alignment: start;
+                Link {
+                    text: (root.p.inbox-enabled ? "✓ " : "") + "let my groups' anchors (\{root.p.inbox-available}) keep my DMs";
+                    selected: root.p.inbox-enabled;
+                    clicked => { root.toggle-inbox(); }
+                }
+            }
+        }
+        Heading { text: "another backup file"; }
+        HorizontalLayout {
+            spacing: 8px;
+            Field {
+                horizontal-stretch: 1;
+                input-type: InputType.password;
+                placeholder: "a password for the file";
+                text <=> root.password;
+            }
+            Pill {
+                text: "save…";
+                enabled: root.password.character-count >= root.p.min-password;
+                clicked => { root.backup(root.password); root.password = ""; }
+            }
+        }
+        }
+      }
+      Outcome { done: root.done; error: root.error; }
+      HorizontalLayout {
+        alignment: end;
+        close := Pill { text: "close"; clicked => { root.close(); } }
+      }
+    }
+    }
+}
+
+// ZapDialog.svelte: the amount, and — before anything is paid — what it
+// costs. From the connected wallet, or by QR code from any wallet; the fee
+// is a second payment after the zap, never taken out of it.
+export component ZapDialog inherits Rectangle {
+    in property <ZapUi> zu;
+    in property <bool> busy;
+    in property <string> error;
+    in-out property <string> amount: "1000";
+    in-out property <string> comment;
+    in-out property <bool> anon;
+    callback quote();
+    callback from-wallet();
+    callback by-qr();
+    callback copy-invoice();
+    callback fee-paid();
+    callback close();
+    // Set as the last controls take and lose focus: they are in `if`s.
+    out property <bool> at-end;
+    callback wrap();
+    width: 440px;
+    min-height: body.min-height;
+    preferred-height: body.preferred-height;
+    // The quote follows the amount, a moment after typing stops.
+    changed amount => { settle.running = false; settle.running = true; }
+    settle := Timer {
+        interval: 250ms;
+        running: false;
+        triggered => { self.running = false; root.quote(); }
+    }
+    FocusScope {
+      focus-on-tab-navigation: false;
+      capture-key-pressed(event) => {
+        if (event.text == Key.Tab && root.at-end) {
+            root.wrap();
+            return accept;
+        }
+        reject
+      }
+    body := VerticalLayout {
+        spacing: 10px;
+        Text { text: "Zap \{root.zu.who}"; font-size: 13px; font-weight: 600; color: Theme.text; }
+        if root.zu.step == "pick" : VerticalLayout {
+            spacing: 10px;
+            HorizontalLayout {
+                alignment: start;
+                spacing: 4px;
+                Link { text: "21"; selected: root.amount == "21"; clicked => { root.amount = "21"; } }
+                Link { text: "100"; selected: root.amount == "100"; clicked => { root.amount = "100"; } }
+                Link { text: "1,000"; selected: root.amount == "1000"; clicked => { root.amount = "1000"; } }
+                Link { text: "5,000"; selected: root.amount == "5000"; clicked => { root.amount = "5000"; } }
+            }
+            // The keyboard starts here: the amount is the one thing to set.
+            Field { placeholder: "sats"; input-type: InputType.number; text <=> root.amount; init => { self.focus(); } }
+            Field { placeholder: "comment (optional)"; text <=> root.comment; }
+            HorizontalLayout {
+                alignment: start;
+                Link {
+                    text: (root.anon ? "✓ " : "") + "anonymous — sign it with a throwaway key, not mine";
+                    selected: root.anon;
+                    clicked => { root.anon = !root.anon; }
+                }
+            }
+            Panel {
+                border-radius: Theme.radius;
+                border-width: 1px;
+                border-color: Theme.edge;
+                background: #00000033;
+                height: q.preferred-height;
+                q := VerticalLayout {
+                    padding: 12px;
+                    spacing: 6px;
+                    Text {
+                        width: 440px - 24px;
+                        wrap: word-wrap;
+                        font-size: 13px;
+                        color: root.zu.has-quote ? Theme.text : Theme.muted;
+                        text: root.zu.has-quote ? root.zu.quote : (root.error != "" ? "" : "asking \{root.zu.who}'s wallet…");
+                    }
+                    if root.zu.fee-note != "" : Text { width: 440px - 24px; wrap: word-wrap; font-size: 11px; color: Theme.muted; text: root.zu.fee-note; }
+                    if root.zu.privacy != "" : Text { width: 440px - 24px; wrap: word-wrap; font-size: 11px; color: Theme.muted; text: root.zu.privacy; }
+                    if root.error != "" : Text { width: 440px - 24px; wrap: word-wrap; font-size: 12px; color: Theme.danger; text: root.error; }
+                }
+            }
+            HorizontalLayout {
+                alignment: end;
+                spacing: 8px;
+                Link { text: "cancel"; clicked => { root.close(); } }
+                Pill {
+                    text: "pay by QR code";
+                    enabled: root.zu.has-quote && !root.busy;
+                    clicked => { root.by-qr(); }
+                }
+                Pill {
+                    primary: true;
+                    changed has-focus => { root.at-end = self.has-focus; }
+                    text: root.busy ? "zapping…" : (root.zu.has-quote ? "zap \{root.zu.total} sats" : "zap");
+                    enabled: root.zu.has-quote && root.zu.wallet && !root.busy;
+                    clicked => { root.from-wallet(); }
+                }
+            }
+            if root.zu.has-quote && !root.zu.wallet : Text { text: "Connect a wallet in your profile to zap from it."; font-size: 11px; color: Theme.muted; horizontal-alignment: right; }
+        }
+        if root.zu.step == "qr" || root.zu.step == "fee" : VerticalLayout {
+            spacing: 10px;
+            Text {
+                width: 440px;
+                wrap: word-wrap;
+                font-size: 12px;
+                color: root.zu.step == "fee" ? #fcd34d : Theme.muted;
+                text: root.zu.step == "qr"
+                    ? "Scan with any Lightning wallet: \{root.zu.invoice-sats} sats to \{root.zu.who}. Waiting for the payment…"
+                    : root.zu.result + " Now the HIT_ENTER fee, \{root.zu.invoice-sats} sats — a separate payment.";
+            }
+            HorizontalLayout {
+                alignment: center;
+                Image {
+                    source: root.zu.qr;
+                    width: 240px;
+                    height: 240px;
+                    image-rendering: pixelated;
+                    accessible-role: image;
+                    accessible-label: "QR code of the invoice";
+                }
+            }
+            HorizontalLayout {
+                spacing: 8px;
+                Text { horizontal-stretch: 1; text: root.zu.invoice; font-size: 11px; color: Theme.muted; overflow: elide; vertical-alignment: center; }
+                Pill { text: "copy invoice"; init => { self.focus(); } clicked => { root.copy-invoice(); } }
+            }
+            if root.error != "" : Text { width: 440px; wrap: word-wrap; font-size: 12px; color: Theme.danger; text: root.error; }
+            HorizontalLayout {
+                alignment: end;
+                spacing: 8px;
+                if root.zu.step == "fee" : Link { text: "I paid it"; clicked => { root.fee-paid(); } }
+                Pill {
+                    text: "close";
+                    changed has-focus => { root.at-end = self.has-focus; }
+                    clicked => { root.close(); }
+                }
+            }
+        }
+        if root.zu.step == "done" : VerticalLayout {
+            spacing: 10px;
+            Text { width: 440px; wrap: word-wrap; font-size: 13px; color: Theme.text; text: root.zu.result; }
+            HorizontalLayout {
+                alignment: end;
+                Pill {
+                    text: "close";
+                    // `changed` does not fire for a focus taken in `init`.
+                    init => { self.focus(); root.at-end = true; }
+                    changed has-focus => { root.at-end = self.has-focus; }
+                    clicked => { root.close(); }
+                }
+            }
+        }
+    }
+    }
+}

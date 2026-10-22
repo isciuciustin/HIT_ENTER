@@ -1,0 +1,21 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT 1 FROM tags t JOIN events e ON e.id = t.event_id\n             WHERE t.name = 'e' AND t.value = ? AND e.kind = 5 AND e.pubkey = ?\n             LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "name": "1",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "adc3143545d12c3caa833242ba1feea7ad9f664a1e4fbc4d174f25e64025c89f"
+}

@@ -1,0 +1,47 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT a.hash AS \"hash!: String\", MAX(a.size) AS \"size!: i64\", COALESCE(u.mine, 0) AS \"mine!: i64\",\n                    COALESCE(u.last_used, 0) AS \"last_used!: i64\"\n             FROM attachments a LEFT JOIN blob_use u ON u.hash = a.hash\n             GROUP BY a.hash\n             ORDER BY mine DESC, last_used DESC",
+  "describe": {
+    "columns": [
+      {
+        "name": "hash!: String",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "attachments",
+            "name": "hash"
+          }
+        }
+      },
+      {
+        "name": "size!: i64",
+        "ordinal": 1,
+        "type_info": "Integer",
+        "origin": "Expression"
+      },
+      {
+        "name": "mine!: i64",
+        "ordinal": 2,
+        "type_info": "Integer",
+        "origin": "Expression"
+      },
+      {
+        "name": "last_used!: i64",
+        "ordinal": 3,
+        "type_info": "Integer",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "1afc58bdc3c2f5cda5925a179aecd65116c4c5158ad7f225a034372ba2b5bf90"
+}

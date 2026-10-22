@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT json FROM events WHERE kind = ? AND pubkey = ? AND slot_d = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "json",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "events",
+            "name": "json"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "80ddfb3450b9cdd44efac16247514c7da710cd1891b6d0a46abda3dc96184d1f"
+}

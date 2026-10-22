@@ -1,0 +1,225 @@
+// Voice (M12-7): the call bar and the incoming-call banner —
+// CallBar.svelte and IncomingCall.svelte.
+import { Panel } from "panel.slint";
+import { Theme } from "theme.slint";
+import { Pill } from "widgets.slint";
+import { CallUi } from "types.slint";
+import { Ink, Mini } from "chat.slint";
+
+// A toggle in the bar: red while on (muted, deafened).
+component Toggle inherits Panel {
+    in property <string> text;
+    in property <string> label;
+    in property <bool> on;
+    callback clicked;
+    forward-focus: keys;
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-action-default => { root.clicked(); }
+    height: 22px;
+    width: t.preferred-width + 14px;
+    border-radius: 4px;
+    border-width: 1px;
+    border-color: keys.has-focus ? Theme.accent : (root.on ? #f8717199 : Theme.edge);
+    t := Text {
+        text: root.text;
+        font-size: 11px;
+        color: root.on ? #f87171 : (touch.has-hover ? Theme.accent : Ink.n300);
+    }
+    keys := FocusScope {
+        key-pressed(event) => {
+            if (event.text == Key.Return || event.text == " ") {
+                root.clicked();
+                return accept;
+            }
+            reject
+        }
+    }
+    touch := TouchArea { clicked => { root.clicked(); } }
+}
+
+export component CallBar inherits Rectangle {
+    in property <CallUi> call;
+    callback leave();
+    callback mute();
+    callback deafen();
+    callback ptt();
+    callback audio();
+    callback hold(bool);
+    background: #00000033;
+    height: lay.preferred-height;
+    Rectangle { height: 1px; y: 0; background: Theme.edge; }
+    lay := VerticalLayout {
+        padding: 10px;
+        spacing: 6px;
+        HorizontalLayout {
+            spacing: 8px;
+            VerticalLayout {
+                alignment: center;
+                Panel {
+                    width: 8px;
+                    height: 8px;
+                    border-radius: 4px;
+                    background: root.call.connected ? #34d399 : #fbbf24;
+                }
+            }
+            VerticalLayout {
+                horizontal-stretch: 1;
+                Text {
+                    text: root.call.title;
+                    font-size: 12px;
+                    font-weight: 600;
+                    color: Ink.n200;
+                    overflow: elide;
+                }
+                Text {
+                    text: root.call.sub;
+                    font-size: 10px;
+                    color: Ink.n500;
+                    overflow: elide;
+                }
+            }
+            VerticalLayout {
+                alignment: center;
+                Mini {
+                    text: root.call.dm ? "hang up" : "leave";
+                    label: root.call.dm ? "Hang up" : "Leave the call";
+                    font-size: 11px;
+                    ink: #f87171;
+                    hover-color: #fca5a5;
+                    clicked => { root.leave(); }
+                }
+            }
+        }
+        if root.call.glitches > 0 : Text {
+            text: "\{root.call.glitches} audio glitch\{root.call.glitches == 1 ? "" : "es"} on this device";
+            font-size: 10px;
+            color: #fbbf24;
+            wrap: word-wrap;
+        }
+        if !root.call.can-speak : Text {
+            text: "you can listen here, not speak";
+            font-size: 10px;
+            color: #fbbf24;
+        }
+        HorizontalLayout {
+            spacing: 4px;
+            Toggle {
+                text: root.call.muted ? "unmute" : "mute";
+                label: root.call.muted ? "Unmute" : "Mute";
+                on: root.call.muted;
+                clicked => { root.mute(); }
+            }
+            Toggle {
+                text: root.call.deafened ? "undeafen" : "deafen";
+                label: "Hear nobody";
+                on: root.call.deafened;
+                clicked => { root.deafen(); }
+            }
+            Toggle {
+                text: root.call.push-to-talk ? "PTT" : "voice";
+                label: root.call.push-to-talk
+                    ? "Push to talk: only while the key or button is held. Press for voice activation."
+                    : "Voice activation: sends when you speak. Press for push to talk.";
+                clicked => { root.ptt(); }
+            }
+            Rectangle { horizontal-stretch: 1; }
+            Mini {
+                text: "audio";
+                label: "Microphone, speakers, echo cancellation";
+                font-size: 11px;
+                ink: Ink.n500;
+                hover-color: Theme.accent;
+                clicked => { root.audio(); }
+            }
+        }
+        // Held with the pointer; from the keyboard, the ` key is held
+        // (main.slint), or Space held on this button.
+        if root.call.push-to-talk : Panel {
+            height: 26px;
+            border-radius: 4px;
+            border-width: 1px;
+            border-color: root.call.talking || hk.has-focus ? Theme.accent : Theme.edge;
+            accessible-role: button;
+            accessible-label: "Hold to talk";
+            hk := FocusScope {
+                key-pressed(event) => {
+                    if (event.text == " ") {
+                        if (!event.repeat) { root.hold(true); }
+                        return accept;
+                    }
+                    reject
+                }
+                key-released(event) => {
+                    if (event.text == " ") {
+                        root.hold(false);
+                        return accept;
+                    }
+                    reject
+                }
+            }
+            ta := TouchArea {
+                pointer-event(e) => {
+                    if (e.kind == PointerEventKind.down) {
+                        root.hold(true);
+                    } else if (e.kind == PointerEventKind.up || e.kind == PointerEventKind.cancel) {
+                        root.hold(false);
+                    }
+                }
+            }
+            Text {
+                text: root.call.talking ? "talking…" : "hold to talk — or hold `";
+                font-size: 11px;
+                color: root.call.talking ? Theme.accent : Ink.n400;
+            }
+        }
+    }
+}
+
+// A 1:1 call ringing here. Over whatever is open, and deliberately not
+// focused on arrival: someone typing would answer with their next Enter.
+export component IncomingCall inherits Panel {
+    in property <string> from;
+    in property <bool> in-call;
+    in property <bool> busy;
+    callback answer();
+    callback decline();
+    width: 288px;
+    height: lay.preferred-height;
+    border-radius: 8px;
+    border-width: 1px;
+    border-color: #10b98166;
+    background: Theme.panel;
+    accessible-role: groupbox;
+    accessible-label: "Incoming call from \{root.from}";
+    TouchArea { }
+    lay := VerticalLayout {
+        padding: 16px;
+        spacing: 4px;
+        Text { text: "INCOMING CALL"; font-size: 10px; color: #34d399; }
+        Text { text: root.from; font-size: 14px; font-weight: 600; color: #f5f5f5; overflow: elide; }
+        if root.in-call : Text {
+            text: "answering leaves the call you are in";
+            font-size: 11px;
+            color: #fbbf24;
+        }
+        HorizontalLayout {
+            padding-top: 8px;
+            spacing: 8px;
+            Pill {
+                horizontal-stretch: 1;
+                primary: true;
+                text: "answer";
+                enabled: !root.busy;
+                clicked => { root.answer(); }
+            }
+            Pill {
+                horizontal-stretch: 1;
+                danger: true;
+                text: "decline";
+                enabled: !root.busy;
+                clicked => { root.decline(); }
+            }
+        }
+    }
+}

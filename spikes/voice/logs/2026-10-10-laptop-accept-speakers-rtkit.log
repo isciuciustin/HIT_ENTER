@@ -1,0 +1,130 @@
+our node id:
+0eccfdc7ae2aa278bd9cd51bda800522c9e4f36e0613591c628178dd6ac58e63
+2026-10-10T04:26:27.229257Z  INFO callme::audio::processor: init audio processor (enabled=true)
+2026-10-10T04:26:27.239951Z  INFO callme::audio::device: selected capture stream config: SupportedStreamConfig { channels: 2, sample_rate: SampleRate(48000), buffer_size: Range { min: 3, max: 4194304 }, sample_format: F32 }
+2026-10-10T04:26:27.240486Z  WARN callme::audio::capture: failed to set capture thread to realtime priority: AudioThreadPriorityError { message: "setrlimit", inner: Some(Os { code: 1, kind: PermissionDenied, message: "Operation not permitted" }) }
+2026-10-10T04:26:27.312217Z  INFO callme::audio::capture: starting capture stream on pulse with AudioFormat { sample_rate: SampleRate(48000), channel_count: 2 }
+2026-10-10T04:26:27.312238Z  INFO callme::audio::capture: capture loop start
+2026-10-10T04:26:27.320654Z  INFO callme::audio::device: selected playback stream config: SupportedStreamConfig { channels: 2, sample_rate: SampleRate(48000), buffer_size: Range { min: 3, max: 4194304 }, sample_format: F32 }
+2026-10-10T04:26:27.321114Z  WARN callme::audio::playback: failed to set playback thread to realtime priority: AudioThreadPriorityError { message: "setrlimit", inner: Some(Os { code: 1, kind: PermissionDenied, message: "Operation not permitted" }) }
+2026-10-10T04:26:27.341824Z  INFO callme::audio::playback: start playback stream on pulse with AudioFormat { sample_rate: SampleRate(48000), channel_count: 2 }
+2026-10-10T04:26:27.341841Z  INFO callme::audio::playback: playback loop start
+2026-10-10T04:26:27.696546Z  INFO ep{me=0eccfdc7ae}:magicsock:actor: iroh::magicsock: home is now relay https://euw1-1.relay.iroh.network./, was None
+2026-10-10T04:26:28.628032Z  WARN callme::audio::playback: [tick 121] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 0 previous)
+2026-10-10T04:26:30.238682Z  WARN callme::audio::playback: [tick 272] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 1 previous)
+2026-10-10T04:26:31.849399Z  WARN callme::audio::playback: [tick 423] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 2 previous)
+2026-10-10T04:26:33.780096Z  WARN callme::audio::playback: [tick 604] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 3 previous)
+2026-10-10T04:26:35.070756Z  WARN callme::audio::playback: [tick 725] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 4 previous)
+2026-10-10T04:26:39.561482Z  WARN callme::audio::playback: [tick 1146] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 5 previous)
+2026-10-10T04:26:42.772146Z  WARN callme::audio::playback: [tick 1447] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 6 previous)
+2026-10-10T04:26:47.262890Z  WARN callme::audio::playback: [tick 1868] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 7 previous)
+2026-10-10T04:26:49.513565Z  WARN callme::audio::playback: [tick 2079] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 8 previous)
+2026-10-10T04:26:51.764316Z  WARN callme::audio::playback: [tick 2290] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 9 previous)
+2026-10-10T04:26:54.334964Z  WARN callme::audio::playback: [tick 2531] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 10 previous)
+2026-10-10T04:26:58.505691Z  WARN callme::audio::playback: [tick 2922] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 11 previous)
+2026-10-10T04:27:04.596304Z  WARN callme::audio::playback: [tick 3493] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 12 previous)
+2026-10-10T04:27:10.047159Z  WARN callme::audio::playback: [tick 4004] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 13 previous)
+2026-10-10T04:27:12.308488Z  WARN callme::audio::playback: [tick 4216] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 14 previous)
+2026-10-10T04:27:13.919176Z  WARN callme::audio::playback: [tick 4367] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 15 previous)
+2026-10-10T04:27:15.209850Z  WARN callme::audio::playback: [tick 4488] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 16 previous)
+2026-10-10T04:27:17.140465Z  WARN callme::audio::playback: [tick 4669] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 17 previous)
+2026-10-10T04:27:20.351168Z  WARN callme::audio::playback: [tick 4970] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 18 previous)
+2026-10-10T04:27:23.241876Z  WARN callme::audio::playback: [tick 5241] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 19 previous)
+2026-10-10T04:27:27.092570Z  WARN callme::audio::playback: [tick 5602] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 20 previous)
+2026-10-10T04:27:30.623267Z  WARN callme::audio::playback: [tick 5933] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 21 previous)
+2026-10-10T04:27:33.204596Z  WARN callme::audio::playback: [tick 6175] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 22 previous)
+2026-10-10T04:27:33.870395Z  WARN callme::audio::capture: record xrun: failed to push out 960 of 960
+2026-10-10T04:27:34.495218Z  WARN callme::audio::playback: [tick 6296] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 23 previous)
+2026-10-10T04:27:35.785935Z  WARN callme::audio::playback: [tick 6417] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 24 previous)
+2026-10-10T04:27:36.990415Z  WARN callme::audio::capture: record xrun: failed to push out 960 of 960
+2026-10-10T04:27:37.070986Z  WARN callme::audio::capture: record xrun: failed to push out 960 of 960
+2026-10-10T04:27:37.716681Z  WARN callme::audio::playback: [tick 6598] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 25 previous)
+2026-10-10T04:27:39.007310Z  WARN callme::audio::playback: [tick 6719] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 26 previous)
+2026-10-10T04:27:40.190423Z  WARN callme::audio::capture: record xrun: failed to push out 960 of 960
+2026-10-10T04:27:40.270975Z  WARN callme::audio::capture: record xrun: failed to push out 960 of 960
+2026-10-10T04:27:41.578026Z  WARN callme::audio::playback: [tick 6960] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 27 previous)
+2026-10-10T04:27:42.868700Z  WARN callme::audio::playback: [tick 7081] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 28 previous)
+2026-10-10T04:27:43.390425Z  WARN callme::audio::capture: record xrun: failed to push out 960 of 960
+2026-10-10T04:27:43.471005Z  WARN callme::audio::capture: record xrun: failed to push out 960 of 960
+2026-10-10T04:27:44.159368Z  WARN callme::audio::playback: [tick 7202] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 29 previous)
+2026-10-10T04:27:45.809724Z  INFO ep{me=0eccfdc7ae}:magicsock:poll_recv:poll_recv_relay:disco_in{node=18cadbf770 src=Relay(https://euw1-1.relay.iroh.network./, 18cadbf770)}: iroh::magicsock::node_map: inserting new node in NodeMap node=18cadbf770 relay_url=Some(RelayUrl("https://euw1-1.relay.iroh.network./")) source=relay
+2026-10-10T04:27:45.810089Z  INFO router.accept:try_send:get_send_addrs{node=18cadbf770}: iroh::magicsock::node_map::node_state: new connection type typ=relay(https://euw1-1.relay.iroh.network./)
+2026-10-10T04:27:45.855491Z  INFO ep{me=0eccfdc7ae}:magicsock:poll_recv:disco_in{node=18cadbf770 src=Udp(192.168.1.132:43793)}:handle_pong{m=Pong { tx_id: TransactionId(0x0A4BC196BEA33BCB6589E5E8), ping_observed_addr: Udp(192.168.1.130:41761) } src=Udp(192.168.1.132:43793)}: iroh::magicsock::node_map::best_addr: selecting new direct path for node addr=192.168.1.132:43793 latency=1.700362ms trust_for=6.499998497s
+2026-10-10T04:27:45.855568Z  INFO ep{me=0eccfdc7ae}:magicsock:poll_recv:disco_in{node=18cadbf770 src=Udp([IPv6-redacted]:PORT)}:handle_pong{m=Pong { tx_id: TransactionId(0xB05F74E0F852CE24ED950C59), ping_observed_addr: Udp([IPv6-redacted]:PORT) } src=Udp([IPv6-redacted]:PORT)}: iroh::magicsock::node_map::best_addr: selecting new direct path for node addr=[IPv6-redacted]:PORT latency=1.77379ms trust_for=6.499998197s
+2026-10-10T04:27:45.899006Z  INFO router.accept:try_send:get_send_addrs{node=18cadbf770}: iroh::magicsock::node_map::node_state: new connection type typ=direct([IPv6-redacted]:PORT)
+2026-10-10T04:27:45.899486Z  INFO callme::rtc: added capture track to rtc connection
+2026-10-10T04:27:45.903926Z  INFO callme::rtc: new remote track: Audio Opus { channels: Stereo }
+2026-10-10T04:27:45.909583Z  INFO callme::audio::playback: add new track to decoder
+2026-10-10T04:27:45.909582Z  INFO callme::audio::capture: new sink added to capture loop
+2026-10-10T04:27:46.089996Z  WARN callme::audio::playback: [tick 7383] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 30 previous)
+2026-10-10T04:27:46.591000Z  WARN callme::audio::capture: record xrun: failed to push out 960 of 960
+2026-10-10T04:27:46.671018Z  WARN callme::audio::capture: record xrun: failed to push out 960 of 960
+2026-10-10T04:27:54.100809Z  WARN callme::audio::playback: [tick 8134] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 31 previous)
+2026-10-10T04:28:00.111201Z  WARN callme::audio::capture: record xrun: failed to push out 960 of 960
+2026-10-10T04:28:00.191390Z  WARN callme::audio::playback: [tick 8705] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 32 previous)
+2026-10-10T04:28:04.682154Z  WARN callme::audio::playback: [tick 9126] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 33 previous)
+2026-10-10T04:28:08.350794Z  WARN callme::audio::capture: record xrun: failed to push out 960 of 960
+2026-10-10T04:28:08.431391Z  WARN callme::audio::capture: record xrun: failed to push out 960 of 960
+2026-10-10T04:28:08.852841Z  WARN callme::audio::playback: [tick 9517] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 34 previous)
+2026-10-10T04:28:11.871229Z  WARN callme::audio::capture: record xrun: failed to push out 960 of 960
+2026-10-10T04:28:11.951361Z  WARN callme::audio::capture: record xrun: failed to push out 960 of 960
+2026-10-10T04:28:13.034203Z  WARN callme::audio::playback: [tick 9909] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 35 previous)
+2026-10-10T04:28:15.284880Z  WARN callme::audio::playback: [tick 10120] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 36 previous)
+2026-10-10T04:28:16.932265Z  WARN callme::audio::capture: record xrun: failed to push out 960 of 960
+2026-10-10T04:28:17.071035Z  WARN callme::audio::capture: record xrun: failed to push out 960 of 960
+2026-10-10T04:28:18.495537Z  WARN callme::audio::playback: [tick 10421] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 37 previous)
+2026-10-10T04:28:23.946291Z  WARN callme::audio::playback: [tick 10932] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 38 previous)
+2026-10-10T04:28:24.430804Z  WARN callme::audio::capture: record xrun: failed to push out 960 of 960
+2026-10-10T04:28:25.236985Z  WARN callme::audio::playback: [tick 11053] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 39 previous)
+2026-10-10T04:28:28.127681Z  WARN callme::audio::playback: [tick 11324] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 40 previous)
+2026-10-10T04:28:28.591230Z  WARN callme::audio::capture: record xrun: failed to push out 960 of 960
+2026-10-10T04:28:30.058396Z  WARN callme::audio::playback: [tick 11505] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 41 previous)
+2026-10-10T04:28:31.669074Z  WARN callme::audio::playback: [tick 11656] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 42 previous)
+2026-10-10T04:28:32.030616Z  WARN callme::audio::capture: record xrun: failed to push out 960 of 960
+2026-10-10T04:28:32.111357Z  WARN callme::audio::capture: record xrun: failed to push out 960 of 960
+2026-10-10T04:28:34.239674Z  WARN callme::audio::playback: [tick 11897] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 43 previous)
+2026-10-10T04:28:37.450415Z  WARN callme::audio::playback: [tick 12198] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 44 previous)
+2026-10-10T04:28:37.732800Z  WARN callme::audio::capture: record xrun: failed to push out 960 of 960
+2026-10-10T04:28:37.871485Z  WARN callme::audio::capture: record xrun: failed to push out 960 of 960
+2026-10-10T04:28:39.381132Z  WARN callme::audio::playback: [tick 12379] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 45 previous)
+2026-10-10T04:28:41.710745Z  WARN callme::audio::capture: record xrun: failed to push out 960 of 960
+2026-10-10T04:28:41.951761Z  WARN callme::audio::playback: [tick 12620] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 46 previous)
+2026-10-10T04:28:45.802438Z  WARN callme::audio::playback: [tick 12981] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 47 previous)
+2026-10-10T04:28:50.271475Z  WARN callme::audio::capture: record xrun: failed to push out 960 of 960
+2026-10-10T04:28:50.351641Z  WARN callme::audio::capture: record xrun: failed to push out 960 of 960
+2026-10-10T04:28:50.933178Z  WARN callme::audio::playback: [tick 13462] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 48 previous)
+2026-10-10T04:28:57.983866Z  WARN callme::audio::playback: [tick 14123] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 49 previous)
+2026-10-10T04:29:00.831524Z  WARN callme::audio::capture: record xrun: failed to push out 960 of 960
+2026-10-10T04:29:00.911179Z  WARN callme::audio::capture: record xrun: failed to push out 960 of 960
+2026-10-10T04:29:01.514584Z  WARN callme::audio::playback: [tick 14454] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 50 previous)
+2026-10-10T04:29:05.685312Z  WARN callme::audio::playback: [tick 14845] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 51 previous)
+2026-10-10T04:29:09.471001Z  WARN callme::audio::capture: record xrun: failed to push out 960 of 960
+2026-10-10T04:29:09.551751Z  WARN callme::audio::capture: record xrun: failed to push out 960 of 960
+2026-10-10T04:29:12.735961Z  WARN callme::audio::playback: [tick 15506] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 52 previous)
+2026-10-10T04:29:17.546587Z  WARN callme::audio::playback: [tick 15957] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 53 previous)
+2026-10-10T04:29:21.717390Z  WARN callme::audio::playback: [tick 16348] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 54 previous)
+2026-10-10T04:29:22.271796Z  WARN callme::audio::capture: record xrun: failed to push out 960 of 960
+2026-10-10T04:29:22.351528Z  WARN callme::audio::capture: record xrun: failed to push out 960 of 960
+2026-10-10T04:29:23.328096Z  WARN callme::audio::playback: [tick 16499] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 55 previous)
+2026-10-10T04:29:24.831263Z  WARN callme::audio::capture: record xrun: failed to push out 960 of 960
+2026-10-10T04:29:24.911916Z  WARN callme::audio::capture: record xrun: failed to push out 960 of 960
+2026-10-10T04:29:24.938824Z  WARN callme::audio::playback: [tick 16650] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 56 previous)
+2026-10-10T04:29:29.429398Z  WARN callme::audio::playback: [tick 17071] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 57 previous)
+2026-10-10T04:29:30.271553Z  WARN callme::audio::capture: record xrun: failed to push out 960 of 960
+2026-10-10T04:29:30.351432Z  WARN callme::audio::capture: record xrun: failed to push out 960 of 960
+2026-10-10T04:29:36.800256Z  WARN callme::audio::playback: [tick 17762] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 58 previous)
+2026-10-10T04:29:39.050905Z  WARN callme::audio::playback: [tick 17973] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 59 previous)
+2026-10-10T04:29:39.871653Z  WARN callme::audio::capture: record xrun: failed to push out 960 of 960
+2026-10-10T04:29:39.952243Z  WARN callme::audio::capture: record xrun: failed to push out 960 of 960
+2026-10-10T04:29:42.272238Z  WARN callme::audio::playback: [tick 18275] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 60 previous)
+2026-10-10T04:29:44.112050Z  WARN callme::audio::capture: record xrun: failed to push out 960 of 960
+2026-10-10T04:29:44.202896Z  WARN callme::audio::playback: [tick 18456] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 61 previous)
+2026-10-10T04:29:47.413609Z  WARN callme::audio::playback: [tick 18757] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 62 previous)
+2026-10-10T04:29:48.832093Z  WARN callme::audio::capture: record xrun: failed to push out 960 of 960
+2026-10-10T04:29:48.912450Z  WARN callme::audio::capture: record xrun: failed to push out 960 of 960
+2026-10-10T04:29:49.024306Z  WARN callme::audio::playback: [tick 18908] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 63 previous)
+2026-10-10T04:29:53.834930Z  WARN callme::audio::playback: [tick 19359] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 64 previous)
+2026-10-10T04:29:56.453128Z  WARN callme::audio::capture: record xrun: failed to push out 960 of 960
+2026-10-10T04:29:56.591672Z  WARN callme::audio::capture: record xrun: failed to push out 960 of 960
+2026-10-10T04:29:59.925748Z  WARN callme::audio::playback: [tick 19930] playback xrun: 1024 of 1024 samples missing (buffered 0) (+ 65 previous)
+2026-10-10T04:30:01.711488Z  WARN callme::audio::capture: record xrun: failed to push out 960 of 960

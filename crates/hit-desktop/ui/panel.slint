@@ -1,0 +1,37 @@
+// A rounded box drawn as a vector path, anti-aliased. The software
+// renderer draws a Rectangle's rounded corners — and worse, its border — in
+// stairs; this takes the same four properties, so `Rectangle` → `Panel`
+// wherever a corner is rounded.
+export component Panel {
+    in property <brush> background;
+    in property <brush> border-color;
+    in property <length> border-width;
+    in property <length> border-radius;
+    property <float> w: root.width / 1px;
+    property <float> h: root.height / 1px;
+    // The stroke is centred on the path: inset it by half, so it stays inside.
+    property <float> i: root.border-width / 2px;
+    property <float> r: max(0, min(root.border-radius / 1px - root.i, min(root.w, root.h) / 2 - root.i));
+    property <float> x0: root.i;
+    property <float> y0: root.i;
+    property <float> x1: root.w - root.i;
+    property <float> y1: root.h - root.i;
+    if root.w > 0 && root.h > 0 : Path {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        // Coordinates as given, in px: the default fit keeps the aspect
+        // ratio and would shrink a wide box towards its middle.
+        fit: preserve;
+        fill: root.background;
+        stroke: root.border-width > 0 ? root.border-color : transparent;
+        stroke-width: root.border-width;
+        commands: "M \{root.x0 + root.r} \{root.y0} L \{root.x1 - root.r} \{root.y0} "
+            + "A \{root.r} \{root.r} 0 0 1 \{root.x1} \{root.y0 + root.r} L \{root.x1} \{root.y1 - root.r} "
+            + "A \{root.r} \{root.r} 0 0 1 \{root.x1 - root.r} \{root.y1} L \{root.x0 + root.r} \{root.y1} "
+            + "A \{root.r} \{root.r} 0 0 1 \{root.x0} \{root.y1 - root.r} L \{root.x0} \{root.y0 + root.r} "
+            + "A \{root.r} \{root.r} 0 0 1 \{root.x0 + root.r} \{root.y0} Z";
+    }
+    @children
+}
