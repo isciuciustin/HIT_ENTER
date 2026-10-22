@@ -414,10 +414,11 @@ enough.
 
 ## Relationship to the other two
 
-- **HIT_ENTER** (`../HIT_ENTER`, tags `v0.1.0`/`v0.1.1` of the public
-  repo) is MIT OR Apache-2.0. Its code may be used here; its copyright
-  notice goes in `THIRD_PARTY_NOTICES.md`. Since 2026-10-22 the public
-  `isciuciustin/HIT_ENTER` repo's `main` *is* this code.
+- **The original HIT_ENTER** is MIT OR Apache-2.0. Its code may be used
+  here; its copyright notice goes in `THIRD_PARTY_NOTICES.md`. Its old
+  `v0.1.0`/`v0.1.1` tags were removed from GitHub on 2026-10-22; its full
+  history is in `~/Work/HIT_ENTER_original.bundle` (`git clone` it).
+  The public `isciuciustin/HIT_ENTER` repo *is* this code now.
 - **HIT_ENTER_2** (`../HIT_ENTER_2`) is proprietary and the owner's. Its
   code may move here — which publishes it under MIT; record each piece that
   moves in `docs/SESSION_LOG.md`.
