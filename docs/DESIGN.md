@@ -1,8 +1,8 @@
 # HIT_ENTER 1.0 — System design
 
-A privacy-first, closed-source, Discord-shaped chat app with **no server anybody has
+**The next Discord, for public communities**, with **no server anybody has
 to run**: group chats with channels, DMs, text, files, voice channels, and
-zaps. **Nostr** is the identity and the data model; **iroh** is the wire.
+zaps. Open source (MIT). **Nostr** is the identity and the data model; **iroh** is the wire.
 Every running copy of the app is a relay for the groups its user is in.
 
 This is the third HIT_ENTER, and it is a different product from both of the
@@ -19,6 +19,34 @@ first two:
 
 The pages below say what that costs. It costs a lot; the price is mostly in
 §6, "authority without a server".
+
+---
+
+## 0. The north star — public communities (2026-10-22)
+
+**The owner's direction, replacing "privacy-first" as the headline:**
+HIT_ENTER is the next Discord, a better one, for **public communities**
+running on decentralized software (Nostr + iroh). The dream it is measured
+against: **the Unturned Discord community runs on HIT_ENTER.**
+
+What this keeps: no server anybody has to run, nobody can switch a
+community off, keys people own, zaps, open source. DMs stay end-to-end
+encrypted (NIP-17) — a public community still needs private conversations.
+
+What it changes: group content is mostly public, so privacy stops steering
+trade-offs; **reach, scale and moderation** do. What the design does not
+yet give a community that size, measured against the sections below:
+
+| a big public community needs | today | where |
+|---|---|---|
+| to be **found**, and joined without an invite | invite links only | §8 |
+| **tens of thousands of members** | full replication; ~1,000 is the v1 target, sparse replicas post-v1 | §13 |
+| to be **read before joining** (and linked from the web) | members only | §5, §8 |
+| **voice for more than 8** (events, stages) | mesh, 8 per channel | §10 |
+| **moderation at scale**: bots, automod, raids, spam | roles, ban, mute, slowmode | §6 |
+| to **stay up** with nobody online | anchors (hosted anchors = the business) | §9, §12 |
+
+Each row is a decision to make on its own, in `PLAN.md`, before building it.
 
 ---
 

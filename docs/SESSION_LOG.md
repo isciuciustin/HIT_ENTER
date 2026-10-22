@@ -1153,3 +1153,13 @@ exist.
 - **Done for it:** `LICENSE`, `license = "MIT"` on every crate, notices and
   `about.toml` reworded, the About box, README; the owner's receiving
   Lightning address removed from `TESTING.md`.
+
+## 2026-10-22 — the north star: public communities
+
+- **Decided (owner): HIT_ENTER is "the next Discord, a better one", for
+  public communities on decentralized software** — not privacy-first.
+  The measure: *the Unturned Discord community running on HIT_ENTER*.
+  Groups are mostly public; DMs stay end-to-end encrypted.
+- **Done:** `DESIGN.md` §0 (the star, and the six gaps between today and a
+  community that size), README, `CLAUDE.md`, the GitHub description and
+  hitenter.app reworded. Nothing in the code changed.

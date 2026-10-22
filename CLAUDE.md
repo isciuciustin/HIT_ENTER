@@ -1,7 +1,10 @@
 # HIT_ENTER 1.0
 
-Privacy-first, open-source (MIT), Discord-shaped chat: groups with channels, DMs,
-text, files, voice, and zaps. **Nostr is the identity and the data model; iroh is
+**The next Discord, for public communities**, on decentralized software
+(open source, MIT): groups with channels, roles, DMs, text, files, voice, and
+zaps. **The north star (owner, 2026-10-22): big public communities — the
+Unturned Discord running on HIT_ENTER.** Privacy is no longer the headline
+(DMs stay end-to-end encrypted); `DESIGN.md` §0 has what the star asks for. **Nostr is the identity and the data model; iroh is
 the wire; every running app is a relay** for its user's groups.
 
 The app is called **HIT_ENTER**. The directory is `HIT_ENTER`, the **public**

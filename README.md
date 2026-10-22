@@ -1,9 +1,11 @@
 # HIT_ENTER 1.0
 
-A privacy-first, Discord-shaped chat app with **no server anybody has
-to run.** Group chats with channels, DMs, text, files, voice channels — and
-**zaps**: tip a message or a file in sats, straight from one person's wallet
-to another's (HIT_ENTER adds a 1% fee, shown before you send).
+**The next Discord, without the server.** A home for **public
+communities** — gaming communities, open-source projects, creators and
+their fans — that runs on decentralized software, so **no company can ban
+it, sell it or switch it off**. Channels, roles, moderation, voice, files —
+and **zaps**: tip a message or a file in sats, straight from one person's
+wallet to another's (HIT_ENTER adds a 1% fee, shown before you send).
 
 **Open source, [MIT licence](LICENSE).** Download the app at
 [hitenter.app](https://hitenter.app).
