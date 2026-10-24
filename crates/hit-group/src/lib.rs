@@ -133,6 +133,8 @@ pub enum Refusal {
     BadEdit,
     #[error("slowmode: wait {0} s between messages here")]
     TooSoon(u32),
+    #[error("new here: posting opens {0} s after joining")]
+    Newcomer(u32),
     #[error("not a DM for anyone this node keeps them for")]
     NotOurs,
     #[error("too large")]

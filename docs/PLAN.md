@@ -1063,6 +1063,17 @@ own `39000` saying the same, and the window: *private / public* when
 making a group, *make public / make private* in settings, each with its
 one sentence. **The flag only records the choice** — reading, joining and
 finding come with steps 2, 3 and 5.
+**Step 2 built (same day):** a `9021` with no code opens a public group
+(the group public *at the join's point in the fold*; bans hold); the link
+without `&c=` (`public_link`, never expires; the invite dialog hands it
+out in a public group, and anyone there may); every self-join is a
+newcomer until the next snapshot — by invite too, since links get posted
+— and a moderator's `9000` is not; `newcomer_wait` in `39000`, set with
+*manage channels*, a public group never under 300 s; the composer counts
+down (*"new here — you can post in 4:42"*). Driven in two windows.
+**Honest limit:** judged by the dates the newcomer wrote, like slowmode —
+a patched client can date its join early. And making a group public puts
+anyone who joined in the last five minutes under the floor.
 
 **What to build, in order:**
 

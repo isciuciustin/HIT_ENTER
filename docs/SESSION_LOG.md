@@ -1297,3 +1297,23 @@ exist.
   *make public / make private* button in settings for the owner (settings
   now offered to an owner who could do nothing else there). The 5-minute
   sentence waits for step 2, where it becomes true.
+- **M13 step 2 built: join without an invite, and the newcomer wait.**
+  `Action::Join { code: Option }`, `join_public`; the fold honours no code
+  when the group is public at that point; `InviteLink.code: Option` (a
+  public link has no `&c=`), `Node::public_link`. Newcomers: every
+  self-join (by invite too) records its time until the next snapshot;
+  `newcomer_wait` in `39000` / a `9002` edit with *manage channels*;
+  `PUBLIC_NEWCOMER_FLOOR` = 300 s in the rule. **Found by the M5 test:**
+  with a wait of 0 my first rule refused a message dated before its
+  author's join ("wait 0 s") — no wait now means no rule. **Not built,
+  on purpose:** a moderator's re-put lifting the wait — a `9000` changing
+  no roles needs no permission, so a newcomer could put themselves. The
+  window: invite dialog gives the public link in a public group (and
+  *invite people* shows for every member there), a once-a-second ticker
+  counts the composer down, settings has *newcomers wait: 5 min (the
+  public minimum)*, and a channel's "private" is now **"mods only"** —
+  the word "private" is the group's. Driven in two windows: Bob joined
+  Alice's public group with a code-less link and watched 4:49 → 4:46.
+  **Test windows reuse `target/gui/<name>`:** `stop.sh` forgets the
+  identities but not the data, so a fresh Alice opened the old Alice's
+  group — clear the folder between runs.

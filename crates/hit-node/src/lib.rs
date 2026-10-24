@@ -1073,7 +1073,25 @@ impl Node {
             .await?;
         Ok(InviteLink {
             group: *group,
-            code,
+            code: Some(code),
+            peers: invite_peers(&self.inner.store, self.person(), group, self.id(), addr).await?,
+        })
+    }
+
+    /// A public group's link (M13): no invite to mint, so nothing is
+    /// signed and it never expires — it names the group and where to find
+    /// it, its anchors first. Refused for a group that is not public.
+    pub async fn public_link(
+        &self,
+        group: &PublicKey,
+        addr: Option<SocketAddr>,
+    ) -> Result<InviteLink, NodeError> {
+        if !self.inner.groups().state(group).is_some_and(|s| s.is_public()) {
+            return Err(NodeError::Refused(Refusal::NoSuchInvite));
+        }
+        Ok(InviteLink {
+            group: *group,
+            code: None,
             peers: invite_peers(&self.inner.store, self.person(), group, self.id(), addr).await?,
         })
     }
@@ -1085,7 +1103,10 @@ impl Node {
         let g = link.group;
         self.inner.store.carry_group(&g, Timestamp::now()).await?;
         self.inner.groups_mut().carry(g);
-        let ev = self.inner.person.sign(group::join(&g, &link.code))?;
+        let ev = self.inner.person.sign(match &link.code {
+            Some(code) => group::join(&g, code),
+            None => group::join_public(&g),
+        })?;
         // Every peer's answer, not just the last: an anchor's refusal must
         // not be hidden behind the timeout of a member's app that is off.
         let mut why: Vec<String> = Vec::new();
@@ -1780,6 +1801,8 @@ pub fn genesis(
         seq: 0,
         name: name.to_owned(),
         public,
+        // A public group's floor applies whatever this says.
+        newcomer_wait: 0,
         channels: vec![Channel {
             id: "general".into(),
             name: "general".into(),

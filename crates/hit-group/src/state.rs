@@ -50,7 +50,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use hit_event::group::{
     ACTION_KINDS, Action, CHANNEL_KINDS, CREATE_GROUP, CREATE_INVITE, Channel, DEFAULT_ROLE, Edit,
-    GROUP_ADMINS, GROUP_MEMBERS, GROUP_METADATA, GROUP_ROLES, MAX_REACTION, MAX_SLOWMODE,
+    GROUP_ADMINS, GROUP_MEMBERS, GROUP_METADATA, GROUP_ROLES, MAX_NEWCOMER_WAIT, MAX_REACTION,
+    MAX_SLOWMODE, PUBLIC_NEWCOMER_FLOOR,
     OWNER_MARK, Override, RoleDef, STATE_KINDS, StatePiece, channel_of, group_of, parse_action,
     parse_state,
 };
@@ -108,6 +109,12 @@ pub struct GroupState {
     name: String,
     /// Anyone may find, read and join it (M13).
     public: bool,
+    /// Seconds a newcomer waits before posting, as the group set it; see
+    /// [`Self::newcomer_wait`] for what applies (M13).
+    newcomer_wait: u32,
+    /// When each member who joined by themselves (a `9021`) since the
+    /// cutoff did so — the newcomers. Members the snapshot names are not.
+    joined: BTreeMap<PublicKey, Timestamp>,
     owner: Option<PublicKey>,
     named_owner: Option<PublicKey>,
     channels: Vec<Channel>,
@@ -156,6 +163,8 @@ impl GroupState {
             cutoff: Timestamp::from(0),
             name: String::new(),
             public: false,
+            newcomer_wait: 0,
+            joined: BTreeMap::new(),
             owner: None,
             named_owner: None,
             channels: Vec::new(),
@@ -179,11 +188,13 @@ impl GroupState {
                 StatePiece::Metadata {
                     name,
                     public,
+                    newcomer_wait,
                     channels,
                     overrides,
                 } => {
                     state.name = name;
                     state.public = public;
+                    state.newcomer_wait = newcomer_wait;
                     state.channels = channels;
                     state.overrides = overrides;
                 }
@@ -375,6 +386,7 @@ impl GroupState {
                 if member {
                     self.members.remove(&target);
                     self.mutes.remove(&target);
+                    self.joined.remove(&target);
                 }
                 // A ban silences its target from its time on, member or not:
                 // in the same second as their join, the fold may apply the
@@ -443,13 +455,18 @@ impl GroupState {
                     return Err(Refusal::AlreadyAMember);
                 }
                 let at = ev.created_at;
-                let honoured = self.invites.get(&code).is_some_and(|invites| {
-                    invites.iter().any(|i| {
-                        i.created_at <= at
-                            && i.expires.is_none_or(|e| at <= e)
-                            && self.base(&i.author).contains(Permissions::CREATE_INVITE)
-                    })
-                });
+                // No code: a public group's open door (M13), as it stood at
+                // this point in the fold.
+                let honoured = match &code {
+                    None => self.public,
+                    Some(code) => self.invites.get(code).is_some_and(|invites| {
+                        invites.iter().any(|i| {
+                            i.created_at <= at
+                                && i.expires.is_none_or(|e| at <= e)
+                                && self.base(&i.author).contains(Permissions::CREATE_INVITE)
+                        })
+                    }),
+                };
                 if !honoured {
                     return Err(Refusal::NoSuchInvite);
                 }
@@ -458,6 +475,10 @@ impl GroupState {
                 }
                 self.let_back_in(actor, at);
                 self.members.insert(actor, BTreeSet::new());
+                // Everyone who let themselves in is a newcomer — by invite
+                // too, since links get posted. Someone a moderator put in
+                // (`9000`) is not.
+                self.joined.insert(actor, at);
             }
             Action::Leave => {
                 if Some(actor) == self.owner {
@@ -468,6 +489,7 @@ impl GroupState {
                     .ok_or(Refusal::NotAMember)
                     .map(|_| ())?;
                 self.mutes.remove(&actor);
+                self.joined.remove(&actor);
                 self.silence(actor, ev.created_at, None, false);
             }
             // Recorded as credentials by the fold, never applied.
@@ -518,6 +540,15 @@ impl GroupState {
                     return Err(Refusal::NotTheOwner);
                 }
                 self.public = public;
+            }
+            // Slowmode's permission: both pace who may post when. Below a
+            // public group's floor it is accepted, and the floor applies.
+            Edit::NewcomerWait(secs) => {
+                before.require(actor, Permissions::MANAGE_CHANNELS)?;
+                if secs > MAX_NEWCOMER_WAIT {
+                    return Err(Refusal::BadEdit);
+                }
+                self.newcomer_wait = secs;
             }
             Edit::Channel(c) => {
                 before.require(actor, Permissions::MANAGE_CHANNELS)?;
@@ -672,6 +703,34 @@ impl GroupState {
         self.public
     }
 
+    /// The wait that applies to a newcomer, in seconds: the group's, and
+    /// never under [`PUBLIC_NEWCOMER_FLOOR`] in a public group (M13).
+    pub fn newcomer_wait(&self) -> u32 {
+        if self.public {
+            self.newcomer_wait.max(PUBLIC_NEWCOMER_FLOOR)
+        } else {
+            self.newcomer_wait
+        }
+    }
+
+    /// The wait the group set, before any floor — what settings shows.
+    pub fn newcomer_wait_set(&self) -> u32 {
+        self.newcomer_wait
+    }
+
+    /// When `p` may first post, if they are a newcomer still waiting at
+    /// `now`: their join plus [`Self::newcomer_wait`].
+    /// No wait, no rule: a message dated before its author's join stays
+    /// as acceptable as it was before M13.
+    pub fn posts_from(&self, p: &PublicKey, now: Timestamp) -> Option<Timestamp> {
+        let wait = self.newcomer_wait();
+        if wait == 0 {
+            return None;
+        }
+        let from = *self.joined.get(p)? + u64::from(wait);
+        (from > now).then_some(from)
+    }
+
     /// The owner: named by the group key *and* the signer of a `9007`.
     pub fn owner(&self) -> Option<PublicKey> {
         self.owner
@@ -816,6 +875,12 @@ impl GroupState {
             } else {
                 Refusal::NotAMember
             });
+        }
+        // A newcomer's message dated inside their wait (M13). Judged by its
+        // own date, as slowmode: a patched app can date its join early.
+        if let Some(from) = self.posts_from(&msg.pubkey, msg.created_at) {
+            let left = from.as_secs().saturating_sub(msg.created_at.as_secs());
+            return Err(Refusal::Newcomer(u32::try_from(left).unwrap_or(u32::MAX)));
         }
         Ok(())
     }
@@ -1009,6 +1074,7 @@ impl GroupState {
             seq: self.seq + 1,
             name: self.name.clone(),
             public: self.public,
+            newcomer_wait: self.newcomer_wait,
             channels: self.channels.clone(),
             overrides: self.overrides.clone(),
             roles: self.roles.values().cloned().collect(),

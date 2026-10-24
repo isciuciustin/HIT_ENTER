@@ -250,6 +250,13 @@ pub struct GroupView {
     pub can_invite: bool,
     /// Anyone may find, read and join it (M13). Only the owner changes it.
     pub public: bool,
+    /// Seconds a newcomer waits before posting — the floor included — and
+    /// what the group itself set (M13).
+    pub newcomer_wait: u32,
+    pub newcomer_wait_set: u32,
+    /// When this person, a newcomer, may first post (unix seconds), while
+    /// they still wait.
+    pub posts_from: Option<u64>,
     /// False while joined but before the group's state arrived.
     pub ready: bool,
     /// What this person may do here — a courtesy for the window; every peer
@@ -832,6 +839,11 @@ impl App {
                         owner: s.owner().map(|o| npub(&o)),
                         can_invite: base.contains(Permissions::CREATE_INVITE),
                         public: s.is_public(),
+                        newcomer_wait: s.newcomer_wait(),
+                        newcomer_wait_set: s.newcomer_wait_set(),
+                        posts_from: s
+                            .posts_from(&me, nostr::prelude::Timestamp::now())
+                            .map(|t| t.as_secs()),
                         ready: true,
                         me_owner,
                         can_rename: base.contains(Permissions::MANAGE_GROUP),
@@ -870,6 +882,9 @@ impl App {
                     owner: s.owner().map(|o| npub(&o)),
                     can_invite: false,
                     public: s.is_public(),
+                    newcomer_wait: s.newcomer_wait(),
+                    newcomer_wait_set: s.newcomer_wait_set(),
+                    posts_from: None,
                     ready: true,
                     me_owner: false,
                     can_rename: false,
@@ -890,6 +905,9 @@ impl App {
                     owner: None,
                     can_invite: false,
                     public: false,
+                    newcomer_wait: 0,
+                    newcomer_wait_set: 0,
+                    posts_from: None,
                     ready: false,
                     me_owner: false,
                     can_rename: false,
@@ -1083,6 +1101,16 @@ impl App {
         self.node()
             .await?
             .edit(&parse_key(group)?, &[group::Edit::Public(public)])
+            .await?;
+        Ok(())
+    }
+
+    /// How long a newcomer waits before posting, in seconds (M13) — a
+    /// public group never less than five minutes, whatever is set here.
+    pub async fn set_newcomer_wait(&self, group: &str, secs: u32) -> Result<()> {
+        self.node()
+            .await?
+            .edit(&parse_key(group)?, &[group::Edit::NewcomerWait(secs)])
             .await?;
         Ok(())
     }
@@ -1503,6 +1531,17 @@ impl App {
         };
         let link = node.invite(&parse_key(group)?, valid, addr).await?;
         Ok(link.to_string())
+    }
+
+    /// A public group's link (M13): no invite in it, so it never expires
+    /// and can be posted anywhere.
+    pub async fn public_link(&self, group: &str) -> Result<String> {
+        let node = self.node().await?;
+        let addr = match self.net.relays {
+            Relays::Disabled => self.net.invite_addr,
+            Relays::N0 | Relays::Custom(_) => None,
+        };
+        Ok(node.public_link(&parse_key(group)?, addr).await?.to_string())
     }
 
     /// This person's contact link: someone with no group in common can
@@ -2384,7 +2423,16 @@ mod tests {
         a.set_public(&g, true).await.unwrap();
         assert!(a.groups().await.unwrap()[0].public);
         nb.sync_with(local_addr(&na)).await.unwrap();
-        assert!(b.groups().await.unwrap()[0].public);
+        let gb = &b.groups().await.unwrap()[0];
+        assert!(gb.public && gb.newcomer_wait == 300);
+        // Bob let himself in moments ago: a public group's floor holds
+        // him too, and his window can count down to it.
+        assert!(gb.posts_from.is_some());
+        assert!(b.send(&g, "general", "hi", Vec::new()).await.is_err());
+        assert!(!a.public_link(&g).await.unwrap().contains("&c="));
+        assert!(b.set_newcomer_wait(&g, 0).await.is_err());
+        a.set_newcomer_wait(&g, 600).await.unwrap();
+        assert_eq!(a.groups().await.unwrap()[0].newcomer_wait, 600);
 
         // Roles: the owner can hand out every one; Bob, none.
         assert!(a.roles(&g).await.unwrap().iter().all(|r| r.assignable));

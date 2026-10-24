@@ -101,7 +101,7 @@ export component AddGroupDialog inherits Rectangle {
                 width: 440px;
                 font-size: 12px;
                 text: root.public
-                    ? "Public: anyone can find this group, read its open channels and join."
+                    ? "Public: anyone can find this group, read its open channels and join. Newcomers wait 5 minutes before they can post."
                     : "Private: only people you invite can read or join.";
             }
         }
@@ -163,6 +163,8 @@ export component InviteDialog inherits Rectangle {
     in property <string> error;
     in property <string> link;
     in property <bool> copied;
+    // A public group (M13): its link has no invite in it and never expires.
+    in property <bool> public;
     // Hours the link is valid, or -1: until the group's state is compacted.
     callback make(int);
     callback copy();
@@ -199,9 +201,11 @@ export component InviteDialog inherits Rectangle {
             Note {
                 width: 440px;
                 font-size: 12px;
-                text: "Anyone with the link can join while it is valid. It names this device, so this app must be running when they use it.";
+                text: root.public
+                    ? "This group is public: its link has no invite in it and never expires. Post it wherever you like."
+                    : "Anyone with the link can join while it is valid. It names this device, so this app must be running when they use it.";
             }
-            HorizontalLayout {
+            if !root.public : HorizontalLayout {
                 alignment: start;
                 spacing: 4px;
                 Text {
@@ -252,7 +256,7 @@ export component InviteDialog inherits Rectangle {
                     // `changed` does not fire for a focus taken in `init`.
                     init => { self.focus(); root.at-end = true; }
                     changed has-focus => { root.at-end = self.has-focus; }
-                    text: root.busy ? "making…" : "make link";
+                    text: root.busy ? "making…" : (root.public ? "get link" : "make link");
                     enabled: !root.busy;
                     clicked => { root.make(root.hours); }
                 }
@@ -270,7 +274,9 @@ export component InviteDialog inherits Rectangle {
                 width: 440px;
                 font-size: 12px;
                 text: (root.copied ? "Copied to the clipboard." : "Select it and copy it.")
-                    + " Send it however you like — it is a key to the group, so not anywhere public.";
+                    + (root.public
+                        ? " Anyone can join with it — post it wherever you like."
+                        : " Send it however you like — it is a key to the group, so not anywhere public.");
             }
             HorizontalLayout {
                 alignment: end;
@@ -320,6 +326,8 @@ export component SettingsDialog inherits Rectangle {
     in property <string> done;
     callback rename(string);
     callback set-public(bool);
+    // Seconds a newcomer waits before posting (M13).
+    callback set-newcomer-wait(int);
     // Channel id ("" for a new one), name, slowmode seconds, voice.
     callback save-channel(string, string, int, bool);
     callback set-private(string, bool);
@@ -339,6 +347,20 @@ export component SettingsDialog inherits Rectangle {
         if (s < 300) { return 300; }
         if (s < 3600) { return 3600; }
         return 0;
+    }
+    // The newcomer waits offered, cycling as slowmode's do.
+    function next-newcomer-wait(s: int) -> int {
+        if (s < 60) { return 60; }
+        if (s < 300) { return 300; }
+        if (s < 600) { return 600; }
+        if (s < 1800) { return 1800; }
+        if (s < 3600) { return 3600; }
+        return 0;
+    }
+    function wait-label(s: int) -> string {
+        if (s == 0) { return "off"; }
+        if (s < 3600) { return "\{s / 60} min"; }
+        return "\{s / 3600} hour";
     }
     function slowmode-label(s: int) -> string {
         if (s == 0) { return "off"; }
@@ -400,7 +422,7 @@ export component SettingsDialog inherits Rectangle {
                 width: 440px;
                 font-size: 11px;
                 text: root.settings.public
-                    ? "Anyone can find this group, read its open channels and join. Making it private stops new readers; it cannot take back what was read."
+                    ? "Anyone can find this group, read its open channels and join. Newcomers wait at least 5 minutes before they can post. Making it private stops new readers; it cannot take back what was read."
                     : "Only people you invite can read or join. Making it public lets anyone find it, read its open channels and join.";
             }
             HorizontalLayout {
@@ -409,6 +431,28 @@ export component SettingsDialog inherits Rectangle {
                     text: root.busy ? "working…" : (root.settings.public ? "make private" : "make public");
                     enabled: !root.busy;
                     clicked => { root.set-public(!root.settings.public); }
+                }
+            }
+        }
+        if root.settings.can-manage : VerticalLayout {
+            spacing: 6px;
+            Heading { text: "newcomers"; }
+            Note {
+                width: 440px;
+                font-size: 11px;
+                text: "How long someone who joins by themselves waits before they can post. A moderator who adds someone skips it."
+                    + (root.settings.public ? " A public group never waits less than 5 minutes." : "");
+            }
+            HorizontalLayout {
+                alignment: start;
+                Link {
+                    text: "newcomers wait: " + root.wait-label(root.settings.newcomer-wait)
+                        + (root.settings.newcomer-wait != root.settings.newcomer-wait-set ? " (the public minimum)" : "");
+                    clicked => {
+                        if (!root.busy) {
+                            root.set-newcomer-wait(root.next-newcomer-wait(root.settings.newcomer-wait-set));
+                        }
+                    }
                 }
             }
         }
@@ -446,7 +490,8 @@ export component SettingsDialog inherits Rectangle {
                     }
                 }
                 if root.settings.me-owner : Link {
-                    text: c.private ? "private ✓" : "private";
+                    // Not "private": that word is the group's (M13).
+                    text: c.private ? "mods only ✓" : "mods only";
                     selected: c.private;
                     clicked => {
                         if (!root.busy) {

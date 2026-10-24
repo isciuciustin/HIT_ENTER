@@ -60,6 +60,13 @@ pub const CHANNEL_KINDS: [Kind; 5] = [
 ];
 /// The longest slowmode, in seconds: six hours, as HIT_ENTER_2.
 pub const MAX_SLOWMODE: u32 = 6 * 60 * 60;
+/// The longest a group may make a newcomer wait before posting, in
+/// seconds: a day (M13).
+pub const MAX_NEWCOMER_WAIT: u32 = 24 * 60 * 60;
+/// The shortest wait a **public** group's newcomer has, whatever the
+/// group says: five minutes (M13, the owner's floor). In the rule, so no
+/// edit and no client gets under it.
+pub const PUBLIC_NEWCOMER_FLOOR: u32 = 5 * 60;
 /// Longest reaction, in characters: an emoji, or a short word.
 pub const MAX_REACTION: usize = 32;
 /// Put a person in the group and set their roles: `["p", target, role…]`.
@@ -82,7 +89,8 @@ pub const MUTE_USER: Kind = Kind::from_u16(9030);
 pub const CREATE_GROUP: Kind = Kind::from_u16(9007);
 /// An invite: `["code", X]`, optional NIP-40 `expiration`.
 pub const CREATE_INVITE: Kind = Kind::from_u16(9009);
-/// A join presenting an invite code: `["code", X]`.
+/// A join presenting an invite code, `["code", X]` — or none, to a
+/// public group (M13).
 pub const JOIN: Kind = Kind::from_u16(9021);
 /// Leaving.
 pub const LEAVE: Kind = Kind::from_u16(9022);
@@ -301,6 +309,10 @@ pub struct Snapshot {
     pub name: String,
     /// Anyone may find, read and join it (M13). Private by default.
     pub public: bool,
+    /// Seconds a member who joined by themselves waits before posting
+    /// (M13); 0 is none. A public group never waits less than
+    /// [`PUBLIC_NEWCOMER_FLOOR`], whatever this says.
+    pub newcomer_wait: u32,
     pub channels: Vec<Channel>,
     pub overrides: Vec<Override>,
     pub roles: Vec<RoleDef>,
@@ -330,6 +342,9 @@ impl Snapshot {
         let mut meta = base(GROUP_METADATA).tag(tag("name", [self.name.clone()]));
         for t in visibility_tags(self.public) {
             meta = meta.tag(t);
+        }
+        if self.newcomer_wait > 0 {
+            meta = meta.tag(tag("newcomer_wait", [self.newcomer_wait.to_string()]));
         }
         for c in &self.channels {
             meta = meta.tag(channel_tag(c));
@@ -401,6 +416,7 @@ pub enum StatePiece {
     Metadata {
         name: String,
         public: bool,
+        newcomer_wait: u32,
         channels: Vec<Channel>,
         overrides: Vec<Override>,
     },
@@ -427,12 +443,14 @@ pub fn parse_state(event: &Event) -> Option<(PublicKey, u64, StatePiece)> {
     let piece = if event.kind == GROUP_METADATA {
         let mut name = String::new();
         let (mut public, mut private) = (false, false);
+        let mut newcomer_wait = 0;
         let (mut channels, mut overrides) = (Vec::new(), Vec::new());
         for row in rows() {
             match row {
                 [n, v, ..] if n == "name" => name = v.clone(),
                 [n, ..] if n == "public" => public = true,
                 [n, ..] if n == "private" => private = true,
+                [n, v, ..] if n == "newcomer_wait" => newcomer_wait = v.parse().ok()?,
                 [n, rest @ ..] if n == "channel" => channels.push(parse_channel(rest)?),
                 [n, channel, role, allow, deny, ..] if n == "override" => {
                     overrides.push(Override {
@@ -450,6 +468,7 @@ pub fn parse_state(event: &Event) -> Option<(PublicKey, u64, StatePiece)> {
             name,
             // Both, or neither (every group before M13): private.
             public: public && !private,
+            newcomer_wait,
             channels,
             overrides,
         }
@@ -544,14 +563,16 @@ pub enum Action {
         code: String,
         expires: Option<Timestamp>,
     },
+    /// `None`: no invite, honoured only by a public group (M13).
     Join {
-        code: String,
+        code: Option<String>,
     },
     Leave,
 }
 
 /// One change a `9002` makes. Tags, in order: `["name", N]`;
 /// `["public"]` or `["private"]` (M13, the owner only);
+/// `["newcomer_wait", seconds]` (M13);
 /// `["channel", id, name, kind, slowmode]` (create or replace);
 /// `["channel-delete", id]`; `["override", channel, role, allow, deny]`
 /// (both 0 removes it); `["role", id, name, perms, position]` (create or
@@ -561,6 +582,8 @@ pub enum Edit {
     Name(String),
     /// Public (`true`) or private.
     Public(bool),
+    /// Seconds a newcomer waits before posting.
+    NewcomerWait(u32),
     Channel(Channel),
     ChannelDelete(String),
     Override(Override),
@@ -574,6 +597,7 @@ impl Edit {
             Self::Name(n) => tag("name", [n.clone()]),
             Self::Public(true) => tag("public", Vec::<String>::new()),
             Self::Public(false) => tag("private", Vec::<String>::new()),
+            Self::NewcomerWait(s) => tag("newcomer_wait", [s.to_string()]),
             Self::Channel(c) => channel_tag(c),
             Self::ChannelDelete(id) => tag("channel-delete", [id.clone()]),
             Self::Override(o) => tag(
@@ -603,6 +627,7 @@ impl Edit {
             [n, v, ..] if n == "name" => Self::Name(v.clone()),
             [n, ..] if n == "public" => Self::Public(true),
             [n, ..] if n == "private" => Self::Public(false),
+            [n, v, ..] if n == "newcomer_wait" => Self::NewcomerWait(v.parse().ok()?),
             [n, rest @ ..] if n == "channel" => Self::Channel(parse_channel(rest)?),
             [n, id, ..] if n == "channel-delete" => Self::ChannelDelete(id.clone()),
             [n, channel, role, allow, deny, ..] if n == "override" => Self::Override(Override {
@@ -621,6 +646,7 @@ impl Edit {
             [n, ..]
                 if [
                     "name",
+                    "newcomer_wait",
                     "channel",
                     "channel-delete",
                     "override",
@@ -739,7 +765,7 @@ pub fn parse_action(event: &Event) -> Option<(PublicKey, Action)> {
         }
     } else if event.kind == JOIN {
         Action::Join {
-            code: first_value(event, "code")?.to_owned(),
+            code: first_value(event, "code").map(str::to_owned),
         }
     } else if event.kind == LEAVE {
         Action::Leave
@@ -989,6 +1015,11 @@ pub fn join(group: &PublicKey, code: &str) -> EventBuilder {
         .tag(tag("code", [code]))
 }
 
+/// A join without an invite: to a public group (M13).
+pub fn join_public(group: &PublicKey) -> EventBuilder {
+    EventBuilder::new(JOIN, "").tag(h(group))
+}
+
 pub fn leave(group: &PublicKey) -> EventBuilder {
     EventBuilder::new(LEAVE, "").tag(h(group))
 }
@@ -1011,6 +1042,7 @@ mod tests {
             seq: 3,
             name: "Friends".into(),
             public: true,
+            newcomer_wait: 600,
             channels: vec![
                 Channel {
                     id: "general".into(),
@@ -1077,11 +1109,13 @@ mod tests {
                 StatePiece::Metadata {
                     name,
                     public,
+                    newcomer_wait,
                     channels,
                     overrides,
                 } => {
                     back.name = name;
                     back.public = public;
+                    back.newcomer_wait = newcomer_wait;
                     back.channels = channels;
                     back.overrides = overrides;
                 }
@@ -1148,6 +1182,7 @@ mod tests {
             Edit::Name("New".into()),
             Edit::Public(true),
             Edit::Public(false),
+            Edit::NewcomerWait(900),
             Edit::Channel(Channel {
                 id: "slow".into(),
                 name: "slow".into(),
@@ -1317,6 +1352,14 @@ mod tests {
                 }
             ))
         );
+        let ev = p.sign(join(&g, "abc")).unwrap();
+        assert_eq!(
+            parse_action(&ev),
+            Some((g, Action::Join { code: Some("abc".into()) }))
+        );
+        // M13: a join without an invite, for a public group.
+        let ev = p.sign(join_public(&g)).unwrap();
+        assert_eq!(parse_action(&ev), Some((g, Action::Join { code: None })));
         let ev = p.sign(message(&g, "general", "hi")).unwrap();
         assert_eq!(group_of(&ev), Some(g));
         assert_eq!(channel_of(&ev), Some("general"));

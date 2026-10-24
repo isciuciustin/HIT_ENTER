@@ -60,6 +60,7 @@ impl G {
             seq: 0,
             name: "Test".into(),
             public: false,
+            newcomer_wait: 0,
             channels: vec![
                 Channel {
                     id: "general".into(),
@@ -2000,4 +2001,130 @@ fn a_message_with_a_malformed_file_is_refused_and_a_good_one_is_judged_as_a_mess
         .sign(group::message_with(&g.id(), "mods", "", &[good]))
         .unwrap();
     assert!(s.judge_message(&hidden).is_err());
+}
+
+// --- M13: public groups -------------------------------------------------
+
+#[test]
+fn a_join_without_an_invite_opens_only_a_public_group_and_not_for_the_banned() {
+    use hit_event::group::join_public;
+    let mut g = G::new();
+    let (p, q, banned) = (Person::generate(), Person::generate(), Person::generate());
+    let shut = g.act(&p, join_public(&g.id()));
+    assert!(!g.applied(&shut), "a private group's door is shut");
+
+    g.by_owner(ban_user(&g.id(), &banned.public_key()));
+    g.by_owner(edit_metadata(&g.id(), &[Edit::Public(true)]));
+    let open = g.act(&q, join_public(&g.id()));
+    assert!(g.applied(&open));
+    assert!(g.state().is_member(&q.public_key()));
+    let barred = g.act(&banned, join_public(&g.id()));
+    assert!(!g.applied(&barred), "a ban holds at the open door");
+
+    // Dated before the group went public: the door was shut then.
+    let early = p
+        .sign(join_public(&g.id()).custom_created_at(Timestamp::from(T0)))
+        .unwrap();
+    g.events.push(early.clone());
+    assert!(!g.applied(&early));
+}
+
+#[test]
+fn a_newcomer_waits_five_minutes_at_least_in_a_public_group() {
+    use hit_event::group::{PUBLIC_NEWCOMER_FLOOR, join_public};
+    let mut g = G::new();
+    g.by_owner(edit_metadata(&g.id(), &[Edit::Public(true)]));
+    let p = Person::generate();
+    let joined = g.act(&p, join_public(&g.id()));
+    assert!(g.applied(&joined));
+    assert_eq!(g.state().newcomer_wait(), PUBLIC_NEWCOMER_FLOOR);
+
+    let wait = u64::from(PUBLIC_NEWCOMER_FLOOR);
+    let at = |s: u64| {
+        p.sign(message(&g.id(), "general", "hi").custom_created_at(Timestamp::from(g.clock + s)))
+            .unwrap()
+    };
+    // `clock` is the join's second; a message one second later waits the
+    // rest, one at the end of the wait is in.
+    assert_eq!(
+        g.state().judge_message(&at(1)),
+        Err(Refusal::Newcomer(PUBLIC_NEWCOMER_FLOOR - 1))
+    );
+    assert_eq!(g.state().judge_message(&at(wait)), Ok(()));
+    let now = Timestamp::from(g.clock + 1);
+    assert_eq!(
+        g.state().posts_from(&p.public_key(), now),
+        Some(Timestamp::from(g.clock + wait))
+    );
+
+    // A reaction is a post too.
+    let target = g.owner().sign(message(&g.id(), "general", "x")).unwrap();
+    let react = p
+        .sign(
+            group::reaction(&g.id(), "general", &target.id, &target.pubkey, "👍")
+                .custom_created_at(Timestamp::from(g.clock + 1)),
+        )
+        .unwrap();
+    assert!(matches!(
+        g.state().judge_reaction(&react),
+        Err(Refusal::Newcomer(_))
+    ));
+
+    // The group may ask for longer; asking for less leaves the floor.
+    g.by_owner(edit_metadata(&g.id(), &[Edit::NewcomerWait(60)]));
+    assert_eq!(g.state().newcomer_wait_set(), 60);
+    assert_eq!(g.state().newcomer_wait(), PUBLIC_NEWCOMER_FLOOR);
+    g.by_owner(edit_metadata(&g.id(), &[Edit::NewcomerWait(3600)]));
+    assert_eq!(g.state().newcomer_wait(), 3600);
+    let too_long = g.by_owner(edit_metadata(
+        &g.id(),
+        &[Edit::NewcomerWait(hit_event::group::MAX_NEWCOMER_WAIT + 1)],
+    ));
+    assert!(!g.applied(&too_long));
+
+    // Private again: no floor, the group's own wait (0 lets everyone in) —
+    // even a message dated before the join, as before M13 (the M5 test
+    // that backdates one caught a "wait 0 s" refusal).
+    g.by_owner(edit_metadata(&g.id(), &[Edit::Public(false), Edit::NewcomerWait(0)]));
+    assert_eq!(g.state().newcomer_wait(), 0);
+    let before = p
+        .sign(message(&g.id(), "general", "hi").custom_created_at(Timestamp::from(T0 + 1)))
+        .unwrap();
+    assert_eq!(g.state().judge_message(&before), Ok(()));
+    assert_eq!(g.state().posts_from(&p.public_key(), Timestamp::from(T0)), None);
+}
+
+#[test]
+fn a_member_put_in_by_a_moderator_or_named_by_the_snapshot_does_not_wait() {
+    use hit_event::group::join_public;
+    let mut g = G::new();
+    g.by_owner(edit_metadata(&g.id(), &[Edit::Public(true)]));
+    let put = g.member(&[]);
+    assert_eq!(g.says(&put, "general"), Ok(()), "put in by the owner");
+
+    let p = Person::generate();
+    g.act(&p, join_public(&g.id()));
+    assert!(matches!(g.says(&p, "general"), Err(Refusal::Newcomer(_))));
+    // The newcomer cannot put themselves to skip it: a 9000 changing no
+    // roles needs no permission, so it must not count.
+    g.act(&p, put_user(&g.id(), &p.public_key(), &[]));
+    assert!(matches!(g.says(&p, "general"), Err(Refusal::Newcomer(_))));
+
+    // Compacted: the snapshot names them a member, and keeps no join time.
+    g.clock += 1;
+    let snap = g.state().to_snapshot();
+    g.events
+        .extend(snap.sign(&g.key, Timestamp::from(g.clock)).unwrap());
+    assert_eq!(g.says(&p, "general"), Ok(()));
+}
+
+#[test]
+fn only_who_may_set_slowmode_may_set_the_newcomer_wait() {
+    let mut g = G::new();
+    let (plain, admin) = (g.member(&[]), g.member(&["admin"]));
+    let by_plain = g.act(&plain, edit_metadata(&g.id(), &[Edit::NewcomerWait(600)]));
+    assert!(!g.applied(&by_plain));
+    let by_admin = g.act(&admin, edit_metadata(&g.id(), &[Edit::NewcomerWait(600)]));
+    assert!(g.applied(&by_admin));
+    assert_eq!(g.state().newcomer_wait(), 600, "a private group may ask too");
 }

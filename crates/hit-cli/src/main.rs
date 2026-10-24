@@ -489,7 +489,7 @@ async fn main() -> Result<()> {
             let device = hit_node::device_id(&cli.data)?;
             let link = InviteLink {
                 group: g,
-                code,
+                code: Some(code),
                 peers: hit_node::invite_peers(&store, me.public_key(), &g, device, *addr).await?,
             };
             println!("{link}");

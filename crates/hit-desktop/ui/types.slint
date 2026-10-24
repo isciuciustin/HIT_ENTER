@@ -104,6 +104,10 @@ export struct SettingsUi {
     name: string,
     // Anyone may find, read and join it (M13); the owner's switch.
     public: bool,
+    // Seconds a newcomer waits: as set, and as applies (a public group's
+    // floor included).
+    newcomer-wait-set: int,
+    newcomer-wait: int,
     me-owner: bool,
     can-rename: bool,
     can-manage: bool,

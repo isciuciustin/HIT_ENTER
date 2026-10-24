@@ -515,6 +515,21 @@ fn wire_moderation(ui: &MainWindow, get: impl Fn() -> Option<Arc<Ctl>> + Clone +
     });
 
     let g = get.clone();
+    ui.on_set_newcomer_wait(move |secs| {
+        let secs = u32::try_from(secs).unwrap_or(0);
+        // What was set: in a public group the 5-minute floor may still
+        // apply, and the setting's own line says so.
+        let label = if secs == 0 {
+            "newcomer wait set to off".to_owned()
+        } else {
+            format!("newcomer wait set to {} min", secs / 60)
+        };
+        moderate(&g, &label, false, async move |app, group, _| {
+            app.set_newcomer_wait(&group, secs).await
+        });
+    });
+
+    let g = get.clone();
     ui.on_save_channel(move |id, name, slowmode, voice| {
         let (id, name) = (id.to_string(), name.to_string());
         let slowmode = u32::try_from(slowmode).unwrap_or(0);
@@ -534,7 +549,7 @@ fn wire_moderation(ui: &MainWindow, get: impl Fn() -> Option<Arc<Ctl>> + Clone +
     let g = get.clone();
     ui.on_set_private(move |id, private| {
         let id = id.to_string();
-        let label = if private { "private" } else { "open to every member" };
+        let label = if private { "mods only" } else { "open to every member" };
         moderate(&g, label, false, async move |app, group, _| {
             app.set_channel_private(&group, &id, private).await
         });

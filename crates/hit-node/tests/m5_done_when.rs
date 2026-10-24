@@ -148,7 +148,7 @@ async fn a_banned_users_patched_client_posts_and_no_honest_peer_keeps_it() {
     let hers = m.group(&g).unwrap();
     assert!(hers.is_banned(&mallory.public_key()) && !hers.is_member(&mallory.public_key()));
     let rejoin = m
-        .sign_unjudged(group::join(&g, &link.code).custom_created_at(Timestamp::now() + 2))
+        .sign_unjudged(group::join(&g, link.code.as_deref().unwrap_or_default()).custom_created_at(Timestamp::now() + 2))
         .unwrap();
     let (ok, _) = m.push_unjudged(loopback(&a), rejoin).await.unwrap();
     assert!(!ok, "a banned user walked back in on her old invite");

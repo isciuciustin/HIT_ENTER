@@ -97,6 +97,20 @@ struct State {
     /// The window has the desktop's focus: only then is what it shows read.
     /// Unknown until told, and taken as yes.
     unfocused: bool,
+    /// A task re-renders every second while the open group makes this
+    /// person wait to post (M13's newcomer countdown).
+    ticking: bool,
+}
+
+/// Seconds `group` still makes this person wait before posting, if any.
+fn newcomer_left(group: Option<&GroupView>) -> Option<u64> {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
+    group
+        .and_then(|g| g.posts_from)
+        .filter(|&t| t > now)
+        .map(|t| t - now)
 }
 
 impl Chat {
@@ -217,10 +231,21 @@ impl Chat {
     }
 
     /// An invite link to the open group.
+    /// A link to the open group: an invite valid for `hours`, or — a
+    /// public group (M13) — its link with no invite in it.
     pub async fn invite(&self, hours: Option<u32>) -> Result<String, String> {
-        let g = self.s.lock().await.group.clone();
-        let g = g.ok_or("no group is open")?;
-        self.app.invite(&g, hours).await.map_err(|e| e.to_string())
+        let (g, public) = {
+            let s = self.s.lock().await;
+            let g = s.group.clone().ok_or("no group is open")?;
+            let public = s.groups.iter().any(|x| x.id == g && x.public);
+            (g, public)
+        };
+        if public {
+            self.app.public_link(&g).await
+        } else {
+            self.app.invite(&g, hours).await
+        }
+        .map_err(|e| e.to_string())
     }
 
     /// One of the node's events.
@@ -490,6 +515,34 @@ impl Chat {
     /// Starts loading every picture on screen that should show and is not
     /// held: fetched (from whoever has it), decoded at display size off the
     /// async workers, then the window drawn again.
+    /// Starts the once-a-second re-render while a newcomer waits, so the
+    /// composer counts down; it stops itself when the wait is over or the
+    /// group is left for another.
+    fn tick_while_waiting(&self, s: &mut State) {
+        let open = s.groups.iter().find(|g| Some(&g.id) == s.group.as_ref());
+        if s.ticking || newcomer_left(open).is_none() {
+            return;
+        }
+        let Some(me) = self.me.upgrade() else { return };
+        s.ticking = true;
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                let mut s = me.s.lock().await;
+                let open = s.groups.iter().find(|g| Some(&g.id) == s.group.as_ref());
+                let waiting = newcomer_left(open).is_some();
+                if !waiting {
+                    s.ticking = false;
+                }
+                // The last one shows the composer open again.
+                me.render(&mut s);
+                if !waiting {
+                    break;
+                }
+            }
+        });
+    }
+
     fn fetch_pictures(&self, s: &mut State) {
         for (key, dm, size) in Self::on_screen(s) {
             if !s.pics.wants(&key, size) {
@@ -655,6 +708,7 @@ impl Chat {
     /// The cache, as the window's rows.
     fn render(&self, s: &mut State) {
         self.fetch_pictures(s);
+        self.tick_while_waiting(s);
         let s = &*s;
         let group = s.groups.iter().find(|g| Some(&g.id) == s.group.as_ref());
         let channel = group.and_then(|g| {
@@ -790,10 +844,13 @@ impl Chat {
             .and_then(|g| g.muted_until)
             .filter(|&u| u > now)
             .map(|u| (u - now).div_ceil(60));
-        let refusal = match (channel, muted_for) {
-            (None, _) => "no channel".to_owned(),
-            (Some(_), Some(min)) => format!("muted for another {min} min"),
-            (Some(c), None) if !c.can_send => "you cannot post in this channel".into(),
+        let refusal = match (channel, muted_for, newcomer_left(group)) {
+            (None, ..) => "no channel".to_owned(),
+            (Some(_), Some(min), _) => format!("muted for another {min} min"),
+            (Some(_), None, Some(left)) => {
+                format!("new here — you can post in {}:{:02}", left / 60, left % 60)
+            }
+            (Some(c), None, None) if !c.can_send => "you cannot post in this channel".into(),
             _ => String::new(),
         };
         let view = ViewUi {
@@ -811,7 +868,8 @@ impl Chat {
             },
             reach_ok: others == 0 || here > 0,
             members: count(s.members.len()),
-            can_invite: group.is_some_and(|g| g.can_invite),
+            // A public group's link is anyone's to pass on (M13).
+            can_invite: group.is_some_and(|g| g.can_invite || g.public),
             refusal: refusal.into(),
             placeholder: channel
                 .map(|c| format!("message #{}", c.name))
@@ -832,6 +890,8 @@ impl Chat {
         let settings = group.map_or_else(SettingsUi::default, |g| SettingsUi {
             name: g.name.as_str().into(),
             public: g.public,
+            newcomer_wait_set: i32::try_from(g.newcomer_wait_set).unwrap_or(i32::MAX),
+            newcomer_wait: i32::try_from(g.newcomer_wait).unwrap_or(i32::MAX),
             me_owner: g.me_owner,
             can_rename: g.can_rename,
             can_manage: g.can_manage_channels,

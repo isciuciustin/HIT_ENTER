@@ -5,7 +5,8 @@
 //! ```
 //!
 //! A link carries the group, an invite code, and a few devices to bootstrap
-//! from — whoever made the link, an anchor. An address after `@` is for a
+//! from — whoever made the link, an anchor. **A public group's link has no
+//! code** (M13): its door is open, and the link only says where it is. An address after `@` is for a
 //! LAN or a test with relays off; with relays on, the device id is enough.
 //!
 //! **A link is a capability.** Anyone who holds it can join until the
@@ -28,7 +29,8 @@ pub const MAX_PEERS: usize = 8;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InviteLink {
     pub group: PublicKey,
-    pub code: String,
+    /// `None`: a public group's link — no invite, nothing secret.
+    pub code: Option<String>,
     pub peers: Vec<(EndpointId, Option<SocketAddr>)>,
 }
 
@@ -48,7 +50,10 @@ impl fmt::Display for InviteLink {
             .group
             .to_bech32()
             .unwrap_or_else(|_| self.group.to_hex());
-        write!(f, "{SCHEME}g={g}&c={}", self.code)?;
+        write!(f, "{SCHEME}g={g}")?;
+        if let Some(c) = &self.code {
+            write!(f, "&c={c}")?;
+        }
         for (id, addr) in self.peers.iter().take(MAX_PEERS) {
             write!(f, "&p={id}")?;
             if let Some(a) = addr {
@@ -102,7 +107,7 @@ impl std::str::FromStr for InviteLink {
         }
         Ok(Self {
             group: group.ok_or(InviteError::Missing("group"))?,
-            code: code.ok_or(InviteError::Missing("code"))?,
+            code,
             peers,
         })
     }
@@ -121,7 +126,7 @@ mod tests {
     fn a_link_round_trips() {
         let link = InviteLink {
             group: Keys::generate().public_key(),
-            code: "00ff".into(),
+            code: Some("00ff".into()),
             peers: vec![
                 (device(), None),
                 (device(), Some("127.0.0.1:4242".parse().unwrap())),
@@ -130,6 +135,12 @@ mod tests {
         let text = link.to_string();
         assert!(text.starts_with("hit-enter:join?g=npub1"));
         assert_eq!(text.parse::<InviteLink>().unwrap(), link);
+
+        // M13: a public group's link, no code.
+        let open = InviteLink { code: None, ..link };
+        let text = open.to_string();
+        assert!(!text.contains("&c="));
+        assert_eq!(text.parse::<InviteLink>().unwrap(), open);
     }
 
     #[test]
