@@ -27,6 +27,10 @@ twice its size — and splitting it rather than pushing through.
 
 ## 0. Now — until the VPS (2026-10-22 → November 2026)
 
+**2026-10-24: the VPS came early** — OVH, Canada, `wss://anchor.hitenter.app`
+now runs there, one group pinned (`SESSION_LOG.md`). The VPS-day items are
+ticked; the rest of the month stays as written.
+
 The owner rents a VPS next month; it becomes the first always-on anchor.
 Until then, in this order. *You* = the owner, *me* = Claude.
 
@@ -57,7 +61,8 @@ Until then, in this order. *You* = the owner, *me* = Claude.
   **read before joining** (`DESIGN.md` §0, rows 1 and 3). *Me.*
 - [ ] **Public groups announced on Nostr relays**, and a first, plain
   **"browse communities"** list in the app. *Me.*
-- [ ] **Rehearse the VPS in Docker**: `hit-anchor` under systemd, Caddy
+- [x] ~~**Rehearse the VPS in Docker**~~ — done on the real VPS instead
+  (2026-10-24). Was: **Rehearse the VPS in Docker**: `hit-anchor` under systemd, Caddy
   for `wss://`, exactly as `SELF_HOSTING.md` says — so VPS day is copy and
   paste, not debugging. *Me.*
 
@@ -65,10 +70,15 @@ Until then, in this order. *You* = the owner, *me* = Claude.
 
 - [ ] **beta.5** with public groups and the fixes: Linux built here, macOS
   and Windows by the owner; hitenter.app links and sha256 lines. *Me + you.*
-- [ ] **The VPS-day checklist**: which server (Hetzner-class, ~€4–5/month),
+- [x] **The VPS-day checklist** — done live, 2026-10-24 (`SESSION_LOG.md`).
+  Was: **The VPS-day checklist**: which server (Hetzner-class, ~€4–5/month),
   the DNS move of `anchor.hitenter.app` from the Cloudflare tunnel to the
   VPS, install, backups, and the check that it works. *Me.*
-- [ ] Pick the provider; a card ready. *You.*
+- [x] Pick the provider; a card ready. *You.* — OVH VPS-1, 2026-10-24.
+- [ ] **Pin the other groups** to the VPS anchor; the owner's check that a
+  message sent while they were offline arrives through it. *You + me.*
+- [ ] **The 23 refused events**: log the refused kind; stop re-offering
+  events a peer refused (`SESSION_LOG.md` 2026-10-24). *Me.*
 
 ### VPS day
 

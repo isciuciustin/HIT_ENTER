@@ -14,6 +14,15 @@ HIT_ENTER_2's `he2-*`.
 
 ## Where this is right now
 
+**2026-10-24 — the VPS is live, early.** `wss://anchor.hitenter.app` runs on
+an OVH VPS (Canada, Debian 13, `ssh hitenter`), not the laptop's tunnel:
+`hit-anchor` under systemd + Caddy, one group pinned. Traps, open items and
+how the agent reaches it are in `SESSION_LOG.md` 2026-10-24 and
+`SELF_HOSTING.md` §9. The agent can SSH in only after the owner runs
+`SSH_AUTH_SOCK=$XDG_RUNTIME_DIR/hitenter-agent.sock ssh-add` in their own
+terminal (the key has a passphrase) — start the agent first with
+`ssh-agent -a $XDG_RUNTIME_DIR/hitenter-agent.sock`.
+
 **2026-10-22 — the plan until the VPS is `PLAN.md` §0** (week by week; the
 owner rents a VPS in November for the first always-on anchor). Start there.
 

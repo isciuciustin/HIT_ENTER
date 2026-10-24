@@ -1163,3 +1163,40 @@ exist.
 - **Done:** `DESIGN.md` §0 (the star, and the six gaps between today and a
   community that size), README, `CLAUDE.md`, the GitHub description and
   hitenter.app reworded. Nothing in the code changed.
+
+## 2026-10-24 — the VPS: the first always-on anchor
+
+- **Rented early** (PLAN.md §0 had it for November): OVH VPS-1, 2 vCore,
+  4 GB, 40 GB NVMe, Debian 13, automated backups, ~$5.35/month, no
+  commitment. **In Canada (Beauharnois)** — kept by the owner although
+  Europe was recommended (~100–130 ms more for European users); can move.
+  `148.113.150.182` / `2607:5300:205:200::e7f4`, user `debian`, key-only
+  SSH (`ssh hitenter` on the laptop).
+- **Hardened:** ufw (OpenSSH, 80/tcp, 443/tcp, 7600/udp), unattended
+  upgrades, fail2ban, no root or password login. **Trap:** OVH's
+  `50-cloud-init.conf` says `PasswordAuthentication yes`, and in sshd the
+  *first* value wins — a `99-` override does nothing; it is
+  `00-hardening.conf`. Check with `sudo sshd -T`.
+- **`hit-anchor` running** under systemd as `SELF_HOSTING.md` says:
+  built in the Ubuntu 22.04 release image (`target/u2204`, glibc ≤ 2.34),
+  npub `npub1n3psr29lffm8d0jfxqxyga97asduzfcs0p0q88lgpum0rywlv30q874trj`,
+  its key only in `/etc/credstore.encrypted/` (no TPM: systemd warns the
+  host key is not on encrypted media).
+- **`wss://anchor.hitenter.app` moved off the laptop's Cloudflare tunnel**:
+  Caddy 2.6.2 (Debian's) proxies to `127.0.0.1:7777`, Let's Encrypt
+  certificate, DNS `A` + `AAAA` *DNS only* (grey cloud), set by the owner
+  in the dashboard — this machine has no Cloudflare token that edits DNS.
+  Checked: NIP-11 answers over HTTPS, the WebSocket upgrade gives `101`.
+  The old locally-managed tunnel `hit-anchor` is idle, not deleted.
+- **First group pinned** (`npub12k7vf030…5eflal`): 15 events and 1 file.
+  **`pin` needs the service stopped** — it starts a second node with the
+  same device key and port. **Open:** every sync round the owner's app
+  offers 23 events the anchor refuses as "not a member" — most likely
+  profiles/bindings of people from the owner's other groups (refused by
+  design, `hit-group/src/lib.rs` `is_personal`), *not confirmed*: the log
+  does not name the kind. Owed: log the kind, stop re-offering refused
+  events, and the owner's check that the anchor shows in the member list
+  and delivers a message sent while the owner was offline.
+- **Owner's laptop:** the beta.3 app in `~/.local/bin/hit-enter` replaced
+  by beta.4 from the release (sha256 checked; the AppImage unpacked —
+  Omarchy has no FUSE 2). KeePassXC set up for secrets.

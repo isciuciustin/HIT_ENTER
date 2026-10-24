@@ -171,6 +171,38 @@ The apps keep using n0's relays until they get the same setting (later).
 - **On a Pi:** an SD card wears out; keep `/var/lib/hit-anchor` on a USB
   SSD if the group is busy.
 
+## 9. Lessons from the first real VPS (2026-10-24)
+
+Found setting up `anchor.hitenter.app` on a Debian 13 VPS:
+
+- **Build where the server's glibc is not older than yours.** A binary
+  built on a rolling distribution will not start on Debian. Build in the
+  release image (`crates/hit-desktop/packaging/linux-build.Dockerfile`,
+  Ubuntu 22.04) with `cargo build --release --locked -p hit-anchor`, or on
+  the server itself.
+- **Name the credential without guessing the npub.** Keep the key in a
+  shell variable — memory, never a file or a terminal — read the npub
+  from `init`'s stderr, then encrypt:
+
+  ```bash
+  errf=$(mktemp)
+  key=$(sudo -u hit-anchor hit-anchor --data /var/lib/hit-anchor --credentials \
+          init --name "My anchor" 2>"$errf")
+  npub=$(awk '/^npub/{print $2}' "$errf"); rm -f "$errf"
+  printf '%s' "$key" | sudo systemd-creds encrypt --name="$npub" - \
+      "/etc/credstore.encrypted/$npub"
+  unset key
+  ```
+- **Stop the service before `pin`.** `pin` starts a second node with the
+  same device key and port; run it with `systemctl stop hit-anchor` first,
+  then start the service again.
+- **Cloud images override your SSH settings.** On OVH (cloud-init),
+  `/etc/ssh/sshd_config.d/50-cloud-init.conf` turns password login *on*,
+  and sshd keeps the *first* value it reads — name your override
+  `00-hardening.conf`, not `99-`, and check with `sudo sshd -T`.
+- **Behind Cloudflare, use "DNS only".** Caddy fetches its own certificate,
+  and nothing sits between members and the anchor.
+
 ## What an anchor does not do (yet)
 
 - Fetch and keep files — that is M8, with files.
