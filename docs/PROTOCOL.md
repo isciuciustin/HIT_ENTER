@@ -217,7 +217,8 @@ roles, `10` manage group, `11` attach files. Unknown bits are dropped.
 - **Bindings and profiles** are read by the person they belong to and by
   people who share a group with them — and stored, by the same rule, only
   for them. Neither goes on a group's gossip: they belong to a person, not
-  a group, and travel by sync.
+  a group, and travel by sync. **An expired binding is not offered** — every
+  peer's book refuses it.
 - The same rule answers a `REQ`, builds a negentropy set, and decides what
   goes on gossip.
 

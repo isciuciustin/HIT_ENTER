@@ -1240,3 +1240,13 @@ exist.
 - **`target/` is owned by root** (yesterday's Docker build), so cargo
   cannot write `target/debug`; this session built in
   `~/.cache/hit-enter-target`. Fix: `sudo chown -R $USER target`.
+- **After the owner's compaction** (19:17 UTC): the 23 stopped — the four
+  members and their history are on the anchor. The new anchor binary
+  (`hit-anchor.prev` kept beside it) logged them by kind first, which
+  matched the replay event for event.
+- **Then one more, every ~3 s both ways:** a member's **expired device
+  binding** (offline past its 7 days), offered by the owner's app and
+  refused by the anchor's binding book. `reconcilable` now leaves expired
+  bindings out (test `an_expired_binding_is_not_offered`, failing before).
+  It is the app that offers it, so the noise stops with beta.5, not with
+  an anchor redeploy.

@@ -2451,15 +2451,24 @@ impl Inner {
     /// The set a negentropy session with `peer` reconciles over: what it
     /// may see, **minus the two parties' own bindings** — those were the
     /// session's first frames, both ways, and offering them again would
-    /// only be refused (a stranger's) or fetched twice (a joiner's).
+    /// only be refused (a stranger's) or fetched twice (a joiner's) — **and
+    /// minus expired bindings**, which every peer's book refuses: a member
+    /// offline past their binding's expiry was re-offered every round
+    /// (the VPS anchor, 2026-10-24).
     pub(crate) async fn reconcilable(
         &self,
         peer: &PublicKey,
         filter: &Filter,
     ) -> Result<Vec<Event>, NodeError> {
         let me = self.person.public_key();
+        let now = Timestamp::now();
         let mut evs = self.visible(peer, filter).await?;
-        evs.retain(|e| e.kind != DEVICE_BINDING || (e.pubkey != me && e.pubkey != *peer));
+        evs.retain(|e| {
+            e.kind != DEVICE_BINDING
+                || (e.pubkey != me
+                    && e.pubkey != *peer
+                    && e.tags.expiration().is_some_and(|exp| exp > now))
+        });
         Ok(evs)
     }
 
