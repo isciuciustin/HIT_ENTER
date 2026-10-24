@@ -1051,8 +1051,10 @@ The owner's answers (2026-10-24):
 4. **A new group is private**; making it public must take **little
    thought** — one clear choice, not a settings hunt.
 5. **The best public relays available** for profiles and announcements.
-6. **A newcomer to a public group waits 1 minute before posting** — the
-   group's admins can change it (0 turns it off).
+6. **A newcomer to a public group waits at least 10 minutes before
+   posting** — a floor every peer enforces; admins can make it longer,
+   never shorter (first answer 1 minute and changeable; raised the same
+   day).
 
 **What to build, in order:**
 
@@ -1068,12 +1070,15 @@ The owner's answers (2026-10-24):
    the group is open; bans still hold. A link that names the group and its
    anchors and carries no code: `hit-enter:group?…`.
    **The newcomer wait:** a `newcomer_wait` seconds row in `39000`
-   metadata, **60 by default** for a public group, changed by a `9002`
-   edit with the same permission as slowmode (0 = off). Enforced in the
-   fold like slowmode: a message dated less than the wait after its
+   metadata, changed by a `9002` edit with the same permission as
+   slowmode. For a public group the fold uses **the larger of it and 600
+   seconds** — the floor is in the rule, not the UI, so no edit and no
+   client gets under it; a private group has no floor (0 by default).
+   Enforced like slowmode: a message dated less than the wait after its
    author's join is refused by every peer. Members the snapshot names have
    no join time left — they are not newcomers. The composer says *"You
-   can post in 0:42"* rather than failing.
+   can post in 9:42"* rather than failing, and reading is open the whole
+   time.
 3. **Read before joining** — for a public group, `may_read` lets anyone
    read its state, the channels every member can view, and the profiles
    of its members (they are public anyway, point 2). Private channels,
@@ -1112,9 +1117,13 @@ moved clock), while a flood of DMs to one person never holds more than
 
 **Risks, said out loud:**
 - **Raids.** Open joining means anyone can come in, and keys are free.
-  The 1-minute newcomer wait blunts a script that joins and posts at once,
-  and gives moderators a minute to see a wave of joins; it does not stop a
-  patient one. Slowmode and bans are per person; a raid is many people.
+  The 10-minute floor stops a script that joins and posts at once, and
+  gives moderators ten minutes to see a wave of joins; it does not stop a
+  patient one, who joins with many keys and waits.
+- **The floor costs newcomers.** Discord offers the same 10 minutes as an
+  *optional* level; here every public community has it. Someone who
+  joins to ask one question waits ten minutes, and some leave. Measure it
+  with real communities; lowering the floor is one constant. Slowmode and bans are per person; a raid is many people.
   Next after M13: automod — `DESIGN.md` §0's moderation row.
 - **Public means public.** A public group's messages are on the open
   internet through the bridge and anyone's sync. The UI must say so when

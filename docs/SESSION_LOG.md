@@ -1275,3 +1275,8 @@ exist.
   relays** (Damus, nos.lol, Primal — chosen here); and a **1-minute
   newcomer wait** before posting in a public group, which admins can
   change — refining "posts at once" against raids. M13 updated.
+- **Raised: the newcomer wait is at least 10 minutes in a public group**,
+  a floor in the fold that admins can raise but not lower (the owner, same
+  session, after the 1-minute answer). Said back: Discord offers this as
+  an optional level; here it is every public community's, and costs the
+  newcomer who came to ask one question.

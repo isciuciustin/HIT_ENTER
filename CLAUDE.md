@@ -283,8 +283,8 @@ in that one session. `docs/SESSION_LOG.md` has an entry per piece.
 
 - ~~M7: DM inbox on by default? Profiles to public relays?~~ **Answered
   2026-10-24** (`PLAN.md` M13): inbox on, 7 days, 10 MB a person;
-  profiles to public relays, yes; newcomers in a public group post after
-  a 1-minute wait admins can change; groups private by default, public in
+  profiles to public relays, yes; newcomers in a public group wait at
+  least 10 minutes before posting (a floor; admins may raise it); groups private by default, public in
   one choice.
 - M9: a **Bluetooth HFP warning** (S3: robotic) — not built.
 - M10: **zaps in a group without a `wss://` anchor** — refused today;
