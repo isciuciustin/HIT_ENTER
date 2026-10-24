@@ -59,6 +59,7 @@ impl G {
         let snap = Snapshot {
             seq: 0,
             name: "Test".into(),
+            public: false,
             channels: vec![
                 Channel {
                     id: "general".into(),
@@ -589,6 +590,39 @@ fn an_expired_invite_is_kept_and_synced_until_a_snapshot_passes_its_expiry() {
     assert!(after.is_member(&newcomer.public_key()));
     late.set_state(g.id(), Some(after));
     assert_eq!(late.judge(&v(&invite), later), Err(Refusal::Folded));
+}
+
+/// M13: who may read and join is the owner's call alone — not even a role
+/// holding every permission makes a group public, though it may rename it
+/// — and it survives compaction.
+#[test]
+fn only_the_owner_makes_a_group_public_and_a_snapshot_keeps_it() {
+    let mut g = G::with_roles(vec![
+        role(DEFAULT_ROLE, Permissions::DEFAULT_MEMBER, 0),
+        role("all", Permissions::ALL, 30),
+    ]);
+    assert!(!g.state().is_public(), "private by default");
+    let a = g.member(&["all"]);
+    let by_admin = g.act(&a, edit_metadata(&g.id(), &[Edit::Public(true)]));
+    assert!(!g.applied(&by_admin));
+    let renamed = g.act(&a, edit_metadata(&g.id(), &[Edit::Name("Renamed".into())]));
+    assert!(g.applied(&renamed), "the control: they may edit the group");
+    assert!(!g.state().is_public());
+
+    let owner = Person::from_nsec(&g.owner.reveal_nsec_for_backup()).unwrap();
+    let by_owner = g.act(&owner, edit_metadata(&g.id(), &[Edit::Public(true)]));
+    assert!(g.applied(&by_owner));
+    assert!(g.state().is_public());
+
+    g.clock += 1;
+    let snap = g.state().to_snapshot();
+    g.events
+        .extend(snap.sign(&g.key, Timestamp::from(g.clock)).unwrap());
+    assert!(g.state().is_public(), "folded into the snapshot");
+
+    let back = g.act(&owner, edit_metadata(&g.id(), &[Edit::Public(false)]));
+    assert!(g.applied(&back));
+    assert!(!g.state().is_public());
 }
 
 /// "The owner has the last word": a snapshot that leaves out an action's

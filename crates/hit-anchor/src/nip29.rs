@@ -32,17 +32,18 @@ pub fn translate(
     let d = Tag::identifier(state.id().to_hex());
     let row = |name: &str, values: Vec<String>| Tag::custom(name, values);
 
-    // Members-only reading, invite-only joining: NIP-29's "private" and
-    // "closed".
-    let meta = EventBuilder::new(NIP29_METADATA, "")
+    // NIP-29's "public" and "open" for a public group (M13), else
+    // "private" and "closed" — the same words the group key signs.
+    let mut meta = EventBuilder::new(NIP29_METADATA, "")
         .tag(d.clone())
         .tag(row("name", vec![state.name().to_owned()]))
         .tag(row(
             "about",
             vec!["A HIT_ENTER group, read through one of its anchors.".into()],
-        ))
-        .tag(row("private", vec![]))
-        .tag(row("closed", vec![]));
+        ));
+    for t in hit_event::group::visibility_tags(state.is_public()) {
+        meta = meta.tag(t);
+    }
 
     let mut admins = EventBuilder::new(NIP29_ADMINS, "").tag(d.clone());
     if let Some(owner) = state.owner() {

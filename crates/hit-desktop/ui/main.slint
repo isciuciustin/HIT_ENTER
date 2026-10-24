@@ -171,7 +171,8 @@ export component MainWindow inherits Window {
     in property <string> invite-link;
     in property <bool> invite-copied;
     callback open-dialog(string);
-    callback create-group(string);
+    callback create-group(string, bool);
+    callback set-public(bool);
     callback join(string);
     callback make-invite(int);
     callback copy-invite();
@@ -559,7 +560,7 @@ export component MainWindow inherits Window {
                         start-link: root.dialog-link;
                         busy: root.dialog-busy;
                         error: root.dialog-error;
-                        create(name) => { root.create-group(name); }
+                        create(name, public) => { root.create-group(name, public); }
                         join(link) => { root.join(link); }
                         cancel => { root.dialog = ""; }
                     }
@@ -636,6 +637,7 @@ export component MainWindow inherits Window {
                         error: root.dialog-error;
                         done: root.dialog-done;
                         rename(n) => { root.rename(n); }
+                        set-public(p) => { root.set-public(p); }
                         save-channel(id, n, s, v) => { root.save-channel(id, n, s, v); }
                         set-private(id, p) => { root.set-private(id, p); }
                         delete-channel(id) => { root.delete-channel(id); }

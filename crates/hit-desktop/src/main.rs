@@ -362,10 +362,10 @@ fn wire_chat(ui: &MainWindow, get: impl Fn() -> Option<Arc<Ctl>> + Clone + 'stat
     });
 
     let g = get.clone();
-    ui.on_create_group(move |name| {
+    ui.on_create_group(move |name, public| {
         if let Some(c) = g() {
             let name = name.to_string();
-            c.dialog_step(async move |chat| chat.create_group(name).await);
+            c.dialog_step(async move |chat| chat.create_group(name, public).await);
         }
     });
 
@@ -503,6 +503,14 @@ fn wire_moderation(ui: &MainWindow, get: impl Fn() -> Option<Arc<Ctl>> + Clone +
         let name = name.to_string();
         moderate(&g, "renamed", false, async move |app, group, _| {
             app.rename_group(&group, &name).await
+        });
+    });
+
+    let g = get.clone();
+    ui.on_set_public(move |public| {
+        let label = if public { "now public" } else { "now private" };
+        moderate(&g, label, false, async move |app, group, _| {
+            app.set_public(&group, public).await
         });
     });
 

@@ -1285,3 +1285,15 @@ exist.
   length and patient raiders at none, so 10 buys little over 5 and costs
   every newcomer. Floor 5 minutes, admins may raise it; a raid mode that
   raises the wait when joins spike is the real defence, with automod.
+- **M13 step 1 built: the public flag.** NIP-29's own words on `39000`:
+  `public`+`open` or `private`+`closed`, always one pair — NIP-29 reads a
+  group with neither as public, and every group before M13 has neither,
+  so ours reads public only from `public` without `private`. `Edit::Public`
+  in a `9002`, **owner only** — a test gives someone a role holding every
+  permission: they may rename, not publicize. Kept by `to_snapshot`. The
+  bridge's translated `39000` uses the same tags. App: `create_group(name,
+  public)`, `set_public`, `GroupView.public`; window: *private / public*
+  links in "make a group" with one sentence under the choice, and a
+  *make public / make private* button in settings for the owner (settings
+  now offered to an owner who could do nothing else there). The 5-minute
+  sentence waits for step 2, where it becomes true.

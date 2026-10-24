@@ -1056,6 +1056,14 @@ The owner's answers (2026-10-24):
    never shorter (answered 1 minute, then 10, settled on 5 the same day:
    10 buys little more protection than 5 and costs every newcomer).
 
+**Progress (2026-10-24): step 1 built** — the flag in `39000` (NIP-29's
+`public`/`open` or `private`/`closed`, always written; an M3 group reads
+private), the owner-only `9002` edit, kept by compaction, the bridge's
+own `39000` saying the same, and the window: *private / public* when
+making a group, *make public / make private* in settings, each with its
+one sentence. **The flag only records the choice** — reading, joining and
+finding come with steps 2, 3 and 5.
+
 **What to build, in order:**
 
 1. **A public group** — NIP-29's own words on `39000`: no `private` tag

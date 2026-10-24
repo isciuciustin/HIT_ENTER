@@ -106,6 +106,8 @@ pub struct GroupState {
     seq: u64,
     cutoff: Timestamp,
     name: String,
+    /// Anyone may find, read and join it (M13).
+    public: bool,
     owner: Option<PublicKey>,
     named_owner: Option<PublicKey>,
     channels: Vec<Channel>,
@@ -153,6 +155,7 @@ impl GroupState {
             seq: 0,
             cutoff: Timestamp::from(0),
             name: String::new(),
+            public: false,
             owner: None,
             named_owner: None,
             channels: Vec::new(),
@@ -175,10 +178,12 @@ impl GroupState {
             match piece {
                 StatePiece::Metadata {
                     name,
+                    public,
                     channels,
                     overrides,
                 } => {
                     state.name = name;
+                    state.public = public;
                     state.channels = channels;
                     state.overrides = overrides;
                 }
@@ -506,6 +511,14 @@ impl GroupState {
                 label(&n)?;
                 self.name = n.trim().to_owned();
             }
+            // Who may read and join is the owner's call alone (M13): no
+            // role grants it, as none grants acting on the owner.
+            Edit::Public(public) => {
+                if Some(*actor) != before.owner {
+                    return Err(Refusal::NotTheOwner);
+                }
+                self.public = public;
+            }
             Edit::Channel(c) => {
                 before.require(actor, Permissions::MANAGE_CHANNELS)?;
                 label(&c.id)?;
@@ -652,6 +665,11 @@ impl GroupState {
 
     pub fn name(&self) -> &str {
         &self.name
+    }
+
+    /// Anyone may find, read and join it (M13).
+    pub fn is_public(&self) -> bool {
+        self.public
     }
 
     /// The owner: named by the group key *and* the signer of a `9007`.
@@ -990,6 +1008,7 @@ impl GroupState {
         hit_event::group::Snapshot {
             seq: self.seq + 1,
             name: self.name.clone(),
+            public: self.public,
             channels: self.channels.clone(),
             overrides: self.overrides.clone(),
             roles: self.roles.values().cloned().collect(),

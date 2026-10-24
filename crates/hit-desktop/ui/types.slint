@@ -102,6 +102,8 @@ export struct ViewUi {
 // The open group's settings: each section only for who may use it.
 export struct SettingsUi {
     name: string,
+    // Anyone may find, read and join it (M13); the owner's switch.
+    public: bool,
     me-owner: bool,
     can-rename: bool,
     can-manage: bool,

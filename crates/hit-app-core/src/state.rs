@@ -248,6 +248,8 @@ pub struct GroupView {
     pub member_count: usize,
     pub owner: Option<String>,
     pub can_invite: bool,
+    /// Anyone may find, read and join it (M13). Only the owner changes it.
+    pub public: bool,
     /// False while joined but before the group's state arrived.
     pub ready: bool,
     /// What this person may do here — a courtesy for the window; every peer
@@ -829,6 +831,7 @@ impl App {
                         member_count: s.members().count(),
                         owner: s.owner().map(|o| npub(&o)),
                         can_invite: base.contains(Permissions::CREATE_INVITE),
+                        public: s.is_public(),
                         ready: true,
                         me_owner,
                         can_rename: base.contains(Permissions::MANAGE_GROUP),
@@ -866,6 +869,7 @@ impl App {
                     member_count: s.members().count(),
                     owner: s.owner().map(|o| npub(&o)),
                     can_invite: false,
+                    public: s.is_public(),
                     ready: true,
                     me_owner: false,
                     can_rename: false,
@@ -885,6 +889,7 @@ impl App {
                     member_count: 0,
                     owner: None,
                     can_invite: false,
+                    public: false,
                     ready: false,
                     me_owner: false,
                     can_rename: false,
@@ -1068,6 +1073,16 @@ impl App {
                 &parse_key(group)?,
                 &[group::Edit::Name(name.trim().to_owned())],
             )
+            .await?;
+        Ok(())
+    }
+
+    /// Makes `group` public or private (M13) — the owner's alone; anyone
+    /// else's edit is refused by every peer, here first.
+    pub async fn set_public(&self, group: &str, public: bool) -> Result<()> {
+        self.node()
+            .await?
+            .edit(&parse_key(group)?, &[group::Edit::Public(public)])
             .await?;
         Ok(())
     }
@@ -1463,7 +1478,9 @@ impl App {
         message_view(&ev, &node.person()).ok_or_else(|| AppError::Io("not a message".into()))
     }
 
-    pub async fn create_group(&self, name: &str) -> Result<String> {
+    /// A new group: private, or public (M13) — anyone may find, read and
+    /// join it.
+    pub async fn create_group(&self, name: &str, public: bool) -> Result<String> {
         let name = name.trim();
         if name.is_empty() {
             return Err(AppError::Refused("a group needs a name".into()));
@@ -1471,7 +1488,7 @@ impl App {
         let g = self
             .node()
             .await?
-            .create_group(name, self.secrets.as_ref())
+            .create_group_with(name, public, self.secrets.as_ref())
             .await?;
         Ok(npub(&g))
     }
@@ -2148,7 +2165,7 @@ mod tests {
         let npub = app.create_identity().unwrap();
         assert_eq!(app.stage(), Stage::Backup);
         assert!(
-            app.create_group("x").await.is_err(),
+            app.create_group("x", false).await.is_err(),
             "no group before backup"
         );
         assert!(app.create_identity().is_err(), "one identity per device");
@@ -2168,7 +2185,7 @@ mod tests {
         assert!(app.reveal_key().is_err(), "never shown after onboarding");
 
         app.set_name("Alice").await.unwrap();
-        let g = app.create_group("Friends").await.unwrap();
+        let g = app.create_group("Friends", false).await.unwrap();
         assert_eq!(app.groups().await.unwrap()[0].name, "Friends");
         assert_eq!(app.status().await.unwrap().name.as_deref(), Some("Alice"));
         let members = app.members(&g).await.unwrap();
@@ -2222,7 +2239,7 @@ mod tests {
         na.add_peer(local_addr(&nb));
         nb.add_peer(local_addr(&na));
 
-        let g = a.create_group("Two").await.unwrap();
+        let g = a.create_group("Two", false).await.unwrap();
         let link = na
             .invite(&parse_key(&g).unwrap(), None, Some(a_addr))
             .await
@@ -2275,7 +2292,7 @@ mod tests {
         let (na, nb) = (a.node().await.unwrap(), b.node().await.unwrap());
         na.add_peer(local_addr(&nb));
         nb.add_peer(local_addr(&na));
-        let g = a.create_group("Three").await.unwrap();
+        let g = a.create_group("Three", false).await.unwrap();
         let link = na
             .invite(&parse_key(&g).unwrap(), None, Some(local(&na)))
             .await
@@ -2339,7 +2356,7 @@ mod tests {
         let (na, nb) = (a.node().await.unwrap(), b.node().await.unwrap());
         na.add_peer(local_addr(&nb));
         nb.add_peer(local_addr(&na));
-        let g = a.create_group("Mods").await.unwrap();
+        let g = a.create_group("Mods", false).await.unwrap();
         let link = na
             .invite(&parse_key(&g).unwrap(), None, Some(local(&na)))
             .await
@@ -2359,6 +2376,15 @@ mod tests {
         assert!(ga.me_owner && ga.can_rename && ga.can_compact && ga.can_ban);
         let gb = &b.groups().await.unwrap()[0];
         assert!(!gb.can_rename && !gb.can_compact && !gb.can_manage_channels);
+
+        // Public (M13): private at first; Bob may not change it, the owner
+        // may, and Bob's app learns it.
+        assert!(!ga.public && !gb.public);
+        assert!(b.set_public(&g, true).await.is_err());
+        a.set_public(&g, true).await.unwrap();
+        assert!(a.groups().await.unwrap()[0].public);
+        nb.sync_with(local_addr(&na)).await.unwrap();
+        assert!(b.groups().await.unwrap()[0].public);
 
         // Roles: the owner can hand out every one; Bob, none.
         assert!(a.roles(&g).await.unwrap().iter().all(|r| r.assignable));
@@ -2450,7 +2476,7 @@ mod tests {
         let (na, nb) = (a.node().await.unwrap(), b.node().await.unwrap());
         na.add_peer(local_addr(&nb));
         nb.add_peer(local_addr(&na));
-        let g = a.create_group("Pair").await.unwrap();
+        let g = a.create_group("Pair", false).await.unwrap();
         let link = na
             .invite(&parse_key(&g).unwrap(), None, Some(local(&na)))
             .await
@@ -2501,7 +2527,7 @@ mod tests {
         let (na, nb) = (a.node().await.unwrap(), b.node().await.unwrap());
         na.add_peer(local_addr(&nb));
         nb.add_peer(local_addr(&na));
-        let g = a.create_group("Pics").await.unwrap();
+        let g = a.create_group("Pics", false).await.unwrap();
         let link = na
             .invite(&parse_key(&g).unwrap(), None, Some(local(&na)))
             .await
@@ -2546,7 +2572,7 @@ mod tests {
         let (na, nb) = (a.node().await.unwrap(), b.node().await.unwrap());
         na.add_peer(local_addr(&nb));
         nb.add_peer(local_addr(&na));
-        let g = a.create_group("Pair").await.unwrap();
+        let g = a.create_group("Pair", false).await.unwrap();
         let link = na
             .invite(&parse_key(&g).unwrap(), None, Some(local(&na)))
             .await
@@ -2651,7 +2677,7 @@ mod tests {
                 }
             }
         }
-        let g = a.create_group("Tips").await.unwrap();
+        let g = a.create_group("Tips", false).await.unwrap();
         let link = nodes[0]
             .invite(&parse_key(&g).unwrap(), None, Some(local(&nodes[0])))
             .await

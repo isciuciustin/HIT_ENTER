@@ -191,10 +191,10 @@ impl Chat {
         sent
     }
 
-    pub async fn create_group(&self, name: String) -> Result<(), String> {
+    pub async fn create_group(&self, name: String, public: bool) -> Result<(), String> {
         let id = self
             .app
-            .create_group(&name)
+            .create_group(&name, public)
             .await
             .map_err(|e| e.to_string())?;
         self.opened(id).await;
@@ -831,6 +831,7 @@ impl Chat {
         };
         let settings = group.map_or_else(SettingsUi::default, |g| SettingsUi {
             name: g.name.as_str().into(),
+            public: g.public,
             me_owner: g.me_owner,
             can_rename: g.can_rename,
             can_manage: g.can_manage_channels,
@@ -839,7 +840,11 @@ impl Chat {
             seq: i32::try_from(g.seq).unwrap_or(i32::MAX),
             has_any: g.ready
                 && !g.removed
-                && (g.can_rename || g.can_manage_channels || g.can_ban || g.can_compact),
+                && (g.me_owner
+                    || g.can_rename
+                    || g.can_manage_channels
+                    || g.can_ban
+                    || g.can_compact),
         });
         let bans: Vec<BanUi> = s
             .bans

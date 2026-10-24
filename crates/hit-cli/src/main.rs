@@ -401,7 +401,7 @@ async fn main() -> Result<()> {
             key.save(&Keychain::new(&cli.keychain_service)?)?;
             let now = Timestamp::now();
             store.carry_group(&key.public_key(), now).await?;
-            for ev in hit_node::genesis(&me, &key, name, now)? {
+            for ev in hit_node::genesis(&me, &key, name, false, now)? {
                 hit_node::publish_offline(&store, me.public_key(), ev).await?;
             }
             println!("group   {}", key.npub());

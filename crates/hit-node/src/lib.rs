@@ -1019,13 +1019,24 @@ impl Node {
         name: &str,
         secrets: &(dyn SecretStore + Sync),
     ) -> Result<PublicKey, NodeError> {
+        self.create_group_with(name, false, secrets).await
+    }
+
+    /// A new group, public (M13: anyone may find, read and join it) or
+    /// private, which is the default.
+    pub async fn create_group_with(
+        &self,
+        name: &str,
+        public: bool,
+        secrets: &(dyn SecretStore + Sync),
+    ) -> Result<PublicKey, NodeError> {
         let key = GroupKey::generate();
         key.save(secrets)?;
         let g = key.public_key();
         let now = Timestamp::now();
         self.inner.store.carry_group(&g, now).await?;
         self.inner.groups_mut().carry(g);
-        for ev in genesis(&self.inner.person, &key, name, now)? {
+        for ev in genesis(&self.inner.person, &key, name, public, now)? {
             self.inner.publish(ev).await?;
         }
         Ok(g)
@@ -1761,12 +1772,14 @@ pub fn genesis(
     owner: &Person,
     key: &GroupKey,
     name: &str,
+    public: bool,
     now: Timestamp,
 ) -> Result<Vec<Event>, NodeError> {
     let me = owner.public_key();
     let snap = Snapshot {
         seq: 0,
         name: name.to_owned(),
+        public,
         channels: vec![Channel {
             id: "general".into(),
             name: "general".into(),

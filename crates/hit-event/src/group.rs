@@ -299,6 +299,8 @@ pub struct RoleDef {
 pub struct Snapshot {
     pub seq: u64,
     pub name: String,
+    /// Anyone may find, read and join it (M13). Private by default.
+    pub public: bool,
     pub channels: Vec<Channel>,
     pub overrides: Vec<Override>,
     pub roles: Vec<RoleDef>,
@@ -326,6 +328,9 @@ impl Snapshot {
         };
 
         let mut meta = base(GROUP_METADATA).tag(tag("name", [self.name.clone()]));
+        for t in visibility_tags(self.public) {
+            meta = meta.tag(t);
+        }
         for c in &self.channels {
             meta = meta.tag(channel_tag(c));
         }
@@ -395,6 +400,7 @@ impl Snapshot {
 pub enum StatePiece {
     Metadata {
         name: String,
+        public: bool,
         channels: Vec<Channel>,
         overrides: Vec<Override>,
     },
@@ -420,10 +426,13 @@ pub fn parse_state(event: &Event) -> Option<(PublicKey, u64, StatePiece)> {
     let rows = || event.tags.iter().map(|t| t.as_slice());
     let piece = if event.kind == GROUP_METADATA {
         let mut name = String::new();
+        let (mut public, mut private) = (false, false);
         let (mut channels, mut overrides) = (Vec::new(), Vec::new());
         for row in rows() {
             match row {
                 [n, v, ..] if n == "name" => name = v.clone(),
+                [n, ..] if n == "public" => public = true,
+                [n, ..] if n == "private" => private = true,
                 [n, rest @ ..] if n == "channel" => channels.push(parse_channel(rest)?),
                 [n, channel, role, allow, deny, ..] if n == "override" => {
                     overrides.push(Override {
@@ -439,6 +448,8 @@ pub fn parse_state(event: &Event) -> Option<(PublicKey, u64, StatePiece)> {
         }
         StatePiece::Metadata {
             name,
+            // Both, or neither (every group before M13): private.
+            public: public && !private,
             channels,
             overrides,
         }
@@ -540,6 +551,7 @@ pub enum Action {
 }
 
 /// One change a `9002` makes. Tags, in order: `["name", N]`;
+/// `["public"]` or `["private"]` (M13, the owner only);
 /// `["channel", id, name, kind, slowmode]` (create or replace);
 /// `["channel-delete", id]`; `["override", channel, role, allow, deny]`
 /// (both 0 removes it); `["role", id, name, perms, position]` (create or
@@ -547,6 +559,8 @@ pub enum Action {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Edit {
     Name(String),
+    /// Public (`true`) or private.
+    Public(bool),
     Channel(Channel),
     ChannelDelete(String),
     Override(Override),
@@ -558,6 +572,8 @@ impl Edit {
     fn to_tag(&self) -> Tag {
         match self {
             Self::Name(n) => tag("name", [n.clone()]),
+            Self::Public(true) => tag("public", Vec::<String>::new()),
+            Self::Public(false) => tag("private", Vec::<String>::new()),
             Self::Channel(c) => channel_tag(c),
             Self::ChannelDelete(id) => tag("channel-delete", [id.clone()]),
             Self::Override(o) => tag(
@@ -585,6 +601,8 @@ impl Edit {
     fn parse(row: &[String]) -> Option<Option<Self>> {
         Some(Some(match row {
             [n, v, ..] if n == "name" => Self::Name(v.clone()),
+            [n, ..] if n == "public" => Self::Public(true),
+            [n, ..] if n == "private" => Self::Public(false),
             [n, rest @ ..] if n == "channel" => Self::Channel(parse_channel(rest)?),
             [n, id, ..] if n == "channel-delete" => Self::ChannelDelete(id.clone()),
             [n, channel, role, allow, deny, ..] if n == "override" => Self::Override(Override {
@@ -615,6 +633,19 @@ impl Edit {
             }
             _ => return Some(None),
         }))
+    }
+}
+
+/// NIP-29's words on a `39000`: `public` and `open`, or `private` and
+/// `closed`. Always written, both ways — a NIP-29 client reads a group
+/// with neither as public, and every group before M13 has neither, so
+/// "private" is read only from the absence of `public` (see `parse_state`).
+pub fn visibility_tags(public: bool) -> [Tag; 2] {
+    let none = Vec::<String>::new;
+    if public {
+        [tag("public", none()), tag("open", none())]
+    } else {
+        [tag("private", none()), tag("closed", none())]
     }
 }
 
@@ -979,6 +1010,7 @@ mod tests {
         Snapshot {
             seq: 3,
             name: "Friends".into(),
+            public: true,
             channels: vec![
                 Channel {
                     id: "general".into(),
@@ -1044,10 +1076,12 @@ mod tests {
             match piece {
                 StatePiece::Metadata {
                     name,
+                    public,
                     channels,
                     overrides,
                 } => {
                     back.name = name;
+                    back.public = public;
                     back.channels = channels;
                     back.overrides = overrides;
                 }
@@ -1112,6 +1146,8 @@ mod tests {
         );
         let edits = vec![
             Edit::Name("New".into()),
+            Edit::Public(true),
+            Edit::Public(false),
             Edit::Channel(Channel {
                 id: "slow".into(),
                 name: "slow".into(),
@@ -1188,6 +1224,48 @@ mod tests {
         let many = vec![a; MAX_ATTACHMENTS + 1];
         let ev = p.sign(message_with(&g, "general", "", &many)).unwrap();
         assert!(attachments_of(&ev).is_err());
+    }
+
+    /// Every group before M13 wrote neither `public` nor `private`: it
+    /// stays private. NIP-29 reads such a group as public, which is why
+    /// `sign` now always writes one pair or the other.
+    #[test]
+    fn a_group_is_public_only_when_its_metadata_says_so_alone() {
+        let key = GroupKey::generate();
+        let public_of = |rows: &[&str]| {
+            let mut b = EventBuilder::new(GROUP_METADATA, "")
+                .tag(Tag::identifier(key.public_key().to_hex()))
+                .tag(tag("seq", ["0"]))
+                .tag(tag("name", ["G"]));
+            for r in rows {
+                b = b.tag(tag(r, Vec::<String>::new()));
+            }
+            match parse_state(&key.sign(b).unwrap()) {
+                Some((_, _, StatePiece::Metadata { public, .. })) => public,
+                other => panic!("not metadata: {other:?}"),
+            }
+        };
+        assert!(!public_of(&[]), "an M3 group");
+        assert!(public_of(&["public", "open"]));
+        assert!(!public_of(&["private", "closed"]));
+        assert!(!public_of(&["public", "private"]), "contradiction: private");
+
+        let rows = |public| {
+            let snap = Snapshot {
+                public,
+                ..Default::default()
+            };
+            let meta = &snap.sign(&key, Timestamp::from(1)).unwrap()[0];
+            meta.tags
+                .iter()
+                .filter_map(|t| match t.as_slice() {
+                    [n] => Some(n.clone()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(rows(true), ["public", "open"]);
+        assert_eq!(rows(false), ["private", "closed"]);
     }
 
     #[test]

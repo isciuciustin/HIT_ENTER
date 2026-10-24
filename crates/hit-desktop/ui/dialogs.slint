@@ -20,10 +20,12 @@ export component AddGroupDialog inherits Rectangle {
     in property <string> start-mode: "create";
     in property <bool> busy;
     in property <string> error;
-    callback create(string);
+    // The name, and public (M13) — private unless chosen.
+    callback create(string, bool);
     callback join(string);
     callback cancel();
     property <string> mode: root.start-mode;
+    property <bool> public;
     at-end: go.has-focus;
     // A link the desktop handed over, already in the field.
     in property <string> start-link;
@@ -76,9 +78,31 @@ export component AddGroupDialog inherits Rectangle {
                 init => { self.focus(); }
                 accepted => {
                     if (root.name != "" && !root.busy) {
-                        root.create(root.name);
+                        root.create(root.name, root.public);
                     }
                 }
+            }
+            // One choice, said in one sentence: private unless chosen.
+            HorizontalLayout {
+                alignment: start;
+                spacing: 4px;
+                Link {
+                    text: "private";
+                    selected: !root.public;
+                    clicked => { root.public = false; }
+                }
+                Link {
+                    text: "public";
+                    selected: root.public;
+                    clicked => { root.public = true; }
+                }
+            }
+            Note {
+                width: 440px;
+                font-size: 12px;
+                text: root.public
+                    ? "Public: anyone can find this group, read its open channels and join."
+                    : "Private: only people you invite can read or join.";
             }
         }
         if root.mode == "join" : VerticalLayout {
@@ -122,7 +146,7 @@ export component AddGroupDialog inherits Rectangle {
                 enabled: !root.busy && (root.mode == "create" ? root.name != "" : root.link != "");
                 clicked => {
                     if (root.mode == "create") {
-                        root.create(root.name);
+                        root.create(root.name, root.public);
                     } else {
                         root.join(root.link);
                     }
@@ -295,6 +319,7 @@ export component SettingsDialog inherits Rectangle {
     in property <string> error;
     in property <string> done;
     callback rename(string);
+    callback set-public(bool);
     // Channel id ("" for a new one), name, slowmode seconds, voice.
     callback save-channel(string, string, int, bool);
     callback set-private(string, bool);
@@ -366,6 +391,25 @@ export component SettingsDialog inherits Rectangle {
                 text: "rename";
                 enabled: !root.busy && root.name != "" && root.name != root.settings.name;
                 clicked => { root.rename(root.name); }
+            }
+        }
+        if root.settings.me-owner : VerticalLayout {
+            spacing: 6px;
+            Heading { text: root.settings.public ? "public" : "private"; }
+            Note {
+                width: 440px;
+                font-size: 11px;
+                text: root.settings.public
+                    ? "Anyone can find this group, read its open channels and join. Making it private stops new readers; it cannot take back what was read."
+                    : "Only people you invite can read or join. Making it public lets anyone find it, read its open channels and join.";
+            }
+            HorizontalLayout {
+                alignment: start;
+                Pill {
+                    text: root.busy ? "working…" : (root.settings.public ? "make private" : "make public");
+                    enabled: !root.busy;
+                    clicked => { root.set-public(!root.settings.public); }
+                }
             }
         }
         if root.settings.can-manage : VerticalLayout {
