@@ -28,6 +28,23 @@ pub fn sats(n: u64) -> String {
     out
 }
 
+/// The fee's line after a wallet zap: paid separately, after it.
+fn fee_note(fee: u64) -> String {
+    if fee > 0 {
+        format!(" The {}-sat fee is being paid separately.", sats(fee))
+    } else {
+        String::new()
+    }
+}
+
+/// A zap paid from the wallet: what to say now, and whether it is counted
+/// yet — when not, [`Chat::wallet_zap_counted`] waits for it.
+pub struct WalletZap {
+    pub result: String,
+    pub counted: bool,
+    pub fee: u64,
+}
+
 /// What the zap dialog shows of a quote, before anything is paid.
 pub struct QuoteText {
     pub quote: String,
@@ -188,7 +205,12 @@ impl Chat {
     }
 
     /// Zaps from the connected wallet; what happened, in words.
-    pub async fn zap_from_wallet(&self, amount: u64, comment: String, anon: bool) -> Result<String, String> {
+    pub async fn zap_from_wallet(
+        &self,
+        amount: u64,
+        comment: String,
+        anon: bool,
+    ) -> Result<WalletZap, String> {
         let (g, id, who) = self.target().await?;
         let sent = self
             .app
@@ -199,17 +221,42 @@ impl Chat {
             format!("Zapped {} sats to {who}.", sats(amount))
         } else {
             format!(
-                "Paid {} sats to {who}. Its receipt goes to the group's anchor; the total appears when it arrives.",
+                "Paid {} sats to {who}. Waiting for its receipt to reach the group…",
                 sats(amount)
             )
         };
-        if sent.fee > 0 {
-            out += &format!(" The {}-sat fee is being paid separately.", sats(sent.fee));
+        out += &fee_note(sent.fee);
+        if sent.counted {
+            let mut s = self.s.lock().await;
+            self.zap_totals(&mut s, Some(vec![id])).await;
+            self.render(&mut s);
         }
+        Ok(WalletZap {
+            result: out,
+            counted: sent.counted,
+            fee: sent.fee,
+        })
+    }
+
+    /// After a wallet zap not counted at once: waits for the anchor to
+    /// carry its receipt in, as after a QR zap; what happened.
+    pub async fn wallet_zap_counted(&self, amount: u64, fee: u64) -> String {
+        let counted = self.app.zap_wait().await.unwrap_or(false);
+        let Ok((_, id, who)) = self.target().await else {
+            return String::new();
+        };
         let mut s = self.s.lock().await;
         self.zap_totals(&mut s, Some(vec![id])).await;
         self.render(&mut s);
-        Ok(out)
+        let out = if counted {
+            format!("Zapped {} sats to {who}.", sats(amount))
+        } else {
+            format!(
+                "Paid {} sats to {who}, but no receipt has reached the group in two minutes. The zap went; the total appears if the receipt ever does.",
+                sats(amount)
+            )
+        };
+        out + &fee_note(fee)
     }
 
     /// The zap's invoice, for any wallet to pay by QR code.

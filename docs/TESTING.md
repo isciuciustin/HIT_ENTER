@@ -447,10 +447,12 @@ named Cloudflare tunnel, free — after a quick tunnel):
   200, WoS got **2 sats with the memo "HIT_ENTER fee"**, the receipt was
   carried in under a second. M10's done-when at 1,000 sats waits for a
   Coinos top-up and a friend's app.
-- **Still owed:** the app's own receipt watch gives up after ~4 s (the
+- **Fixed 2026-10-24:** the app's own receipt watch gave up after ~4 s (the
   anchor serves nothing before NIP-42 and closes the subscription), so the
-  dialog says "paid, the total appears when it arrives" even when it then
-  does — the QR path waits for the carrier; the wallet path should too.
+  dialog said "paid, the total appears when it arrives" even when it then
+  did. The wallet path now says "Paid … waiting for its receipt" and waits
+  for the anchor's carrier up to two minutes, like the QR path. Covered on
+  the fake network (`receipts_need_auth`); **not yet seen with real sats.**
 
 **`wss://` without a VPS — a Cloudflare quick tunnel** (`cloudflared`,
 installed by the owner):

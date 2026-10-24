@@ -925,19 +925,37 @@ fn wire_you_and_zaps(ui: &MainWindow, get: impl Fn() -> Option<Arc<Ctl>> + Clone
         ui.set_dialog_error("".into());
         c.with_chat(async move |chat, ui| {
             let sent = chat.zap_from_wallet(amount, comment, anon).await;
+            let waiting = match &sent {
+                Ok(z) if !z.counted => Some((z.result.clone(), z.fee)),
+                _ => None,
+            };
             let _ = ui.upgrade_in_event_loop(move |ui| {
                 ui.set_dialog_busy(false);
                 match sent {
-                    Ok(result) => {
+                    Ok(sent) => {
                         let mut z = ui.get_zap();
                         z.step = "done".into();
-                        z.result = result.into();
+                        z.result = sent.result.into();
                         ui.set_zap(z);
                     }
                     // A zap that failed after the quote: its reason shown.
                     Err(e) => ui.set_dialog_error(e.into()),
                 }
             });
+            // Paid, not counted yet: the receipt usually comes through the
+            // anchor's carrier, seconds later. The answer replaces the
+            // "waiting" line only if the dialog still shows it — not a
+            // dialog opened since for another zap.
+            if let Some((interim, fee)) = waiting {
+                let result = chat.wallet_zap_counted(amount, fee).await;
+                let _ = ui.upgrade_in_event_loop(move |ui| {
+                    let mut z = ui.get_zap();
+                    if z.step == "done" && z.result == interim.as_str() {
+                        z.result = result.into();
+                        ui.set_zap(z);
+                    }
+                });
+            }
         });
     });
 

@@ -194,8 +194,9 @@ pub struct App {
     audio_watch: Mutex<Option<device::Watch>>,
     /// Zaps (M10): the one HTTP client, made on first use.
     zapper: std::sync::OnceLock<Zapper>,
-    /// A zap being paid by QR code: its request, the provider whose
-    /// receipt counts, and the fee owed after it.
+    /// A zap not yet counted: being paid by QR code, or paid from the
+    /// wallet before its receipt reached us. Its request, the provider
+    /// whose receipt counts, and the fee still owed after it (QR only).
     pending_zap: Mutex<Option<PendingZap>>,
 }
 
@@ -1953,6 +1954,9 @@ impl App {
 
     /// Zaps `message` from the connected wallet: the zap, then the fee
     /// (best-effort, after), then its receipt carried in if it reached us.
+    /// Not counted yet — the usual case, since the anchor's relay serves
+    /// nothing before NIP-42 — then [`Self::zap_wait`] waits for the
+    /// anchor's carrier, as after a QR zap.
     pub async fn zap(
         &self,
         group: &str,
@@ -1981,10 +1985,18 @@ impl App {
                 }
             },
             None => {
-                tracing::warn!("zap paid, but no receipt reached this app on {relays:?}");
+                tracing::info!("zap paid; no receipt reached this app on {relays:?} yet");
                 false
             }
         };
+        if !counted {
+            // The fee is the wallet's own task already: nothing owed here.
+            *self.pending_zap.lock().unwrap_or_else(|e| e.into_inner()) = Some(PendingZap {
+                request,
+                provider: quote.provider,
+                fee_sats: 0,
+            });
+        }
         let fee = quote.fee_sats;
         tokio::spawn(async move {
             match zapped.fee.await {
@@ -2022,7 +2034,8 @@ impl App {
         })
     }
 
-    /// Waits up to two minutes for the QR-paid zap to be counted: its
+    /// Waits up to two minutes for the pending zap — QR-paid, or paid
+    /// from the wallet and not yet counted — to be counted: its
     /// receipt on a relay this app can read (then carried in), or carried
     /// in by the group's anchor — whose relay serves nothing to an app that
     /// has not authenticated, so that road shows up only as the carrier.
@@ -2724,6 +2737,29 @@ mod tests {
         assert!(within(|| async { zapped(b, &g, &m.id).await == 1_200 }).await);
         let totals = a.zap_totals(std::slice::from_ref(&m.id)).await.unwrap();
         assert_eq!(totals[&m.id], (1_200, 2));
+
+        // --- From the wallet, receipts behind NIP-42 (a real anchor): ---
+        // nothing reaches Alice's app, so the zap is paid but not counted
+        // until the anchor carries the receipt in (2026-10-24: the dialog
+        // gave up after ~4 s and said so even when it then arrived).
+        net.receipts_need_auth();
+        let sent = a.zap(&g, &m.id, 300, "", false).await.unwrap();
+        assert!(!sent.counted, "no receipt can reach the app");
+        assert_eq!(net.balance_sats("bob"), 1_500, "but the zap went");
+        let receipt = net
+            .events_of(nostr::prelude::Kind::ZapReceipt)
+            .pop()
+            .unwrap();
+        let carry = {
+            let anchor = nodes[2].clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_millis(500)).await;
+                anchor.carry_zap(&receipt).await.unwrap();
+            })
+        };
+        assert!(a.zap_wait().await.unwrap(), "counted once carried in");
+        carry.await.unwrap();
+        assert_eq!(zapped(a, &g, &m.id).await, 1_500);
 
         let w = a.disconnect_wallet().await.unwrap();
         assert!(!w.connected);

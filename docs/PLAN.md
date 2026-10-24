@@ -42,8 +42,9 @@ Until then, in this order. *You* = the owner, *me* = Claude.
 - [ ] **A real session with the friend in another city**: a group, chat,
   a file, a ten-minute call (`TESTING.md` §4, §6) — what v0.1.0 waits for.
   *You + friend.*
-- [ ] Fix whatever those break, and **the zap dialog's ~4 s give-up** on
-  the wallet path (it should wait for the carrier). *Me.*
+- [ ] Fix whatever those break. *Me.*
+- [x] **The zap dialog's ~4 s give-up** on the wallet path — it waits for
+  the carrier now (2026-10-24; fake network, not yet real sats). *Me.*
 - [ ] **Announce on Nostr** that HIT_ENTER is open source: GitHub link,
   hitenter.app. *You.*
 

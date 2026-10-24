@@ -1250,3 +1250,13 @@ exist.
   bindings out (test `an_expired_binding_is_not_offered`, failing before).
   It is the app that offers it, so the noise stops with beta.5, not with
   an anchor redeploy.
+- **The zap dialog's ~4 s give-up, fixed.** Why ~4 s: the receipt watch
+  subscribes on the group's anchor relays, the anchor answers `CLOSED
+  auth-required`, every watch task ends, the channel closes and `wait`
+  returns at once — not after its 30 s. Now a wallet zap not counted at
+  once is left pending, and the dialog shows "Paid N sats to X. Waiting
+  for its receipt to reach the group…" then waits with `zap_wait` (the QR
+  path's: the carrier, up to two minutes) and replaces the line — only if
+  the dialog still shows it, not a newer zap's. The fake network gained
+  `receipts_need_auth()`; the app test zaps through it and has Carol's
+  node carry the receipt in. Not driven in the window, not yet real sats.

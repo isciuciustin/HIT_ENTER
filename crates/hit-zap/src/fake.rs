@@ -75,6 +75,9 @@ struct Ledger {
     failing: HashSet<String>,
     /// Extra msat an account's server puts on every invoice: a lying server.
     overcharge: HashMap<String, u64>,
+    /// Receipt subscriptions answered `CLOSED auth-required`, as our
+    /// anchor's relay answers an app that has not done NIP-42.
+    receipts_need_auth: bool,
     next_hash: u64,
 }
 
@@ -110,6 +113,7 @@ impl FakeLightning {
                 payments: Vec::new(),
                 failing: HashSet::new(),
                 overcharge: HashMap::new(),
+                receipts_need_auth: false,
                 next_hash: 1,
             }),
             live: broadcast::channel(256).0,
@@ -185,6 +189,13 @@ impl FakeLightning {
         self.ledger()
             .overcharge
             .insert(name.to_string(), extra_sats * 1000);
+    }
+
+    /// From now on the relay serves no receipts: a `REQ` for kind 9735 is
+    /// closed with `auth-required`, as by a group's anchor. It still
+    /// takes them, and serves everything else (NWC).
+    pub fn receipts_need_auth(&self) {
+        self.ledger().receipts_need_auth = true;
     }
 
     /// Events the relay holds of `kind`.
@@ -336,6 +347,19 @@ async fn serve_socket(inner: Arc<Inner>, mut socket: WebSocket) {
                     }
                     ClientMessage::Req { subscription_id, filters } => {
                         let filters: Vec<Filter> = filters.into_iter().map(|f| f.into_owned()).collect();
+                        let receipts = filters
+                            .iter()
+                            .any(|f| f.kinds.as_ref().is_some_and(|k| k.contains(&Kind::ZapReceipt)));
+                        if receipts && ledger(&inner).receipts_need_auth {
+                            let closed = RelayMessage::closed(
+                                subscription_id.into_owned(),
+                                "auth-required: this relay serves members only",
+                            );
+                            if !send(&mut socket, closed).await {
+                                return;
+                            }
+                            continue;
+                        }
                         let stored: Vec<Event> = ledger(&inner)
                             .events
                             .iter()
