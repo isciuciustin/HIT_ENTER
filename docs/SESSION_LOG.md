@@ -1260,3 +1260,12 @@ exist.
   the dialog still shows it, not a newer zap's. The fake network gained
   `receipts_need_auth()`; the app test zaps through it and has Carol's
   node carry the receipt in. Not driven in the window, not yet real sats.
+- **The owner answered the public-groups questions:** (1) in a public
+  group a newcomer **posts at once**; (2) profiles **go to public Nostr
+  relays by default**; (3) the DM inbox is **on by default, with limits** —
+  asked whether it would fill the VPS (it would: anchors keep DMs forever
+  today, ~200 MB/day at Unturned scale, and anyone can flood one person),
+  the owner chose a **7-day** expiry (30 recommended) and a **10 MB cap
+  per person**. Written up as **M13 — Public communities** in `PLAN.md`,
+  with two questions left: a new group public by default (recommended
+  no), and which public relays.

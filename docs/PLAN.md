@@ -50,14 +50,16 @@ Until then, in this order. *You* = the owner, *me* = Claude.
 
 ### Weeks 2–3 (Nov 1–14) — public groups
 
-- [ ] **The owner answers** (asked 2026-10-22; the last two open since M7):
+- [x] **The owner answers** (2026-10-24 — posts at once; profiles to
+  public relays, yes; DM inbox on, 7 days, 10 MB a person; M13). Asked:
   1. In a public group, can a newcomer post at once, or read until a
      moderator lets them in?
   2. Publish profiles to public Nostr relays by default? (Recommended:
      yes, for public communities.)
   3. Anchors keep your DMs while you are offline (the DM inbox) — on by
      default?
-- [ ] **Write the "public groups" milestone** here, then build it: a
+- [x] **Write the "public groups" milestone** — M13 (2026-10-24). Then
+  build it: a
   **public** setting on a group, **join from a link without an invite**,
   **read before joining** (`DESIGN.md` §0, rows 1 and 3). *Me.*
 - [ ] **Public groups announced on Nostr relays**, and a first, plain
@@ -1031,6 +1033,91 @@ load half on Linux and the M1; then the switch.
 - GPUI — GPU-first, pre-1.0, over budget in its own benchmark.
 - A new UI in another language (C++/Qt): Qt 6 measured ~215 MiB in the
   same bake-off, and the licence is LGPL — not allowed here.
+
+### M13 — Public communities (the north star's first step)
+**Size: L**
+
+`DESIGN.md` §0, rows 1 and 3: a community that can be **found**, **read
+before joining**, and **joined without an invite** — plus DMs that arrive
+while you are offline, which a Discord-sized community takes for granted.
+The owner's answers (2026-10-24):
+
+1. **A newcomer posts at once** — no waiting room. Moderators act after
+   (kick, ban, mute, slowmode exist since M5).
+2. **Profiles go to public Nostr relays by default.**
+3. **The DM inbox is on by default**, with limits: an anchor keeps a DM
+   **7 days**, and at most **10 MB of waiting DMs per person**, oldest
+   dropped first.
+
+**What to build, in order:**
+
+1. **A public group** — NIP-29's own words on `39000`: no `private` tag
+   (anyone may read) and no `closed` tag (anyone may join), where today
+   the anchor's bridge always writes both. A switch in group settings,
+   owner only; the default for a *new* group is a question below. Signed
+   by the group key like the rest of the state, so it is in the fold and
+   every peer agrees.
+2. **Join without an invite** — a `9021` with no `code` is honoured when
+   the group is open; bans still hold. A link that names the group and its
+   anchors and carries no code: `hit-enter:group?…`.
+3. **Read before joining** — for a public group, `may_read` lets anyone
+   read its state, the channels every member can view, and the profiles
+   of its members (they are public anyway, point 2). Private channels,
+   actions and invites stay members-only. A reader syncs from the anchor;
+   **live gossip only after joining** — a stranger in the swarm is a
+   scale question for later. The anchor's `wss://` bridge serves a public
+   group without NIP-42, so Chachi, 0xchat and a web page can read it.
+4. **Profiles to public relays** — kind 0 published by the app to a few
+   public relays (default list in code, editable) and the group's
+   anchors' `wss://`. **This is the app's first outbound WebSocket outside
+   zaps**: it reuses `hit-zap`'s relay client, and the rule becomes
+   "iroh owns the *chat plane*; public relays are for publishing what is
+   public anyway — profiles, public group announcements, zap receipts."
+5. **Found: announcements and a "browse communities" list** — the group's
+   signed `39000` (name, about, member count, its link) published to the
+   same public relays; the app's list reads them back, newest and largest
+   first. Plain on purpose: search and ranking come later.
+6. **The DM inbox, on by default, with limits** — a new person names
+   their groups' anchors in their `10050` at once (today opt-in). An
+   anchor drops a wrap **7 days after it received it** — not by
+   `created_at`, which NIP-59 randomizes up to two days back, so the
+   store needs a *received at* column (a new migration) — and keeps at
+   most **10 MB per recipient**, dropping the oldest. The recipient's own
+   devices keep their copy forever. Worst case at Unturned scale (5,000
+   people × 20 DMs a day × 2 KB × 7 days): **~1.4 GB**.
+
+**Done when:** a stranger with a fresh install finds the group in
+*browse communities* — or opens its link — reads `#general` before
+joining, joins with one click and posts at once; a moderator bans them and
+every peer drops what they posted after; Chachi reads the group through
+the anchor's `wss://` without logging in; their name shows in Primal;
+and a DM to someone whose app is closed waits at the anchor, arrives when
+they open it, and is gone from the anchor seven days later (by test, on a
+moved clock), while a flood of DMs to one person never holds more than
+10 MB.
+
+**Risks, said out loud:**
+- **Raids.** Open joining plus posting at once means a fresh key can post
+  within a second of finding the link, and keys are free. Slowmode and
+  bans are per person; a raid is many people. Likely needed soon after:
+  a per-group "new members wait N minutes" switch (off by default, per the
+  owner's answer) and automod — `DESIGN.md` §0's moderation row.
+- **Public means public.** A public group's messages are on the open
+  internet through the bridge and anyone's sync. The UI must say so when
+  the switch is turned on, and turning it off cannot recall what was read.
+- **The outbound WebSocket** is a real change to a rule kept since M2;
+  it stays in one crate, publishes only, and never carries chat.
+
+**Deliberately not:** live gossip for non-members; search, ranking or
+categories in the browse list; a web client (the bridge plus existing
+Nostr clients is the web, for now); voice over 8 (§0's own row).
+
+**Open questions:**
+- Is a **new group public by default**? Recommended: **no** — the creator
+  turns it on, and sees what it means; a friends' group should not land
+  on the open internet by accident.
+- **Which public relays** by default? Recommended: three well-run ones
+  (e.g. Damus, nos.lol, Primal) plus each group's anchor.
 
 ---
 
