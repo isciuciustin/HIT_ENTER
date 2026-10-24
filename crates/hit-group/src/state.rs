@@ -931,13 +931,17 @@ impl GroupState {
         }
     }
 
-    /// An action the snapshot has folded, or an expired invite: kept by
-    /// nobody, synced to nobody.
+    /// An action the snapshot has folded, or an invite that expired before
+    /// it: kept by nobody, synced to nobody. Expired is not enough — a join
+    /// is honoured by an invite valid *at the join's time*, so until the
+    /// snapshot passes the expiry, a node that arrives later needs the
+    /// invite to apply the join (found on the first VPS anchor: four
+    /// members, and everything they wrote, refused as "not a member").
     pub fn is_folded(&self, ev: &Event, now: Timestamp) -> bool {
         if ev.kind == CREATE_INVITE {
             return matches!(
                 parse_action(ev),
-                Some((_, Action::Invite { expires: Some(e), .. })) if e < now
+                Some((_, Action::Invite { expires: Some(e), .. })) if e < now && e < self.cutoff
             );
         }
         ACTION_KINDS.contains(&ev.kind) && ev.created_at < self.cutoff

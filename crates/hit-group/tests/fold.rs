@@ -551,6 +551,46 @@ fn compaction_keeps_the_state_and_folds_the_actions() {
     assert!(!after.may_read(&p.public_key(), &promote, Timestamp::from(g.clock)));
 }
 
+/// The first VPS anchor (2026-10-24): it pinned a group after the invites
+/// four members had joined with expired, so it could never apply their
+/// joins — and refused everything they wrote as "not a member". An expired
+/// invite is needed until a snapshot folds the joins it honoured.
+#[test]
+fn an_expired_invite_is_kept_and_synced_until_a_snapshot_passes_its_expiry() {
+    let mut g = G::new();
+    let expires = Timestamp::from(g.clock + 2);
+    let owner = Person::from_nsec(&g.owner.reveal_nsec_for_backup()).unwrap();
+    let invite = g.act(&owner, create_invite(&g.id(), "soon", Some(expires)));
+    let newcomer = Person::generate();
+    let joined = g.act(&newcomer, join(&g.id(), "soon"));
+    assert!(g.applied(&joined));
+
+    // Long after the expiry, a node that arrives late still takes the
+    // invite, and members still offer it.
+    let later = Timestamp::from(g.clock + 3600);
+    let mut late = Groups::new(Person::generate().public_key());
+    late.carry(g.id());
+    late.set_state(g.id(), Some(g.state()));
+    let v = |ev: &Event| Verified::check(ev.clone()).unwrap();
+    assert_eq!(late.judge(&v(&invite), later), Ok(Judgement::Store));
+    assert!(g.state().may_read(&owner.public_key(), &invite, later));
+
+    // Once a snapshot is dated after the expiry, the invite is folded with
+    // the join it honoured: the newcomer is in the snapshot's member list.
+    g.clock += 3600;
+    g.events.extend(
+        g.state()
+            .to_snapshot()
+            .sign(&g.key, Timestamp::from(g.clock))
+            .unwrap(),
+    );
+    let after = g.state();
+    assert!(after.is_folded(&invite, later));
+    assert!(after.is_member(&newcomer.public_key()));
+    late.set_state(g.id(), Some(after));
+    assert_eq!(late.judge(&v(&invite), later), Err(Refusal::Folded));
+}
+
 /// "The owner has the last word": a snapshot that leaves out an action's
 /// effect overrules it, because the action is folded.
 #[test]

@@ -77,8 +77,11 @@ Until then, in this order. *You* = the owner, *me* = Claude.
 - [x] Pick the provider; a card ready. *You.* — OVH VPS-1, 2026-10-24.
 - [ ] **Pin the other groups** to the VPS anchor; the owner's check that a
   message sent while they were offline arrives through it. *You + me.*
-- [ ] **The 23 refused events**: log the refused kind; stop re-offering
-  events a peer refused (`SESSION_LOG.md` 2026-10-24). *Me.*
+- [x] **The 23 refused events** — found and fixed (2026-10-24, second
+  session): expired invites were never synced, so a late anchor could not
+  apply four joins. Refusals now log kind, id and author. Re-offering is
+  kept, deliberately (`SESSION_LOG.md`). Live once the anchor and the app
+  both run the fix — or at once, if the owner compacts the group. *Me.*
 
 ### VPS day
 

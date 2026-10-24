@@ -1200,3 +1200,43 @@ exist.
 - **Owner's laptop:** the beta.3 app in `~/.local/bin/hit-enter` replaced
   by beta.4 from the release (sha256 checked; the AppImage unpacked —
   Omarchy has no FUSE 2). KeePassXC set up for secrets.
+
+## 2026-10-24 (second session) — the 23 refused events: expired invites
+
+- **Found, not guessed.** The owner's app store, copied and replayed
+  through `hit-group` as an empty anchor would take it (apply order,
+  refold after each state change, retries): **30 held, 23 refused** — the
+  VPS's numbers. Judged against the *final* fold instead, 0 refused: the
+  bug only shows to a node that arrives late.
+- **The cause:** a join (`9021`) is honoured by an invite valid *at the
+  join's time*, but `is_folded` treated every **expired** invite as
+  folded — not synced, refused. A node arriving after the expiry can
+  never apply the joins it honoured. Four members' joins failed ("not
+  applied"), and their 19 profiles, bindings, messages, reactions and
+  deletions were refused as "not a member". *Not* other groups' profiles
+  (yesterday's guess): the owner's app holds one group.
+- **The fix:** an invite is folded only once it expired **before the
+  snapshot's cutoff** — then every join it honoured is folded too, into
+  the snapshot's member list. Replayed with the fix: 58 held, 0 refused.
+  Test `an_expired_invite_is_kept_and_synced_until_a_snapshot_passes_its_expiry`;
+  `PROTOCOL.md`, the fold, step 4.
+- **Both sides need it** — the app to offer the invites, the anchor to take
+  them: the anchor redeployed, and beta.5. **The workaround today:** the
+  owner compacts the group (group settings): the new snapshot names the
+  four as members, and the current anchor takes the rest.
+- **Logs:** a refused push (both ends) and a refused fetch now name the
+  event's kind, short id and author — never its content.
+- **Re-offering refused events: kept, deliberately** (`PLAN.md` §0 asked
+  to stop it). Both peers run the same rules, so a lasting refusal means
+  their states disagree — a bug, as here, or one side not caught up yet.
+  Suppressing the offer would have hidden this bug and kept the four
+  members' history off the anchor even after a compaction fixed the state;
+  re-offering 23 events a round costs nothing worth saving.
+- **Open, same family:** `judge` refuses an invite whose author may not
+  invite *now* (left, or lost the permission). A late node then cannot
+  apply joins that invite honoured while its author could. Not hit yet;
+  the fix needs a rule for keeping such invites without letting strangers
+  store them (e.g. keep one only if folding it applies a join).
+- **`target/` is owned by root** (yesterday's Docker build), so cargo
+  cannot write `target/debug`; this session built in
+  `~/.cache/hit-enter-target`. Fix: `sudo chown -R $USER target`.

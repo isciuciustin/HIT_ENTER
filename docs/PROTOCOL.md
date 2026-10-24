@@ -171,7 +171,12 @@ roles, `10` manage group, `11` attach files. Unknown bits are dropped.
 4. Actions dated before the cutoff are folded — not applied, not synced. A
    compaction is therefore dated **one second after** everything it folds.
    An action its signer had not seen, dated before it, is lost — visibly, and
-   it can be redone.
+   it can be redone. **An invite (`9009`) is folded only once it has expired
+   *before the cutoff*** — not merely expired: a join is judged against the
+   invite as it was at the join's time, so a peer that arrives later needs
+   the expired invite to apply the joins it honoured, until a snapshot folds
+   them (2026-10-24: a fresh anchor refused four members, and all they
+   wrote, without it).
 5. A peer stores an action only if folding it with everything it holds
    applies it.
 6. **Silences** (M5). A kick, a ban or a leave silences its target from its

@@ -145,7 +145,11 @@ async fn handle(
         ClientMessage::Event(ev) => {
             let ev = ev.into_owned();
             let id = ev.id;
+            let what = crate::sync::describe(&ev);
             let (ok, why) = inner.accept_event(ev, Source::Push).await?;
+            if !ok {
+                tracing::info!("refused a pushed {what}: {why}");
+            }
             write_relay(send, &RelayMessage::ok(id, ok, why)).await?;
         }
         ClientMessage::Req {

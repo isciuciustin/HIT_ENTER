@@ -297,7 +297,8 @@ impl Groups {
         }
         if event.kind == CREATE_INVITE {
             // A credential, not a state change: worth keeping only while its
-            // author may invite. A join checks it again when it is applied.
+            // author may invite, and until the snapshot passes its expiry.
+            // A join checks it again when it is applied.
             if state.is_folded(event, now) {
                 return Err(Refusal::Folded);
             }

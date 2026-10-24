@@ -315,8 +315,8 @@ pub(crate) async fn sync(
             break;
         }
     }
-    for (_, why) in &waiting {
-        tracing::info!("refused a fetched event: {why}");
+    for (ev, why) in &waiting {
+        tracing::info!("refused a fetched {}: {why}", describe(ev));
     }
     st.refused += waiting.len();
 
@@ -334,10 +334,17 @@ pub(crate) async fn sync(
         for ev in chunk {
             write_client(send, &ClientMessage::event(ev.clone())).await?;
         }
-        for _ in chunk {
+        for ev in chunk {
             match read_relay(recv).await? {
                 RelayMessage::Ok { status: true, .. } => st.pushed += 1,
-                RelayMessage::Ok { status: false, .. } => st.refused += 1,
+                RelayMessage::Ok {
+                    status: false,
+                    message,
+                    ..
+                } => {
+                    tracing::info!("peer refused our {}: {message}", describe(ev));
+                    st.refused += 1;
+                }
                 other => return Err(unexpected("push", &other)),
             }
         }
@@ -346,6 +353,17 @@ pub(crate) async fn sync(
     s.close(inner).await;
     st.millis = started.elapsed().as_millis();
     Ok(st)
+}
+
+/// An event, for a log line: its kind, and enough of its id and author to
+/// find it in a store. Never its content.
+pub(crate) fn describe(ev: &Event) -> String {
+    format!(
+        "kind {} event {} by {}",
+        ev.kind.as_u16(),
+        &ev.id.to_hex()[..8],
+        &ev.pubkey.to_hex()[..8]
+    )
 }
 
 fn neg(e: negentropy::Error) -> NodeError {
