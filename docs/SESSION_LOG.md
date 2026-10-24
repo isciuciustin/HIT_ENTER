@@ -1280,3 +1280,8 @@ exist.
   session, after the 1-minute answer). Said back: Discord offers this as
   an optional level; here it is every public community's, and costs the
   newcomer who came to ask one question.
+- **Settled at 5 minutes.** Asked whether 10 was too much (the owner
+  found Unturned's 5 annoying): a fixed wait stops instant scripts at any
+  length and patient raiders at none, so 10 buys little over 5 and costs
+  every newcomer. Floor 5 minutes, admins may raise it; a raid mode that
+  raises the wait when joins spike is the real defence, with automod.
