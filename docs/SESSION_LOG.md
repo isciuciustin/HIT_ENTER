@@ -1269,3 +1269,9 @@ exist.
   per person**. Written up as **M13 — Public communities** in `PLAN.md`,
   with two questions left: a new group public by default (recommended
   no), and which public relays.
+- **And the last three:** a new group is **private by default**, but
+  making it public must take little thought (one choice at creation, one
+  switch in settings, one sentence of what it means); the **best public
+  relays** (Damus, nos.lol, Primal — chosen here); and a **1-minute
+  newcomer wait** before posting in a public group, which admins can
+  change — refining "posts at once" against raids. M13 updated.

@@ -1048,18 +1048,32 @@ The owner's answers (2026-10-24):
 3. **The DM inbox is on by default**, with limits: an anchor keeps a DM
    **7 days**, and at most **10 MB of waiting DMs per person**, oldest
    dropped first.
+4. **A new group is private**; making it public must take **little
+   thought** — one clear choice, not a settings hunt.
+5. **The best public relays available** for profiles and announcements.
+6. **A newcomer to a public group waits 1 minute before posting** — the
+   group's admins can change it (0 turns it off).
 
 **What to build, in order:**
 
 1. **A public group** — NIP-29's own words on `39000`: no `private` tag
    (anyone may read) and no `closed` tag (anyone may join), where today
-   the anchor's bridge always writes both. A switch in group settings,
-   owner only; the default for a *new* group is a question below. Signed
-   by the group key like the rest of the state, so it is in the fold and
-   every peer agrees.
+   the anchor's bridge always writes both. **Private by default.** Making
+   it public is one choice with one sentence under it — *"Public: anyone
+   can find this group, read its open channels and join"* — offered when
+   the group is created (Private / Public, Private selected) and as a
+   single switch in group settings, owner only. Signed by the group key
+   like the rest of the state, so it is in the fold and every peer agrees.
 2. **Join without an invite** — a `9021` with no `code` is honoured when
    the group is open; bans still hold. A link that names the group and its
    anchors and carries no code: `hit-enter:group?…`.
+   **The newcomer wait:** a `newcomer_wait` seconds row in `39000`
+   metadata, **60 by default** for a public group, changed by a `9002`
+   edit with the same permission as slowmode (0 = off). Enforced in the
+   fold like slowmode: a message dated less than the wait after its
+   author's join is refused by every peer. Members the snapshot names have
+   no join time left — they are not newcomers. The composer says *"You
+   can post in 0:42"* rather than failing.
 3. **Read before joining** — for a public group, `may_read` lets anyone
    read its state, the channels every member can view, and the profiles
    of its members (they are public anyway, point 2). Private channels,
@@ -1097,11 +1111,11 @@ moved clock), while a flood of DMs to one person never holds more than
 10 MB.
 
 **Risks, said out loud:**
-- **Raids.** Open joining plus posting at once means a fresh key can post
-  within a second of finding the link, and keys are free. Slowmode and
-  bans are per person; a raid is many people. Likely needed soon after:
-  a per-group "new members wait N minutes" switch (off by default, per the
-  owner's answer) and automod — `DESIGN.md` §0's moderation row.
+- **Raids.** Open joining means anyone can come in, and keys are free.
+  The 1-minute newcomer wait blunts a script that joins and posts at once,
+  and gives moderators a minute to see a wave of joins; it does not stop a
+  patient one. Slowmode and bans are per person; a raid is many people.
+  Next after M13: automod — `DESIGN.md` §0's moderation row.
 - **Public means public.** A public group's messages are on the open
   internet through the bridge and anyone's sync. The UI must say so when
   the switch is turned on, and turning it off cannot recall what was read.
@@ -1112,12 +1126,12 @@ moved clock), while a flood of DMs to one person never holds more than
 categories in the browse list; a web client (the bridge plus existing
 Nostr clients is the web, for now); voice over 8 (§0's own row).
 
-**Open questions:**
-- Is a **new group public by default**? Recommended: **no** — the creator
-  turns it on, and sees what it means; a friends' group should not land
-  on the open internet by accident.
-- **Which public relays** by default? Recommended: three well-run ones
-  (e.g. Damus, nos.lol, Primal) plus each group's anchor.
+**The relays** (owner: "the best available"): `wss://relay.damus.io`,
+`wss://nos.lol`, `wss://relay.primal.net` — large, long-running, and the
+ones S4 already saw receipts on — plus each group's anchor. A constant
+list in one place, checked again before beta.5.
+
+**Open questions:** none from the owner; the build will find some.
 
 ---
 
