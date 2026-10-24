@@ -2128,3 +2128,70 @@ fn only_who_may_set_slowmode_may_set_the_newcomer_wait() {
     assert!(g.applied(&by_admin));
     assert_eq!(g.state().newcomer_wait(), 600, "a private group may ask too");
 }
+
+#[test]
+fn a_public_group_reads_to_anyone_as_to_a_plain_member() {
+    let mut g = G::new();
+    let m = g.member(&[]);
+    let stranger = Person::generate().public_key();
+    let said = g.act(&m, message(&g.id(), "general", "hello world"));
+    let in_mods = g.by_owner(message(&g.id(), "mods", "staff only"));
+    let state_ev = g.events[0].clone();
+    let now = Timestamp::from(g.clock + 10);
+
+    // Private: a stranger reads nothing.
+    let s = g.state();
+    for ev in [&said, &in_mods, &state_ev] {
+        assert!(!s.may_read(&stranger, ev, now));
+    }
+
+    g.by_owner(edit_metadata(&g.id(), &[Edit::Public(true)]));
+    let s = g.state();
+    assert!(s.may_read(&stranger, &said, now), "an open channel");
+    assert!(s.may_read(&stranger, &state_ev, now), "the state");
+    assert!(
+        !s.may_read(&stranger, &in_mods, now),
+        "a mods-only channel stays the mods'"
+    );
+    assert!(s.open_to_readers("general") && !s.open_to_readers("mods"));
+    // Actions too: a reader's node folds them to know who may post.
+    let put = g.events.iter().find(|e| e.kind == group::PUT_USER).unwrap();
+    assert!(s.may_read(&stranger, put, now));
+}
+
+#[test]
+fn a_public_groups_member_profiles_are_anyones_but_not_their_bindings() {
+    let mut g = G::new();
+    let m = g.member(&[]);
+    g.by_owner(edit_metadata(&g.id(), &[Edit::Public(true)]));
+    let now = Timestamp::from(g.clock + 10);
+    // A reader's node: carries the group, is not in it.
+    let reader = Person::generate();
+    let mut groups = Groups::new(reader.public_key());
+    groups.carry(g.id());
+    groups.set_state(g.id(), Some(g.state()));
+
+    let profile =
+        Verified::check(m.sign(hit_event::profile::with_name(None, "Mia")).unwrap()).unwrap();
+    assert_eq!(groups.judge(&profile, now), Ok(Judgement::Store));
+    assert!(groups.may_read(&reader.public_key(), &profile, now));
+
+    let binding = Verified::check(
+        hit_event::sign_binding(
+            &m,
+            &hit_event::DeviceKey::generate(),
+            now,
+            std::time::Duration::from_secs(3600),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(groups.judge(&binding, now), Err(Refusal::NotAMember));
+    assert!(!groups.may_read(&reader.public_key(), &binding, now));
+
+    // A stranger's profile — in no group we carry — is still nobody's.
+    let other =
+        Verified::check(Person::generate().sign(hit_event::profile::with_name(None, "x")).unwrap())
+            .unwrap();
+    assert_eq!(groups.judge(&other, now), Err(Refusal::NotAMember));
+}

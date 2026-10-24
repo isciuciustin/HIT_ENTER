@@ -7,8 +7,11 @@
 
 mod common;
 
-use common::{loopback_addr, mesh, start};
-use hit_event::{MemoryStore, Person, group::Edit};
+use common::{loopback_addr, mesh, messages, start};
+use hit_event::{
+    MemoryStore, Person,
+    group::{Channel, ChannelKind, DEFAULT_ROLE, Edit, Override},
+};
 use hit_proto::invite::InviteLink;
 
 #[tokio::test]
@@ -49,6 +52,77 @@ async fn a_stranger_joins_a_public_group_without_an_invite_and_waits_to_post() {
     assert!(err.contains("new here"), "{err}");
 
     for n in [a, s] {
+        n.shutdown().await;
+    }
+}
+
+/// Read before joining: a stranger's node follows a public group's link,
+/// holds its open channel and not its mods-only one, cannot post — and a
+/// private group's link is refused and put down.
+#[tokio::test]
+async fn a_stranger_reads_a_public_group_before_joining() {
+    let dirs: Vec<_> = (0..2).map(|_| tempfile::tempdir().unwrap()).collect();
+    let (alice, reader) = (Person::generate(), Person::generate());
+    let a = start(dirs[0].path(), &alice).await;
+    let r = start(dirs[1].path(), &reader).await;
+    mesh(&[&a, &r]);
+    let g = a
+        .create_group("Town", &MemoryStore::default())
+        .await
+        .unwrap();
+    a.edit(
+        &g,
+        &[
+            Edit::Channel(Channel {
+                id: "mods".into(),
+                name: "mods".into(),
+                kind: ChannelKind::Text,
+                slowmode: 0,
+            }),
+            Edit::Override(Override {
+                channel: "mods".into(),
+                role: DEFAULT_ROLE.into(),
+                allow: 0,
+                deny: 1, // view
+            }),
+        ],
+    )
+    .await
+    .unwrap();
+    a.say(&g, "general", "welcome, everyone").await.unwrap();
+    a.say(&g, "mods", "staff only").await.unwrap();
+
+    // Private: following is refused, and the group put down.
+    let peers = vec![(a.id(), Some(loopback_addr(&a)))];
+    let private = InviteLink {
+        group: g,
+        code: None,
+        peers: peers.clone(),
+    };
+    assert!(r.follow(&private).await.is_err());
+    assert!(r.group(&g).is_none());
+    assert!(messages(&r, &g).await.is_empty());
+
+    // Public: the open channel arrives, the mods' does not. A second
+    // apart from the channel edit: a node dates its own second action of a
+    // kind in one second a second ahead, to keep their order — and a join
+    // dated before the group went public is refused.
+    tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
+    a.edit(&g, &[Edit::Public(true)]).await.unwrap();
+    let link = a.public_link(&g, Some(loopback_addr(&a))).await.unwrap();
+    r.follow(&link).await.unwrap();
+    let held = messages(&r, &g).await;
+    assert!(held.contains(&"welcome, everyone".to_owned()), "{held:?}");
+    assert!(!held.contains(&"staff only".to_owned()), "{held:?}");
+    let st = r.group(&g).unwrap();
+    assert!(st.is_public() && !st.is_member(&reader.public_key()));
+    assert!(r.say(&g, "general", "hi").await.is_err(), "a reader posted");
+
+    // And may join from there.
+    r.join(&link).await.unwrap();
+    assert!(r.group(&g).unwrap().is_member(&reader.public_key()));
+
+    for n in [a, r] {
         n.shutdown().await;
     }
 }

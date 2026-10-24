@@ -92,6 +92,8 @@ export struct ViewUi {
     placeholder: string,
     // Removed or banned, or "".
     banner: string,
+    // Reading a public group, not in it (M13): a banner with "join".
+    reading: bool,
     joining: bool,
     send-error: string,
     slowmode: int,

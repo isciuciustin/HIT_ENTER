@@ -1074,6 +1074,22 @@ down (*"new here — you can post in 4:42"*). Driven in two windows.
 **Honest limit:** judged by the dates the newcomer wrote, like slowmode —
 a patched client can date its join early. And making a group public puts
 anyone who joined in the last five minutes under the floor.
+**Step 3 built (2026-10-25):** read before joining. `may_read` gives a
+non-member of a public group what a plain member who sees only its open
+channels reads — **actions and invites included** (the plan said members
+only; a reader's node must fold them, or it refuses every message as "not
+a member"); members' profiles readable and storable by anyone, bindings
+not. `Node::follow(link)` carries the group **in memory only** and syncs it
+from the link's peers (a restart puts it down; joining keeps it). The app:
+a code-less link opens the group to read — green banner, *join* button,
+composer *"join to post"*; a kicked member of a public group reads it the
+same way. The bridge answers anyone without NIP-42 as a fresh key, so it
+serves public groups and nothing else; NIP-11 says `auth_required: false`.
+Driven in two windows: Bob read Alice's welcome (her name too), joined,
+the keyboard stayed in the composer. **Not yet:** a reader's files (the
+blob gate should pass — the reader's binding sits in the serving node's
+book for the session — untested); putting a read group down without a
+restart.
 
 **What to build, in order:**
 

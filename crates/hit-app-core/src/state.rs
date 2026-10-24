@@ -198,6 +198,9 @@ pub struct App {
     /// wallet before its receipt reached us. Its request, the provider
     /// whose receipt counts, and the fee still owed after it (QR only).
     pending_zap: Mutex<Option<PendingZap>>,
+    /// Public groups being read, not joined (M13): the link each came by,
+    /// to join with. In memory, as the reading is.
+    reading: Mutex<BTreeMap<String, InviteLink>>,
 }
 
 struct PendingZap {
@@ -250,6 +253,9 @@ pub struct GroupView {
     pub can_invite: bool,
     /// Anyone may find, read and join it (M13). Only the owner changes it.
     pub public: bool,
+    /// A public group this person reads without being in it (M13): its
+    /// open channels, nothing to post, a way to join.
+    pub reading: bool,
     /// Seconds a newcomer waits before posting — the floor included — and
     /// what the group itself set (M13).
     pub newcomer_wait: u32,
@@ -541,6 +547,7 @@ impl App {
             audio_watch: Mutex::new(None),
             zapper: std::sync::OnceLock::new(),
             pending_zap: Mutex::new(None),
+            reading: Mutex::new(BTreeMap::new()),
         };
         if app.stage() == Stage::Ready
             && let Some(person) = app.person()?
@@ -839,6 +846,7 @@ impl App {
                         owner: s.owner().map(|o| npub(&o)),
                         can_invite: base.contains(Permissions::CREATE_INVITE),
                         public: s.is_public(),
+                        reading: false,
                         newcomer_wait: s.newcomer_wait(),
                         newcomer_wait_set: s.newcomer_wait_set(),
                         posts_from: s
@@ -860,9 +868,12 @@ impl App {
                         banned: false,
                     }
                 }
-                // No longer a member: the channels, read-only, over the
-                // history this disk holds.
-                Some(s) => GroupView {
+                // Not a member: reading a public group (M13) — never in it,
+                // or kicked and free to come back — or removed from one, the
+                // channels read-only over the history this disk holds.
+                Some(s) => {
+                    let reading = s.is_public() && !s.is_banned(&me);
+                    GroupView {
                     id: npub(&g),
                     name: s.name().to_owned(),
                     channels: s
@@ -882,6 +893,7 @@ impl App {
                     owner: s.owner().map(|o| npub(&o)),
                     can_invite: false,
                     public: s.is_public(),
+                    reading,
                     newcomer_wait: s.newcomer_wait(),
                     newcomer_wait_set: s.newcomer_wait_set(),
                     posts_from: None,
@@ -893,9 +905,10 @@ impl App {
                     can_compact: false,
                     muted_until: None,
                     seq: s.seq(),
-                    removed: true,
+                    removed: !reading,
                     banned: s.is_banned(&me),
-                },
+                    }
+                }
                 // Carried without state yet: a join on its way.
                 None => GroupView {
                     id: npub(&g),
@@ -905,6 +918,7 @@ impl App {
                     owner: None,
                     can_invite: false,
                     public: false,
+                    reading: false,
                     newcomer_wait: 0,
                     newcomer_wait_set: 0,
                     posts_from: None,
@@ -1579,8 +1593,40 @@ impl App {
         {
             return Err(AppError::Refused("you are already in this group".into()));
         }
+        // A public group's link (M13) opens it to read; joining is then
+        // one press away (`join_reading`).
+        if link.code.is_none() {
+            node.follow(&link).await?;
+            self.reading
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert(npub(&link.group), link.clone());
+            return Ok(npub(&link.group));
+        }
         node.join(&link).await?;
         Ok(npub(&link.group))
+    }
+
+    /// Joins a public group this person is reading (M13) — by the link it
+    /// came by, or, without one (someone kicked from it), the group's own.
+    pub async fn join_reading(&self, group: &str) -> Result<()> {
+        let node = self.node().await?;
+        let held = self
+            .reading
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(group)
+            .cloned();
+        let link = match held {
+            Some(l) => l,
+            None => node.public_link(&parse_key(group)?, None).await?,
+        };
+        node.join(&link).await?;
+        self.reading
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(group);
+        Ok(())
     }
 
     /// The people with a device reached lately (npubs), this one excluded.
@@ -2259,6 +2305,43 @@ mod tests {
         );
         assert_eq!(other.stage(), Stage::Ready);
         other.shutdown().await;
+    }
+
+    /// M13: a public group's link opens it to read — the open channel, no
+    /// posting — and joining is one call from there.
+    #[tokio::test]
+    async fn a_public_link_opens_the_group_to_read_and_join_is_one_step_more() {
+        let (d1, d2) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let keys = Arc::new(MemoryStore::default());
+        let a = open(d1.path(), &keys).await;
+        a.import_identity(&Person::generate().reveal_nsec_for_backup(), None)
+            .await
+            .unwrap();
+        let b = open(d2.path(), &keys).await;
+        b.import_identity(&Person::generate().reveal_nsec_for_backup(), None)
+            .await
+            .unwrap();
+        let (na, nb) = (a.node().await.unwrap(), b.node().await.unwrap());
+        na.add_peer(local_addr(&nb));
+        nb.add_peer(local_addr(&na));
+
+        let g = a.create_group("Town", true).await.unwrap();
+        a.send(&g, "general", "all welcome", Vec::new()).await.unwrap();
+        let link = a.public_link(&g).await.unwrap();
+
+        assert_eq!(b.join(&link).await.unwrap(), g);
+        let gb = b.groups().await.unwrap().into_iter().find(|x| x.id == g).unwrap();
+        assert!(gb.reading && !gb.removed && gb.public);
+        let held = b.messages(&g, "general").await.unwrap();
+        assert!(held.iter().any(|m| m.text == "all welcome"));
+        assert!(b.send(&g, "general", "hi", Vec::new()).await.is_err());
+
+        b.join_reading(&g).await.unwrap();
+        let gb = b.groups().await.unwrap().into_iter().find(|x| x.id == g).unwrap();
+        assert!(!gb.reading && !gb.removed);
+        assert!(gb.posts_from.is_some(), "a newcomer now, waiting to post");
+        a.shutdown().await;
+        b.shutdown().await;
     }
 
     #[tokio::test]

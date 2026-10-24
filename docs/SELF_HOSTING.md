@@ -126,7 +126,9 @@ then refused. In Chachi or 0xchat, add the relay `wss://anchor.example.org`
 and sign in **with the same key you use in HIT_ENTER** (import your nsec
 there, or use a signer): the anchor asks every client to authenticate
 (NIP-42) and answers as that person — a member reads the group, anyone else
-reads nothing. **Reading only, for now**: the group refuses messages posted
+reads nothing of a private one. **A public group (M13) reads to anyone**,
+logged in or not: its open channels, its members' names, its NIP-29
+metadata saying `public`. **Reading only, for now**: the group refuses messages posted
 from those clients, because they have no channel, and says so.
 
 ## 6. Compaction while the owner is away (optional)

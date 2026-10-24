@@ -7,11 +7,13 @@
 //!
 //! What it serves, and to whom:
 //!
-//! - **Nothing before NIP-42 authentication.** A client signs the relay's
-//!   challenge with *its person's key* — the same npub as in HIT_ENTER — and
-//!   from then on is answered exactly as `hit/nostr/1` answers that npub:
-//!   [`hit_node::Node::read_as`], per event, by `hit-group`. A member reads
-//!   what a member may; a stranger, nothing.
+//! - **Public groups to anyone; the rest after NIP-42 authentication**
+//!   (M13). A client signs the relay's challenge with *its person's key* —
+//!   the same npub as in HIT_ENTER — and from then on is answered exactly
+//!   as `hit/nostr/1` answers that npub: [`hit_node::Node::read_as`], per
+//!   event, by `hit-group`. Before that it reads as a fresh key, a member of
+//!   nothing — so the same rule shows it public groups' open channels and
+//!   nothing else. A member reads what a member may.
 //! - **Group state, translated** ([`crate::nip29`]): NIP-29 clients get
 //!   `39000`–`39003` signed by this relay, never the group key's own, which
 //!   they would not understand.
@@ -103,12 +105,12 @@ async fn root(
     // NIP-11.
     let doc = serde_json::json!({
         "name": b.name,
-        "description": "A HIT_ENTER anchor. Groups here are members-only: authenticate (NIP-42) with your own key.",
+        "description": "A HIT_ENTER anchor. Public groups read without logging in; members-only groups after you authenticate (NIP-42) with your own key.",
         "pubkey": b.relay.public_key().to_hex(),
         "supported_nips": [1, 11, 29, 42, 57],
         "software": "hit-anchor",
         "version": env!("CARGO_PKG_VERSION"),
-        "limitation": { "auth_required": true, "restricted_writes": true },
+        "limitation": { "auth_required": false, "restricted_writes": true },
     });
     let mut res = doc.to_string().into_response();
     res.headers_mut().insert(
@@ -145,6 +147,9 @@ struct Conn {
     b: Arc<Bridge>,
     challenge: String,
     reader: Option<PublicKey>,
+    /// Who an unauthenticated client reads as: a fresh key, a member of
+    /// nothing — public groups only (M13).
+    anon: PublicKey,
     subs: HashMap<SubscriptionId, Vec<Filter>>,
 }
 
@@ -160,6 +165,7 @@ async fn session(b: Arc<Bridge>, mut socket: WebSocket) {
         challenge: challenge(),
         b,
         reader: None,
+        anon: nostr::prelude::Keys::generate().public_key(),
         subs: HashMap::new(),
     };
     tracing::info!("wss: a client connected");
@@ -230,16 +236,7 @@ impl Conn {
                 filters,
             } => {
                 let sub = subscription_id.into_owned();
-                let Some(reader) = self.reader else {
-                    return send(
-                        socket,
-                        &RelayMessage::closed(
-                            sub,
-                            "auth-required: groups here are members-only; authenticate (NIP-42) with your own key",
-                        ),
-                    )
-                    .await;
-                };
+                let reader = self.reader.unwrap_or(self.anon);
                 if filters.len() > MAX_FILTERS {
                     return send(
                         socket,
@@ -368,11 +365,12 @@ impl Conn {
         out
     }
 
-    /// NIP-29 state for every group `reader` is a member of.
+    /// NIP-29 state for every group `reader` is a member of, and every
+    /// public group (M13).
     async fn translations(&self, reader: &PublicKey) -> Vec<Event> {
         let mut out = Vec::new();
         for (_, state) in self.b.node.groups() {
-            let Some(s) = state.filter(|s| s.is_member(reader)) else {
+            let Some(s) = state.filter(|s| s.is_member(reader) || s.is_public()) else {
                 continue;
             };
             let members: Vec<PublicKey> = s.members().copied().collect();
@@ -388,9 +386,7 @@ impl Conn {
 
     /// A live event: to every subscription it matches, if the reader may.
     async fn live(&self, socket: &mut WebSocket, ev: &Event) -> bool {
-        let Some(reader) = self.reader else {
-            return true;
-        };
+        let reader = self.reader.unwrap_or(self.anon);
         if native_state(ev) || !self.b.node.may_read(&reader, ev) {
             return true;
         }

@@ -213,7 +213,16 @@ roles, `10` manage group, `11` attach files. Unknown bits are dropped.
 
 - A **member** reads the group's state, its live actions and invites, and
   the messages, reactions and withdrawals of every channel they can *view*. A non-member reads nothing
-  of the group — not its name, not its member list.
+  of a private group — not its name, not its member list.
+- **A public group (M13) reads to anyone** as to a plain member who sees
+  only its *open* channels (those the default role can view; "mods only"
+  ones stay members'): its state, its actions **and invites** — a
+  reader's own node folds them to know who is a member, or it would refuse
+  every message — and those channels' messages, reactions and
+  withdrawals. Its members' **profiles** too; **not their bindings**, which
+  name devices to dial. Readers sync; a group's gossip is still members'.
+  The honest cost: an invite read while the group was public still works
+  if it goes private before the invite expires.
 - **Bindings and profiles** are read by the person they belong to and by
   people who share a group with them — and stored, by the same rule, only
   for them. Neither goes on a group's gossip: they belong to a person, not

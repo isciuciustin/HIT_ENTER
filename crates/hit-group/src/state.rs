@@ -773,6 +773,11 @@ impl GroupState {
         let Some(held) = self.members.get(p) else {
             return Permissions::NONE;
         };
+        self.base_of(held)
+    }
+
+    /// What holding `held` (and the default role) grants, group-wide.
+    fn base_of(&self, held: &BTreeSet<String>) -> Permissions {
         let mut perms = Permissions::NONE;
         for r in std::iter::once(DEFAULT_ROLE).chain(held.iter().map(String::as_str)) {
             if let Some(role) = self.roles.get(r) {
@@ -792,7 +797,12 @@ impl GroupState {
         let Some(held) = self.members.get(p) else {
             return Permissions::NONE;
         };
-        let base = self.base(p);
+        self.effective_of(held, channel)
+    }
+
+    /// What holding `held` (and the default role) grants in `channel`.
+    fn effective_of(&self, held: &BTreeSet<String>, channel: &str) -> Permissions {
+        let base = self.base_of(held);
         let (mut allow, mut deny) = (Permissions::NONE, Permissions::NONE);
         for o in self.overrides.iter().filter(|o| o.channel == channel) {
             if o.role == DEFAULT_ROLE || held.contains(&o.role) {
@@ -1040,10 +1050,23 @@ impl GroupState {
         // cannot read would otherwise be the only record (M5, found
         // driving two windows).
         if !self.is_member(reader) {
-            return matches!(
+            if matches!(
                 parse_action(ev),
                 Some((_, Action::Remove { target, .. })) if target == *reader
-            );
+            ) {
+                return true;
+            }
+            // M13: a public group reads to anyone as to a plain member who
+            // sees only its open channels — its actions and invites too,
+            // since a reader's own node must fold them to know who is a
+            // member, or it would refuse every message it is shown.
+            if !self.public || self.is_folded(ev, now) {
+                return false;
+            }
+            if CHANNEL_KINDS.contains(&ev.kind) || ev.kind == hit_event::group::VOICE_PRESENCE {
+                return channel_of(ev).is_some_and(|c| self.open_to_readers(c));
+            }
+            return true;
         }
         if self.is_folded(ev, now) {
             return false;
@@ -1055,6 +1078,16 @@ impl GroupState {
             });
         }
         true
+    }
+
+    /// May anyone read `channel` (M13)? A public group's channel that a
+    /// plain member — no roles — can view. "Mods only" channels are not.
+    pub fn open_to_readers(&self, channel: &str) -> bool {
+        self.public
+            && self.channel(channel).is_some()
+            && self
+                .effective_of(&BTreeSet::new(), channel)
+                .contains(Permissions::VIEW_CHANNEL)
     }
 
     /// Can every member view `channel`? Only then may its messages go over

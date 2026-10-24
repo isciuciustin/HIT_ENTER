@@ -1317,3 +1317,20 @@ exist.
   **Test windows reuse `target/gui/<name>`:** `stop.sh` forgets the
   identities but not the data, so a fresh Alice opened the old Alice's
   group — clear the folder between runs.
+- **M13 step 3 built: read before joining.** Deviation from the plan,
+  said: a public group's **actions and invites are readable** by
+  non-members — the plan kept them members-only, but a reader's own node
+  folds them to know who is a member, and without them it refused every
+  message. Cost: an invite read while public still works if the group
+  goes private before it expires. Profiles of a public group's members are
+  anyone's; bindings stay members' (they name devices to dial).
+  `Node::follow` reads a group **in memory only**. The bridge reads an
+  unauthenticated client as a fresh key — the one rule then shows public
+  groups only. **Found writing the node test:** a node dates its own
+  second action of a kind in one second a second *ahead* (to keep their
+  order), so a join right after "make public" in the same second was
+  dated before it and refused — a test artifact (people do not join in
+  the owner's same second), the test spaces the edits. Driven: Bob read
+  Alice's public group with her name shown, joined from the banner, and
+  the keyboard stayed in the composer (the button vanishing is the focus
+  trap). `wtype`'s BackSpace does not reach Slint either.

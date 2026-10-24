@@ -1096,6 +1096,40 @@ impl Node {
         })
     }
 
+    /// Reads a public group without joining it (M13): carries it **in
+    /// memory only** — a restart puts it down; joining keeps it — and syncs
+    /// it from the link's peers, which serve a public group to anyone.
+    /// Refused, and put down again, if the group turns out not public.
+    pub async fn follow(&self, link: &InviteLink) -> Result<SyncStats, NodeError> {
+        let g = link.group;
+        let already = self.inner.groups().is_carried(&g);
+        if !already {
+            self.inner.groups_mut().carry(g);
+        }
+        let mut why: Vec<String> = Vec::new();
+        for (id, addr) in &link.peers {
+            let peer = match addr {
+                Some(a) => EndpointAddr::from_parts(*id, [TransportAddr::Ip(*a)]),
+                None => EndpointAddr::new(*id),
+            };
+            self.add_peer(peer.clone());
+            match sync::sync(&self.inner, peer, None).await {
+                Ok(stats) if self.group(&g).is_some_and(|s| s.is_public()) => {
+                    return Ok(stats);
+                }
+                Ok(_) => why.push(format!("{}: not a public group", id.fmt_short())),
+                Err(e) => why.push(format!("{}: {e}", id.fmt_short())),
+            }
+        }
+        if !already {
+            self.inner.groups_mut().drop_group(&g);
+        }
+        if why.is_empty() {
+            why.push("no peers in the link".into());
+        }
+        Err(NodeError::JoinFailed(why.join("; ")))
+    }
+
     /// Joins a group from an invite link: carry the group, hand a `9021` to
     /// a bootstrap peer — nobody else needs to be online — then sync with
     /// it, which brings the group's state and our own join back.

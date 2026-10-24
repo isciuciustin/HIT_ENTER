@@ -208,6 +208,11 @@ impl Groups {
         self.carried.entry(group).or_insert(None);
     }
 
+    /// Stops carrying `group` — a public group read and put down (M13).
+    pub fn drop_group(&mut self, group: &PublicKey) {
+        self.carried.remove(group);
+    }
+
     /// Replaces a carried group's state with a fresh fold.
     pub fn set_state(&mut self, group: PublicKey, state: Option<GroupState>) {
         if let Some(slot) = self.carried.get_mut(&group) {
@@ -233,6 +238,18 @@ impl Groups {
             .values()
             .flatten()
             .filter(move |s| s.is_member(p))
+    }
+
+    /// A profile (kind 0) of a member of a public group we carry: anyone's
+    /// to read (M13). Not their device bindings — those name devices to
+    /// dial, and stay among the people they share a group with.
+    fn public_profile(&self, event: &Event) -> bool {
+        event.kind == PROFILE
+            && self
+                .carried
+                .values()
+                .flatten()
+                .any(|s| s.is_public() && s.is_member(&event.pubkey))
     }
 
     /// Do `a` and `b` share a group we carry?
@@ -275,8 +292,12 @@ impl Groups {
         if is_personal(event.kind) {
             // The bindings and profiles of people we share a group with: how
             // members find and name each other (`DESIGN.md` §8). Nobody
-            // else's.
-            return if event.pubkey == self.me || self.share_a_group(&self.me, &event.pubkey) {
+            // else's — but a public group's members' profiles, which anyone
+            // may read (M13).
+            return if event.pubkey == self.me
+                || self.share_a_group(&self.me, &event.pubkey)
+                || self.public_profile(event)
+            {
                 Ok(Judgement::Store)
             } else {
                 Err(Refusal::NotAMember)
@@ -353,7 +374,9 @@ impl Groups {
                 .is_some_and(|to| self.keeps_dms_for(reader, &to));
         }
         if is_personal(event.kind) {
-            return event.pubkey == *reader || self.share_a_group(reader, &event.pubkey);
+            return event.pubkey == *reader
+                || self.share_a_group(reader, &event.pubkey)
+                || self.public_profile(event);
         }
         group_of(event)
             .and_then(|g| self.state(&g))

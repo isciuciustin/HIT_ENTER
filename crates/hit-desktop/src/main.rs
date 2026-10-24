@@ -515,6 +515,18 @@ fn wire_moderation(ui: &MainWindow, get: impl Fn() -> Option<Arc<Ctl>> + Clone +
     });
 
     let g = get.clone();
+    ui.on_join_reading(move || {
+        if let Some(c) = g() {
+            // The banner and its button go away: the keyboard moves to the
+            // composer, or the window would take no keys at all.
+            c.with_chat(async move |chat, ui| {
+                chat.join_reading().await;
+                refocus(&ui);
+            });
+        }
+    });
+
+    let g = get.clone();
     ui.on_set_newcomer_wait(move |secs| {
         let secs = u32::try_from(secs).unwrap_or(0);
         // What was set: in a public group the 5-minute floor may still

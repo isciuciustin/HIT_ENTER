@@ -231,6 +231,18 @@ impl Chat {
     }
 
     /// An invite link to the open group.
+    /// Joins the public group being read (M13); a failure shows under the
+    /// composer.
+    pub async fn join_reading(&self) {
+        let g = self.s.lock().await.group.clone();
+        let Some(g) = g else { return };
+        let joined = self.app.join_reading(&g).await;
+        let mut s = self.s.lock().await;
+        s.send_error = joined.err().map(|e| e.to_string());
+        self.refresh_groups(&mut s).await;
+        self.render(&mut s);
+    }
+
     /// A link to the open group: an invite valid for `hours`, or — a
     /// public group (M13) — its link with no invite in it.
     pub async fn invite(&self, hours: Option<u32>) -> Result<String, String> {
@@ -844,8 +856,10 @@ impl Chat {
             .and_then(|g| g.muted_until)
             .filter(|&u| u > now)
             .map(|u| (u - now).div_ceil(60));
+        let reading = group.is_some_and(|g| g.reading);
         let refusal = match (channel, muted_for, newcomer_left(group)) {
             (None, ..) => "no channel".to_owned(),
+            _ if reading => "join to post".into(),
             (Some(_), Some(min), _) => format!("muted for another {min} min"),
             (Some(_), None, Some(left)) => {
                 format!("new here — you can post in {}:{:02}", left / 60, left % 60)
@@ -881,6 +895,7 @@ impl Chat {
                 _ => SharedString::new(),
             },
             joining: group.is_some_and(|g| !g.ready),
+            reading,
             send_error: s.send_error.clone().unwrap_or_default().into(),
             slowmode: channel.map_or(0, |c| i32::try_from(c.slowmode).unwrap_or(i32::MAX)),
             max_chars: count(s.max_chars),

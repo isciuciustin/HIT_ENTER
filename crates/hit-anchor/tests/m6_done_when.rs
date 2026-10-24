@@ -258,13 +258,11 @@ async fn a_nip29_client_reads_the_group_through_the_anchor_and_a_stranger_does_n
         .kind(group::CHAT_MESSAGE)
         .custom_tag(SingleLetterTag::LOWERCASE_H, g.to_hex());
 
-    // Before AUTH: nothing, and told why.
+    // Before AUTH: nothing of a private group (M13: a public one reads to
+    // anyone — below).
     let (mut socket, challenge) = connect(&url).await;
-    let before = req(&mut socket, "early", by_group.clone()).await;
-    assert!(
-        matches!(&before, Err(m) if m.starts_with("auth-required")),
-        "{before:?}"
-    );
+    let before = req(&mut socket, "early", by_group.clone()).await.unwrap();
+    assert!(before.is_empty(), "{before:?}");
     // An AUTH for another relay, or the wrong challenge, is refused.
     assert!(!auth(&mut socket, &alice, "wss://elsewhere.example", &challenge).await);
     assert!(!auth(&mut socket, &alice, &url, "not-the-challenge").await);
@@ -327,13 +325,26 @@ async fn a_nip29_client_reads_the_group_through_the_anchor_and_a_stranger_does_n
     // A stranger authenticates fine — and reads nothing of the group.
     let (mut other, challenge) = connect(&url).await;
     assert!(auth(&mut other, &eve, &url, &challenge).await);
-    assert!(req(&mut other, "s", by_group).await.unwrap().is_empty());
+    assert!(req(&mut other, "s", by_group.clone()).await.unwrap().is_empty());
     assert!(
         req(&mut other, "m", Filter::new().kind(nip29::NIP29_METADATA))
             .await
             .unwrap()
             .is_empty()
     );
+
+    // M13: Alice makes the group public. A client that never logs in now
+    // reads its messages and its NIP-29 metadata, which says "public".
+    a.edit(&g, &[group::Edit::Public(true)]).await.unwrap();
+    n.sync_with(addr(&a)).await.unwrap();
+    let (mut anon, _) = connect(&url).await;
+    let read = req(&mut anon, "p", by_group).await.unwrap();
+    assert!(read.iter().any(|e| e.content == "readable from Chachi"));
+    let meta = req(&mut anon, "pm", Filter::new().kind(nip29::NIP29_METADATA))
+        .await
+        .unwrap();
+    assert!(meta[0].tags.iter().any(|t| t.as_slice() == ["public"]));
+    assert!(meta[0].tags.iter().any(|t| t.as_slice() == ["open"]));
 
     server.abort();
     a.shutdown().await;
