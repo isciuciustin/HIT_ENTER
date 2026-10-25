@@ -201,6 +201,8 @@ pub(crate) struct Inner {
     /// with (M7): synced with, so a DM sent while they were away reaches
     /// one. Refreshed from the store by the sync loop.
     inbox_devices: Mutex<BTreeSet<EndpointId>>,
+    /// When the inbox's week was last enforced (M13).
+    inbox_expired: Mutex<Option<tokio::time::Instant>>,
     /// Who is in which voice channel (M9): `(group, channel)` → person →
     /// when their last "in" arrived. An "out" removes them.
     voice: Mutex<HashMap<(PublicKey, String), HashMap<PublicKey, tokio::time::Instant>>>,
@@ -338,6 +340,7 @@ impl Node {
             voice: Mutex::new(HashMap::new()),
             protocols: RwLock::new(HashMap::new()),
             inbox_devices: Mutex::new(BTreeSet::new()),
+            inbox_expired: Mutex::new(None),
             folded: Mutex::new(HashMap::new()),
             fold_lock: tokio::sync::RwLock::new(()),
             tasks: Mutex::new(Vec::new()),
@@ -1724,6 +1727,9 @@ impl Node {
                 if let Err(e) = node.inner.renew_binding_if_due().await {
                     tracing::warn!("renewing our binding failed: {e}");
                 }
+                if let Err(e) = node.inner.expire_inbox_if_due().await {
+                    tracing::warn!("expiring kept DMs failed: {e}");
+                }
                 let now = tokio::time::Instant::now();
                 for id in node.sync_targets() {
                     if busy.contains(&id) || due.get(&id).is_some_and(|d| now < *d) {
@@ -2193,6 +2199,18 @@ impl Inner {
                 tracing::debug!("a DM's device binding was not kept: {e}");
             }
         }
+        // Somebody else's DM, kept for them (an anchor's inbox, M13): never
+        // more than its cap for one person, the earliest arrived dropped.
+        if stored == Stored::New
+            && verified.kind == dm::GIFT_WRAP
+            && let Some(to) = dm::recipient_of(&verified)
+            && to != self.person.public_key()
+        {
+            let gone = self.store.cap_wraps(&to, dm::INBOX_CAP_BYTES).await?;
+            if gone > 0 {
+                tracing::info!("inbox for {}: {gone} oldest DMs dropped, over the cap", to.to_hex().get(..8).unwrap_or(""));
+            }
+        }
         if stored == Stored::New && verified.kind == dm::INBOX_LIST {
             self.groups_mut()
                 .set_inboxes(verified.pubkey, inbox_npubs(&verified));
@@ -2568,6 +2586,28 @@ impl Inner {
                     && e.tags.expiration().is_some_and(|exp| exp > now))
         });
         Ok(evs)
+    }
+
+    /// Drops the DMs kept for others that arrived over a week ago (M13) —
+    /// at most once a minute.
+    async fn expire_inbox_if_due(&self) -> Result<(), NodeError> {
+        {
+            let mut last = self.inbox_expired.lock().unwrap_or_else(|e| e.into_inner());
+            let now = tokio::time::Instant::now();
+            if last.is_some_and(|l| now < l + Duration::from_secs(60)) {
+                return Ok(());
+            }
+            *last = Some(now);
+        }
+        let before = Timestamp::now().as_secs().saturating_sub(dm::INBOX_KEEP_SECS);
+        let gone = self
+            .store
+            .expire_wraps(&self.person.public_key(), before)
+            .await?;
+        if gone > 0 {
+            tracing::info!("{gone} DMs kept for others expired");
+        }
+        Ok(())
     }
 
     async fn renew_binding_if_due(&self) -> Result<(), NodeError> {

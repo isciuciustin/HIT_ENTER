@@ -1,0 +1,33 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT e.id AS \"id!\", length(e.json) AS \"size!: i64\" FROM events e\n               JOIN tags t ON t.event_id = e.id\n               WHERE e.kind = ? AND t.name = 'p' AND t.value = ?\n               ORDER BY e.received_at DESC, e.created_at DESC",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!",
+        "ordinal": 0,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "events",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "size!: i64",
+        "ordinal": 1,
+        "type_info": "Null",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "aca5f84a4d3927b129882813d2acf92fa713461bb6a735f7d81a438676c4805a"
+}

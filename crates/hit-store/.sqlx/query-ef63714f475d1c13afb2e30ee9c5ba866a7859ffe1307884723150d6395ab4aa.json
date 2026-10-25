@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM events WHERE kind = ? AND received_at < ?\n             AND id NOT IN (SELECT event_id FROM tags WHERE name = 'p' AND value = ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "ef63714f475d1c13afb2e30ee9c5ba866a7859ffe1307884723150d6395ab4aa"
+}

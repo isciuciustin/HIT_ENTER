@@ -283,6 +283,13 @@ impl Groups {
                 return Err(Refusal::TooLarge);
             }
             let to = hit_event::dm::recipient_of(event).ok_or(Refusal::Malformed)?;
+            // Somebody else's, older than an inbox keeps one (M13): what
+            // was let go stays gone. Our own DMs we keep however old.
+            if to != self.me
+                && event.created_at.as_secs() + hit_event::dm::INBOX_KEEP_SECS < now.as_secs()
+            {
+                return Err(Refusal::Stale);
+            }
             return if self.keeps_dms_for(&self.me, &to) {
                 Ok(Judgement::Store)
             } else {

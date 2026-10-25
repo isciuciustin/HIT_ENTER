@@ -1364,3 +1364,13 @@ exist.
   autofocus) — *look again* takes the keyboard now. The rule's wording
   moved again: `hit-zap` now also *reads* public relays — stored
   announcements only, no live subscription.
+- **M13 step 6 built: the DM inbox on by default, 7 days, 10 MB.** The
+  trap found designing it: expiring wraps by arrival is not enough, since
+  the recipient's own devices keep their wraps forever and sync them back
+  to the anchor — so every node also refuses a wrap for someone else
+  *dated* over a week ago (`Refusal::Stale`; NIP-59 only blurs dates
+  backwards, so the original copy always outlives the refusal). One rule
+  on every node, no anchor-only path: the sender's outbox copy of the
+  other person's wrap expires the same way, which changed the dialog's
+  promise for two people with no anchor ("up to 7 days"). `published.json`
+  untouched; `app.json` gained `inbox_off`. sqlx cache regenerated.

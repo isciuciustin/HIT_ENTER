@@ -44,6 +44,15 @@ pub const GIFT_WRAP: Kind = Kind::from_u16(1059);
 /// NIP-17's DM relay list — here, a person's **inbox list**: the anchors
 /// that keep their DMs while they are away (M7).
 pub const INBOX_LIST: Kind = Kind::from_u16(10050);
+/// How long a node keeps a wrap addressed to somebody else — an anchor's
+/// inbox — counted from when it **arrived** (M13): `created_at` is NIP-59's
+/// random date, up to two days back. Nor does a node take one dated
+/// earlier than this ago: its recipient's devices, which keep theirs
+/// forever, would otherwise hand an expired wrap straight back.
+pub const INBOX_KEEP_SECS: u64 = 7 * 24 * 60 * 60;
+/// The most wrap bytes a node keeps for one person not itself (M13): a
+/// flood of DMs to someone pushes out the oldest, never past this.
+pub const INBOX_CAP_BYTES: u64 = 10 * 1000 * 1000;
 
 /// The rumor tag carrying the sender's device binding.
 pub const DEVICE_TAG: &str = "device";

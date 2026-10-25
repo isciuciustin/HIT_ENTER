@@ -135,6 +135,9 @@ struct AppFile {
     /// `None` is [`Net::public_relays`], an empty list is nowhere.
     #[serde(default)]
     public_relays: Option<Vec<String>>,
+    /// The person turned their DM inbox off (M13: it is on unless they do).
+    #[serde(default)]
+    inbox_off: bool,
 }
 
 /// `published.json`: what went to the public relays and which said `OK` —
@@ -252,6 +255,9 @@ pub struct App {
     /// wallet before its receipt reached us. Its request, the provider
     /// whose receipt counts, and the fee still owed after it (QR only).
     pending_zap: Mutex<Option<PendingZap>>,
+    /// The DM inbox follows this person's groups' anchors (M13): on unless
+    /// they turned it off. Read by the presence loop.
+    inbox_on: Arc<std::sync::atomic::AtomicBool>,
     /// Public groups being read, not joined (M13): the link each came by,
     /// to join with. In memory, as the reading is.
     reading: Mutex<BTreeMap<String, InviteLink>>,
@@ -595,13 +601,14 @@ impl App {
             data_dir: data_dir.to_path_buf(),
             secrets,
             net,
-            file: Mutex::new(file),
             running: tokio::sync::RwLock::new(None),
             read_lock: tokio::sync::Mutex::new(()),
             audio_watch: Mutex::new(None),
             zapper: std::sync::OnceLock::new(),
             pending_zap: Mutex::new(None),
+            inbox_on: Arc::new(std::sync::atomic::AtomicBool::new(!file.inbox_off)),
             reading: Mutex::new(BTreeMap::new()),
+            file: Mutex::new(file),
         };
         if app.stage() == Stage::Ready
             && let Some(person) = app.person()?
@@ -805,10 +812,16 @@ impl App {
         tracing::info!("this device: {}", node.id());
         let sync = node.spawn_sync_loop(SYNC_EVERY);
         let n = node.clone();
+        let inbox_on = self.inbox_on.clone();
         let presence = tokio::spawn(async move {
             loop {
                 if let Err(e) = n.announce_presence().await {
                     tracing::debug!("announcing presence failed: {e}");
+                }
+                if inbox_on.load(std::sync::atomic::Ordering::Relaxed)
+                    && let Err(e) = keep_inbox(&n).await
+                {
+                    tracing::debug!("naming inbox anchors failed: {e}");
                 }
                 tokio::time::sleep(PRESENCE_EVERY).await;
             }
@@ -1477,8 +1490,15 @@ impl App {
         })
     }
 
-    /// Names every anchor of this person's groups as their inbox, or none.
+    /// Names every anchor of this person's groups as their inbox, or none —
+    /// and remembers the choice: on, the list follows their groups' anchors
+    /// from now on (M13's default); off, it stays empty.
     pub async fn set_inbox(&self, enabled: bool) -> Result<InboxView> {
+        let mut next = self.file().clone();
+        next.inbox_off = !enabled;
+        self.save_file(next)?;
+        self.inbox_on
+            .store(enabled, std::sync::atomic::Ordering::Relaxed);
         let node = self.node().await?;
         let anchors: Vec<PublicKey> = if enabled {
             self.inbox()
@@ -2056,6 +2076,25 @@ pub struct InvoiceView {
 
 /// HIT_ENTER's fee address: the constant, or — in a debug build only — the
 /// `HIT_ZAP_FEE_ADDRESS` a test against a fake network sets.
+/// Keeps this person's inbox list naming exactly the anchors of the groups
+/// they are in (M13: the DM inbox is on by default) — a new group's anchor
+/// added, a left one's dropped. Signs a new list only when that changes.
+async fn keep_inbox(node: &Node) -> Result<()> {
+    let me = node.person();
+    let mut anchors = BTreeSet::new();
+    for (g, state) in node.groups() {
+        if state.is_some_and(|s| s.is_member(&me)) {
+            anchors.extend(node.anchors(&g).await?);
+        }
+    }
+    let named: BTreeSet<PublicKey> = node.inbox_of(&me).await?.into_iter().map(|(p, _)| p).collect();
+    if named != anchors {
+        let list: Vec<PublicKey> = anchors.into_iter().collect();
+        node.set_inbox(&list).await?;
+    }
+    Ok(())
+}
+
 /// Publishes this person's profile, and an announcement of each public
 /// group whose key this device holds, to the public relays in `relays`
 /// (M13) — each time something or the list changes, and every
@@ -3341,6 +3380,54 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
         n
+    }
+
+    /// M13: the DM inbox is on by default — the list names a group's
+    /// anchor without being asked — and off stays off, across a restart.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn the_inbox_names_the_groups_anchors_by_default_and_off_stays_off() {
+        let keys = Arc::new(MemoryStore::default());
+        let dirs: Vec<_> = (0..2).map(|_| tempfile::tempdir().unwrap()).collect();
+        let mut apps = Vec::new();
+        for d in &dirs {
+            let app = open(d.path(), &keys).await;
+            app.import_identity(&Person::generate().reveal_nsec_for_backup(), None)
+                .await
+                .unwrap();
+            apps.push(app);
+        }
+        let (a, c) = (&apps[0], &apps[1]);
+        let (na, nc) = (a.node().await.unwrap(), c.node().await.unwrap());
+        na.add_peer(local_addr(&nc));
+        nc.add_peer(local_addr(&na));
+        let g = a.create_group("Inbox", false).await.unwrap();
+        let link = na
+            .invite(&parse_key(&g).unwrap(), None, Some(local(&na)))
+            .await
+            .unwrap();
+        c.join(&link.to_string()).await.unwrap();
+        nc.set_anchor_profile("anchor").await.unwrap();
+        let anchor = npub(&nc.person());
+        assert!(
+            within(|| async { a.inbox().await.unwrap().available == vec![anchor.clone()] }).await,
+            "Alice never learned of the anchor"
+        );
+
+        // Nobody asked: the list names it.
+        keep_inbox(&na).await.unwrap();
+        let on = a.inbox().await.unwrap();
+        assert!(on.enabled && on.named == vec![anchor.clone()], "{on:?}");
+
+        // Off is remembered.
+        assert!(!a.set_inbox(false).await.unwrap().enabled);
+        assert!(!a.inbox_on.load(std::sync::atomic::Ordering::Relaxed));
+        for x in &apps {
+            x.shutdown().await;
+        }
+        drop(apps);
+        let again = open(dirs[0].path(), &keys).await;
+        assert!(!again.inbox_on.load(std::sync::atomic::Ordering::Relaxed));
+        again.shutdown().await;
     }
 
     fn local(node: &Node) -> SocketAddr {

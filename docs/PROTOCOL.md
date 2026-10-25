@@ -630,8 +630,31 @@ addressed to the other person too, as an outbox, until it is delivered.
 Size cap: 64 KiB of content. **Who may be handed one**: the same two. A
 wrap is never put on a group's gossip.
 
+**How long, and how much (M13)** — every node, one rule, though only an
+anchor and a sender ever hold wraps addressed to someone else:
+
+- A wrap addressed to someone else is dropped **7 days after it arrived**
+  here (`received_at`, a store column since migration 0005 — not
+  `created_at`, which NIP-59 blurs up to two days back). Checked at most
+  once a minute by the sync loop. Your own DMs are kept for good.
+- A node **refuses a wrap for someone else dated over 7 days ago**
+  (`Stale`): the recipient's devices keep theirs forever and would hand an
+  expired wrap straight back. A wrap's date is at or before its sending,
+  so the anchor's own copy always outlives this; a wrap first reaching an
+  anchor 5–7 days late may be refused there.
+- At most **10 MB of wraps per recipient** (`INBOX_CAP_BYTES`, by JSON
+  length), checked as each arrives: the earliest to arrive go first.
+  Worst case at Unturned scale (5,000 people × 20 DMs a day × 2 KB × 7
+  days): ~1.4 GB.
+- The sender's outbox copy for the other person follows the same week:
+  with no inbox anchor between them, a DM must be delivered within 7 days
+  of sending, or only the sender's own copy remains.
+
 **The inbox list** (kind 10050, replaceable, a person's own like their
-profile: kept and served between people who share a group):
+profile: kept and served between people who share a group). **On by
+default since M13:** the app keeps it naming exactly the anchors of the
+groups its person is in (checked every 30 s; a new list only on change),
+unless they turned it off, which `app.json` remembers. Format:
 `["anchor", <anchor hex>, <device id>]` per anchor. The device id is how a
 sender who shares no group with the anchor dials it. NIP-17's `["relay",
 url]` rows are for public relays, which nothing here publishes to yet.

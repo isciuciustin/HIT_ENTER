@@ -285,3 +285,64 @@ async fn files_are_indexed_with_their_message_and_the_cache_keeps_mine_then_the_
     assert!(s.carrying(&a.hash).await.unwrap().is_empty());
     assert_eq!(s.blobs_to_keep(1_000).await.unwrap(), vec![c.hash.clone()]);
 }
+
+/// M13's inbox, on a moved clock: wraps kept for somebody else go a week
+/// after they *arrived*, whatever their (NIP-59-random) date says; the
+/// node's own stay.
+#[tokio::test]
+async fn kept_dms_expire_a_week_after_arriving_and_ours_stay() {
+    let (s, _dir) = store().await;
+    let (me, bob, sender) = (Person::generate(), Person::generate(), Person::generate());
+    let (for_bob, _) = sender.wrap_dm(&bob.public_key(), "hi Bob", None).unwrap();
+    let (for_me, _) = sender.wrap_dm(&me.public_key(), "hi me", None).unwrap();
+    for w in [&for_bob, &for_me] {
+        s.insert(&Verified::check(w.clone()).unwrap()).await.unwrap();
+    }
+    let now = Timestamp::now().as_secs();
+    let week = hit_event::dm::INBOX_KEEP_SECS;
+    // Six days on: nothing goes.
+    let six_days_later = now + week - 24 * 60 * 60;
+    assert_eq!(s.expire_wraps(&me.public_key(), six_days_later - week).await.unwrap(), 0);
+    // Eight days on: Bob's goes, mine stays.
+    let eight_days_later = now + week + 24 * 60 * 60;
+    assert_eq!(s.expire_wraps(&me.public_key(), eight_days_later - week).await.unwrap(), 1);
+    assert!(s.by_ids(&[for_bob.id]).await.unwrap().is_empty());
+    assert_eq!(s.by_ids(&[for_me.id]).await.unwrap().len(), 1);
+}
+
+/// A flood of DMs to one person: the newest arrivals are kept up to the
+/// cap, the earliest dropped; another person's are untouched.
+#[tokio::test]
+async fn kept_dms_for_one_person_never_pass_the_cap() {
+    let (s, _dir) = store().await;
+    let (bob, carol, sender) = (Person::generate(), Person::generate(), Person::generate());
+    let mut sizes = Vec::new();
+    let mut ids = Vec::new();
+    for i in 0..20 {
+        let (w, _) = sender
+            .wrap_dm(&bob.public_key(), &format!("flood {i} {}", "x".repeat(1000)), None)
+            .unwrap();
+        sizes.push(serde_json::to_string(&w).unwrap().len() as u64);
+        ids.push(w.id);
+        s.insert(&Verified::check(w).unwrap()).await.unwrap();
+    }
+    let (other, _) = sender.wrap_dm(&carol.public_key(), "hi Carol", None).unwrap();
+    s.insert(&Verified::check(other.clone()).unwrap()).await.unwrap();
+    // Room for about five.
+    let cap = sizes.iter().take(5).sum::<u64>() + 10;
+    let gone = s.cap_wraps(&bob.public_key(), cap).await.unwrap();
+    assert!((14..=15).contains(&gone), "{gone} dropped");
+    let left: u64 = s
+        .query(
+            &Filter::new()
+                .kind(hit_event::dm::GIFT_WRAP)
+                .custom_tag(SingleLetterTag::LOWERCASE_P, bob.public_key().to_hex()),
+        )
+        .await
+        .unwrap()
+        .iter()
+        .map(|e| serde_json::to_string(e).unwrap().len() as u64)
+        .sum();
+    assert!(left <= cap, "{left} bytes kept over a cap of {cap}");
+    assert_eq!(s.by_ids(&[other.id]).await.unwrap().len(), 1);
+}

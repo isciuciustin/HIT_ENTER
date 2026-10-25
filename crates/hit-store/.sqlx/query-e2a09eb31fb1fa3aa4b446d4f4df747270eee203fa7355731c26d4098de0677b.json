@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT OR IGNORE INTO events (id, pubkey, created_at, kind, slot_d, json, received_at)\n             VALUES (?, ?, ?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 7
+    },
+    "nullable": []
+  },
+  "hash": "e2a09eb31fb1fa3aa4b446d4f4df747270eee203fa7355731c26d4098de0677b"
+}

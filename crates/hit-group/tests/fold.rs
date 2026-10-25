@@ -1965,6 +1965,22 @@ fn a_dm_is_kept_by_its_recipient_and_their_named_anchors_and_read_by_nobody_else
     assert_eq!(at_anchor.judge(&v(&to_bob), now), Err(Refusal::NotOurs));
 }
 
+/// M13: a wrap for somebody else dated over a week ago is not taken — what
+/// an anchor let go, Bob's devices cannot hand back — but Bob keeps his own
+/// however old.
+#[test]
+fn an_anchor_refuses_a_dm_older_than_its_inbox_keeps_and_the_recipient_does_not() {
+    let (alice, bob, anchor) = (Person::generate(), Person::generate(), Person::generate());
+    let (to_bob, _) = alice.wrap_dm(&bob.public_key(), "hi", None).unwrap();
+    let v = Verified::check(to_bob.clone()).unwrap();
+    let later = to_bob.created_at + hit_event::dm::INBOX_KEEP_SECS + 60;
+    let mut at_anchor = Groups::new(anchor.public_key());
+    at_anchor.set_inboxes(bob.public_key(), BTreeSet::from([anchor.public_key()]));
+    assert_eq!(at_anchor.judge(&v, later), Err(Refusal::Stale));
+    let at_bob = Groups::new(bob.public_key());
+    assert_eq!(at_bob.judge(&v, later), Ok(Judgement::Store));
+}
+
 // --- files (M8) -------------------------------------------------------------
 
 #[test]

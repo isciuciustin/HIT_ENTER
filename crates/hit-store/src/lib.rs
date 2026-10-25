@@ -79,6 +79,7 @@ impl Store {
         let pubkey = ev.pubkey.to_bytes().to_vec();
         let created_at = ev.created_at.as_secs() as i64;
         let kind = i64::from(ev.kind.as_u16());
+        let received_at = Timestamp::now().as_secs() as i64;
 
         let mut tx = self.pool.begin().await?;
         if let Some(d) = &slot_d {
@@ -107,14 +108,15 @@ impl Store {
 
         let json = serde_json::to_string(&**ev).map_err(|_| StoreError::Corrupt)?;
         let inserted = sqlx::query!(
-            "INSERT OR IGNORE INTO events (id, pubkey, created_at, kind, slot_d, json)
-             VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT OR IGNORE INTO events (id, pubkey, created_at, kind, slot_d, json, received_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?)",
             id,
             pubkey,
             created_at,
             kind,
             slot_d,
-            json
+            json,
+            received_at
         )
         .execute(&mut *tx)
         .await?;
@@ -154,6 +156,58 @@ impl Store {
         }
         tx.commit().await?;
         Ok(Stored::New)
+    }
+
+    /// Drops the DM wraps (kind 1059) addressed to anyone but `me` that
+    /// arrived before `before` (unix seconds): an inbox's week is up (M13).
+    /// How many went.
+    pub async fn expire_wraps(&self, me: &PublicKey, before: u64) -> Result<u64, StoreError> {
+        let kind = i64::from(hit_event::dm::GIFT_WRAP.as_u16());
+        let before = i64::try_from(before).unwrap_or(i64::MAX);
+        let me = me.to_hex();
+        let gone = sqlx::query!(
+            "DELETE FROM events WHERE kind = ? AND received_at < ?
+             AND id NOT IN (SELECT event_id FROM tags WHERE name = 'p' AND value = ?)",
+            kind,
+            before,
+            me
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(gone.rows_affected())
+    }
+
+    /// Keeps at most `cap` bytes of DM wraps addressed to `to`, dropping the
+    /// earliest to arrive first (M13). How many went.
+    pub async fn cap_wraps(&self, to: &PublicKey, cap: u64) -> Result<u64, StoreError> {
+        let kind = i64::from(hit_event::dm::GIFT_WRAP.as_u16());
+        let to = to.to_hex();
+        let rows = sqlx::query!(
+            r#"SELECT e.id AS "id!", length(e.json) AS "size!: i64" FROM events e
+               JOIN tags t ON t.event_id = e.id
+               WHERE e.kind = ? AND t.name = 'p' AND t.value = ?
+               ORDER BY e.received_at DESC, e.created_at DESC"#,
+            kind,
+            to
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        let mut held: u64 = 0;
+        let mut drop = Vec::new();
+        for r in rows {
+            held = held.saturating_add(u64::try_from(r.size).unwrap_or(0));
+            if held > cap {
+                drop.push(r.id);
+            }
+        }
+        let mut tx = self.pool.begin().await?;
+        for id in &drop {
+            sqlx::query!("DELETE FROM events WHERE id = ?", id)
+                .execute(&mut *tx)
+                .await?;
+        }
+        tx.commit().await?;
+        Ok(drop.len() as u64)
     }
 
     pub async fn count(&self) -> Result<i64, StoreError> {

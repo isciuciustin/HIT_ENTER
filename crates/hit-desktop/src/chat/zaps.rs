@@ -137,7 +137,7 @@ impl Chat {
         let on = self.app.inbox().await.map_err(|e| e.to_string())?.enabled;
         let now = self.app.set_inbox(!on).await.map_err(|e| e.to_string())?;
         Ok(if now.enabled {
-            "Your groups' anchors will keep your DMs while you are away.".into()
+            "Your groups' anchors will keep your DMs while you are away, for 7 days.".into()
         } else {
             "Your DMs now wait only on the sender's device until you are back.".into()
         })

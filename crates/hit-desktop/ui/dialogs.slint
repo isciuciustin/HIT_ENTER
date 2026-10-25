@@ -1202,7 +1202,7 @@ export component ProfileDialog inherits Rectangle {
             Note {
                 width: 428px;
                 font-size: 11px;
-                text: "Off: a DM to you waits on the sender's device until you are both online. On: the anchors of your groups keep it for you. They cannot read it or tell who sent it; they can tell that someone wrote to you, and when.";
+                text: "On (the default): the anchors of your groups keep a DM for you while you are away — for 7 days, at most 10 MB of them, oldest dropped first. They cannot read it or tell who sent it; they can tell that someone wrote to you, and when. Off: it waits on the sender's device, up to 7 days, until you are both online.";
             }
             if root.p.inbox-available == 0 && !root.p.inbox-enabled : Text { text: "None of your groups has an anchor."; font-size: 11px; color: Theme.muted; }
             if root.p.inbox-available > 0 || root.p.inbox-enabled : HorizontalLayout {

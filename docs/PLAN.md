@@ -1124,6 +1124,22 @@ welcome. **Honest limits:** names and counts are the group's own word
 and announce — spam is the next thing a real list will meet; ranking and
 search come later. Only the owner's app announces; an anchor holding the
 key could, and does not yet.
+**Step 6 built (same day):** the DM inbox on by default — the app keeps
+the 10050 naming its groups' anchors every 30 s unless turned off
+(remembered); a wrap kept for someone else goes **7 days after it
+arrived** (migration 0005, `received_at`), and no node takes one *dated*
+over 7 days ago — without that, the recipient's devices (which keep
+theirs forever) would hand an expired wrap straight back; **10 MB per
+recipient**, earliest arrived dropped, checked as each arrives. One rule
+on every node — so the sender's outbox copy for the other person also
+lasts a week: two people with no anchor between them must meet within 7
+days (said in the dialog). Tested in the store on a moved clock (6 days:
+kept; 8 days: gone, our own kept), a 20-DM flood under a 5-DM cap, the
+judge refusing an old wrap at an anchor but not at its recipient, and
+the app naming an anchor unasked and remembering *off* across a restart.
+**Not driven in windows** — the window only changed words. Existing
+users who had chosen off before M13 are switched on once: the choice was
+never recorded.
 
 **What to build, in order:**
 
