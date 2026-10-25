@@ -89,7 +89,7 @@ and money.
 
 As `BUILD_MACOS.md` §7: download the release's `SHA256SUMS`, append the
 zip's line, upload both with `--clobber`; the download page's button and
-note are in `isciuciustin/hitenter`, deployed with `npx wrangler@4 deploy`
+note are in `justin-hakr-flexer/hitenter`, deployed with `npx wrangler@4 deploy`
 from a machine logged in to Cloudflare (not the Windows laptop — the
 owner's choice).
 

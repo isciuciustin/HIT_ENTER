@@ -7,7 +7,7 @@ checksums are computed last, from the files actually on the release, so
 no session has to pass lines to another. The draft is invisible to the
 public until the owner says publish.
 
-Releases live on **`isciuciustin/hitenter`** (the site repo), not on the
+Releases live on **`justin-hakr-flexer/hitenter`** (the site repo), not on the
 code repo. The code repo gets a matching tag.
 
 ## Now: 0.1.0-beta.5 (public communities, M13)
@@ -16,7 +16,7 @@ code repo. The code repo gets a matching tag.
 
 - Code: `main` at or after `75bcfb6` — `Cargo.toml` says
   `version = "0.1.0-beta.5"`. Build from that, nothing older.
-- Draft release **`v0.1.0-beta.5`** on `isciuciustin/hitenter`, with the
+- Draft release **`v0.1.0-beta.5`** on `justin-hakr-flexer/hitenter`, with the
   Linux files: `hit-enter_0.1.0-beta.5_amd64.deb`,
   `HIT_ENTER_0.1.0-beta.5_x86_64.AppImage`, `THIRD_PARTY_NOTICES.md`.
   Release notes are written; no `SHA256SUMS` yet (on purpose — §Last).
@@ -95,9 +95,9 @@ to Applications over the old one, run it:
 **Upload to the draft:**
 
 ```bash
-gh release upload v0.1.0-beta.5 --repo isciuciustin/hitenter \
+gh release upload v0.1.0-beta.5 --repo justin-hakr-flexer/hitenter \
   target/release-upload/HIT_ENTER_0.1.0-beta.5_aarch64.dmg
-gh release view v0.1.0-beta.5 --repo isciuciustin/hitenter --json assets --jq '.assets[].name'
+gh release view v0.1.0-beta.5 --repo justin-hakr-flexer/hitenter --json assets --jq '.assets[].name'
 ```
 
 Upload only the `.dmg` — not this machine's `SHA256SUMS` or notices
@@ -146,9 +146,9 @@ unsigned, `BUILD_WINDOWS.md` §5):
 **Upload to the draft:**
 
 ```powershell
-gh release upload v0.1.0-beta.5 --repo isciuciustin/hitenter `
+gh release upload v0.1.0-beta.5 --repo justin-hakr-flexer/hitenter `
   target\release-upload\HIT_ENTER_0.1.0-beta.5_x64.zip
-gh release view v0.1.0-beta.5 --repo isciuciustin/hitenter --json assets --jq '.assets[].name'
+gh release view v0.1.0-beta.5 --repo justin-hakr-flexer/hitenter --json assets --jq '.assets[].name'
 ```
 
 Only the `.zip`. Findings go into `BUILD_WINDOWS.md` and
@@ -162,16 +162,16 @@ When the draft holds the `.deb`, `.AppImage`, `.dmg` and `.zip`:
 
 ```bash
 d=$(mktemp -d) && cd "$d"
-gh release download v0.1.0-beta.5 --repo isciuciustin/hitenter \
+gh release download v0.1.0-beta.5 --repo justin-hakr-flexer/hitenter \
   -p '*.deb' -p '*.AppImage' -p '*.dmg' -p '*.zip' -p 'THIRD_PARTY_NOTICES.md'
 sha256sum -- * > SHA256SUMS && cat SHA256SUMS
-gh release upload v0.1.0-beta.5 --repo isciuciustin/hitenter SHA256SUMS --clobber
+gh release upload v0.1.0-beta.5 --repo justin-hakr-flexer/hitenter SHA256SUMS --clobber
 ```
 
 Computed from the files on the release, so it is what users download.
 Then, **on the owner's go only**:
 
-1. Publish: `gh release edit v0.1.0-beta.5 --repo isciuciustin/hitenter --draft=false`.
+1. Publish: `gh release edit v0.1.0-beta.5 --repo justin-hakr-flexer/hitenter --draft=false`.
 2. Tag the code: `git tag v0.1.0-beta.5 75bcfb6 && git push origin v0.1.0-beta.5`
    (or the commit the Mac/Windows builds were made from, if a fix
    landed — all three must be built from the same commit).

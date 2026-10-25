@@ -209,11 +209,11 @@ That is the owner's decision and money; don't start it without asking.
 
 ## 7. Publishing
 
-The public repo is `isciuciustin/hitenter` (website + binaries, **no
+The public repo is `justin-hakr-flexer/hitenter` (website + binaries, **no
 source**), checked out on Linux at `~/Work/hitenter-site`. From the Mac:
 
 ```bash
-gh release upload v0.1.0-beta.2 --repo isciuciustin/hitenter \
+gh release upload v0.1.0-beta.2 --repo justin-hakr-flexer/hitenter \
   target/release-upload/HIT_ENTER_0.1.0-beta.2_aarch64.dmg
 ```
 
@@ -223,7 +223,7 @@ gh release upload v0.1.0-beta.2 --repo isciuciustin/hitenter \
 - **Only on the owner's go.** Uploading is publishing.
 - The landing page's macOS button and the quarantine note are edited in
   the site repo, not here; tell the owner what to add, or clone
-  `isciuciustin/hitenter`, edit `public/index.html` and deploy with
+  `justin-hakr-flexer/hitenter`, edit `public/index.html` and deploy with
   `npx wrangler@4 deploy` (needs `npx wrangler login` on the Mac first).
 
 Commit `scripts/release-macos.sh`, any code fixes and this file's §9 to
@@ -298,14 +298,14 @@ The script's other check passed too: no `$HOME` in the binary.
 **The upload (§7), on the owner's go:**
 `HIT_ENTER_0.1.0-beta.2_aarch64.dmg`, 16 720 271 bytes,
 sha256 `3616e71627001bb2d5b5d72b5f800522a7eb8516dbaa4049a998704b8b98ea33`,
-added to the `v0.1.0-beta.2` release of `isciuciustin/hitenter`. The
+added to the `v0.1.0-beta.2` release of `justin-hakr-flexer/hitenter`. The
 release's `SHA256SUMS` was downloaded, the `.dmg`'s line appended, and
 re-uploaded with `--clobber`; the four Linux lines are unchanged. The
 release is still titled "HIT_ENTER 0.1.0-beta.2 (Linux)".
 
 **The site:** `public/index.html` got a "macOS · Apple silicon" button,
 the §6 quarantine note with the `xattr` command, and the `.dmg`'s
-checksum (`a4dfdcd` in `isciuciustin/hitenter`, pushed). **Not deployed**
+checksum (`a4dfdcd` in `justin-hakr-flexer/hitenter`, pushed). **Not deployed**
 — `wrangler` is not logged in on the Mac; the owner deploys from Linux.
 
 **Run (§5) — only the debug build, and only briefly.** The owner ran

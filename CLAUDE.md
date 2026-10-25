@@ -8,14 +8,14 @@ Unturned Discord running on HIT_ENTER.** Privacy is no longer the headline
 the wire; every running app is a relay** for its user's groups.
 
 The app is called **HIT_ENTER**. The directory is `HIT_ENTER`, the **public**
-repo `isciuciustin/HIT_ENTER` (MIT, since 2026-10-22); work happens here
+repo `justin-hakr-flexer/HIT_ENTER` (MIT, since 2026-10-22); work happens here
 directly. (Until then it lived in the private `HIT_ENTER_0.1`, now retired.) Crates are `hit-*`, so they never collide with the original HIT_ENTER's `he-*` or
 HIT_ENTER_2's `he2-*`.
 
 ## Where this is right now
 
 **2026-10-25 — v0.1.0-beta.5 is out (M13, public communities)** — Linux,
-macOS, Windows on `isciuciustin/hitenter`, one `SHA256SUMS`; code tag
+macOS, Windows on `justin-hakr-flexer/hitenter`, one `SHA256SUMS`; code tag
 `v0.1.0-beta.5` at `75bcfb6`; the VPS anchor runs it; site `ad44afb`
 (deployed from the laptop with `npx wrangler@4 deploy`). How a release is made:
 `docs/RELEASING.md`. beta.4 had 11 app downloads. **M13's final check
@@ -40,7 +40,7 @@ terminal (the key has a passphrase) — start the agent first with
 owner rents a VPS in November for the first always-on anchor). Start there.
 
 **2026-10-19: v0.1.0-beta.4 is out — Linux, macOS Apple silicon, Windows.**
-Public pre-release on `isciuciustin/hitenter` (AppImage, `.deb`, `.dmg`,
+Public pre-release on `justin-hakr-flexer/hitenter` (AppImage, `.deb`, `.dmg`,
 `.zip`, one `SHA256SUMS`). New: Twemoji colour reactions (`src/art.rs`,
 `ui/art.slint`); the emoji picker's full list has a background (its
 `Panel` was unsized); **the orange "your IP is visible to this group"
@@ -60,7 +60,7 @@ no scripts. Deployed with `npx wrangler deploy` from `~/Work/hitenter-site`.
 **On a new release:** bump the links, versions and sha256 lines there.
 
 **2026-10-18: v0.1.0-beta.3 was out — the Slint app, Linux + macOS.**
-Public pre-release on `isciuciustin/hitenter` (`.deb`, AppImage, `.dmg`,
+Public pre-release on `justin-hakr-flexer/hitenter` (`.deb`, AppImage, `.dmg`,
 one `SHA256SUMS`), and hitenter.app links it (site `6e6a1c3`). The window
 is `crates/hit-desktop` (Slint, binary `hit-enter`); Tauri and `web/` are
 gone. Measured on this PC (release builds, PSS of the whole app): **32 MB
@@ -116,12 +116,12 @@ was decided and why — **check it before reopening a settled question.**
 
 **Open source, MIT** (owner, 2026-10-22; reversed the 2026-09-27
 closed-source decision, `DESIGN.md` §15 q1). Published to the public
-`isciuciustin/HIT_ENTER` as a fresh history; every crate is still
+`justin-hakr-flexer/HIT_ENTER` as a fresh history; every crate is still
 `publish = false`. **Never commit secrets** — NWC strings, `nsec`s, wallet
 addresses, `*.key`, `.env`: everything here can go public. The site repo
-for `hitenter.app` is separate: **`isciuciustin/hitenter` (public)**, local at
+for `hitenter.app` is separate: **`justin-hakr-flexer/hitenter` (public)**, local at
 `~/Work/hitenter-site`: the hitenter.app page, `fee@hitenter.app`, and
-release binaries (`gh release create … --repo isciuciustin/hitenter`; first:
+release binaries (`gh release create … --repo justin-hakr-flexer/hitenter`; first:
 v0.1.0-beta.2, 2026-10-17). **The zap fee is 1%** (`DESIGN.md` §11).
 
 **Workspace skeleton — done (2026-10-10).** Six crates under `crates/`
@@ -263,7 +263,7 @@ in that one session. `docs/SESSION_LOG.md` has an entry per piece.
    to ship without it; the site says "use a headset"). Owed: the
    canceller (`BUILD_WINDOWS.md` §3), and identity/call/link tests on
    Windows (§7). The site's Windows button is pushed to
-   `isciuciustin/hitenter` and deployed with `npx wrangler@4 deploy` — the
+   `justin-hakr-flexer/hitenter` and deployed with `npx wrangler@4 deploy` — the
    laptop is logged in to Cloudflare since 2026-10-25.
 1. **`TESTING.md` §6 — a real call.** Two people first, one on laptop
    speakers, ten minutes: echo, drift (the call bar's *audio glitches*),
@@ -424,7 +424,7 @@ enough.
   rolling distributions (true of the Tauri betas). Test the .deb with
   `docker run … debian:bookworm` and `xvfb-run`.
 - **Before every push, check the diff for secrets** — the code is public
-  (MIT) and `isciuciustin/HIT_ENTER` gets it.
+  (MIT) and `justin-hakr-flexer/HIT_ENTER` gets it.
 
 ## Read first
 
@@ -450,7 +450,7 @@ enough.
   here; its copyright notice goes in `THIRD_PARTY_NOTICES.md`. Its old
   `v0.1.0`/`v0.1.1` tags were removed from GitHub on 2026-10-22; its full
   history is in `~/Work/HIT_ENTER_original.bundle` (`git clone` it).
-  The public `isciuciustin/HIT_ENTER` repo *is* this code now.
+  The public `justin-hakr-flexer/HIT_ENTER` repo *is* this code now.
 - **HIT_ENTER_2** (`../HIT_ENTER_2`) is proprietary and the owner's. Its
   code may move here — which publishes it under MIT; record each piece that
   moves in `docs/SESSION_LOG.md`.

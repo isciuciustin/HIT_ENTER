@@ -28,8 +28,8 @@ exclude = ["spikes"]
 version = "0.1.0-beta.5"
 edition = "2024"
 rust-version = "1.90"
-repository = "https://github.com/isciuciustin/HIT_ENTER"
-authors = ["isciuciustin"]
+repository = "https://github.com/justin-hakr-flexer/HIT_ENTER"
+authors = ["justin-hakr-flexer"]
 # **MIT** (`LICENSE`; open source since 2026-10-22, DESIGN.md §15 q1). Every
 # crate still sets `publish = false`: open source, but not on crates.io.
 #

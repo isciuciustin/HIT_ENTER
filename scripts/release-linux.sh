@@ -76,7 +76,7 @@ cat > "$deb/DEBIAN/control" <<EOF
 Package: hit-enter
 Version: $debver
 Architecture: amd64
-Maintainer: isciuciustin
+Maintainer: justin-hakr-flexer
 Installed-Size: $size
 Depends: libc6 (>= 2.35), libgcc-s1, libstdc++6, libfontconfig1, libfreetype6, libasound2t64 | libasound2, libopus0, libxkbcommon0, libwayland-client0 | libx11-6
 Recommends: libxkbcommon-x11-0, libxcursor1, libxi6, libdbus-1-3

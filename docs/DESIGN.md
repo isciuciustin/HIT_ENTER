@@ -793,7 +793,7 @@ Ordered by how much they hurt if answered late.
 
 1. ~~**Licence, and where the code comes from.**~~ **Answered again
    2026-10-22: open source, MIT** — the owner's decision, published to the
-   public `isciuciustin/HIT_ENTER`. It reverses the first answer below,
+   public `justin-hakr-flexer/HIT_ENTER`. It reverses the first answer below,
    kept for the record. MIT means forks may drop the 1% fee (§11); the
    official builds and hosted anchors are what pay. The dependency rules
    still hold (no GPL family, `cargo about`).
@@ -811,7 +811,7 @@ Ordered by how much they hurt if answered late.
      `cargo about` with an accepted-licence list, and no GPL/AGPL/LGPL in
      the tree. iroh, `rust-nostr`, Opus and the WebRTC audio processing
      library are all permissive; check `callme`'s before copying from it.
-   - **The repo stays private** (`github.com/isciuciustin/HIT_ENTER_0.1` is),
+   - **The repo stays private** (`github.com/justin-hakr-flexer/HIT_ENTER_0.1` is),
      and every crate is `publish = false`.
    - **The uncomfortable part, said once:** a privacy promise from closed
      code is a promise users cannot check. Three things make it checkable

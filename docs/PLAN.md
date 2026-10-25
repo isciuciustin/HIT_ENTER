@@ -1001,7 +1001,7 @@ first build's `0.1.0~beta.3` sorted *below* beta.2 and was refused) and
 runs; it runs under Xvfb on Ubuntu 22.04; the AppImage opens here.
 Notices: 742 kB → 640 kB without Tauri's tree.
 
-*Released (2026-10-18): **v0.1.0-beta.3** on `isciuciustin/hitenter`,
+*Released (2026-10-18): **v0.1.0-beta.3** on `justin-hakr-flexer/hitenter`,
 pre-release, Linux + macOS from commit `3a0483e`: `hit-enter_0.1.0-beta.3
 _amd64.deb` (sha256 `9ad706f4…`), `HIT_ENTER_0.1.0-beta.3_x86_64.AppImage`
 (`76da6484…`), `HIT_ENTER_0.1.0-beta.3_aarch64.dmg` (`db32f3dd…`, built on

@@ -72,7 +72,7 @@ numbers say it better).
 > written in Rust.
 >
 > ⬇️ https://hitenter.app
-> 🧑‍💻 https://github.com/isciuciustin/HIT_ENTER
+> 🧑‍💻 https://github.com/justin-hakr-flexer/HIT_ENTER
 > 👋 Come say hi in our public group: [link]
 >
 > Bugs, ideas and rants all welcome, here or on GitHub.
@@ -84,7 +84,7 @@ numbers say it better).
 **Title** (76 characters, under HN's 80 limit):
 `Show HN: HIT_ENTER – Discord-like chat where every app is a relay, in 60 MB`
 
-**URL:** `https://github.com/isciuciustin/HIT_ENTER`
+**URL:** `https://github.com/justin-hakr-flexer/HIT_ENTER`
 
 **First comment** (post it right after submitting):
 

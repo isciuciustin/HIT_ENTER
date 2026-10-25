@@ -23,7 +23,7 @@ list.
 
 ## Code carried from HIT_ENTER
 
-HIT_ENTER (`isciuciustin/HIT_ENTER`) is MIT OR Apache-2.0; we take it under
+HIT_ENTER (`justin-hakr-flexer/HIT_ENTER`) is MIT OR Apache-2.0; we take it under
 the MIT licence below. What moved, and from where:
 
 - `crates/hit-proto/src/frame.rs` and `io.rs` — the length-prefixed framing

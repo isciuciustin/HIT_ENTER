@@ -1497,3 +1497,25 @@ exist.
 - Outside the repo: Omarchy's Discord web app was removed on the owner's
   laptop (`omarchy webapp remove Discord`); the installed `discord`
   package stays.
+
+## 2026-10-25 — the GitHub account is `justin-hakr-flexer`
+
+- The owner renamed the GitHub account `isciuciustin` → **`justin-hakr-flexer`**.
+  The repos moved with it: **`justin-hakr-flexer/HIT_ENTER`** and
+  **`justin-hakr-flexer/hitenter`** (site + release binaries). Every
+  reference outside this log was updated (`Cargo.toml` repository and
+  authors, `LICENSE`, the `.deb` maintainer in `scripts/release-linux.sh`,
+  `about.hbs` with `THIRD_PARTY_NOTICES.md`, the docs, `CLAUDE.md`); older
+  entries above keep the old name as history.
+- **Why it mattered:** GitHub redirects the old repo URLs only until
+  someone registers `isciuciustin`. That person could then create
+  `isciuciustin/hitenter` with their own files, and hitenter.app's download
+  buttons would serve them. The site now links the new owner directly (all
+  four beta.5 downloads checked), and its licence link points at `master`,
+  the site repo's branch (it said `main` and was a 404 before the rename).
+- Builds already published (beta.5 and earlier) still name `isciuciustin`
+  inside them (the `.deb` maintainer); nothing in them links GitHub.
+- Donations: hitenter.app's footer has a Donate column, Lightning
+  `JustinHakrFlexer@coinos.io` and an on-chain address, with QR codes (site
+  `59f855e`). Coinos's callbacks are made per request, so the address is
+  shown as is, not copied into a static file like `fee@`.
