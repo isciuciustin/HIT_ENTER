@@ -1465,7 +1465,7 @@ exist.
   came from `09b2dbf`, which differs only in docs.
 - Site `ad44afb`: links, versions and sha256 lines → beta.5, "New in
   beta.5" (says beta.4 cannot join a public group). Deployed from the
-  owner's main PC.
+  laptop (`wrangler whoami`: it is logged in to Cloudflare now).
 - beta.4's downloads at the switch: AppImage 4, `.zip` 3, `.deb` 2,
   `.dmg` 2 (11 app files, some ours).
 - Permissions: auto mode's checker kept refusing `gh release` with no

@@ -178,8 +178,8 @@ Then, **on the owner's go only**:
 3. The site (`~/Work/hitenter-site/public/index.html`): every
    `0.1.0-beta.4` link and file name → beta.5, and each platform's
    `sha256` line from the `SHA256SUMS` above. Deploy with
-   `npx wrangler deploy` from the owner's main PC (the laptop has no
-   Cloudflare login).
+   `npx wrangler@4 deploy` (the laptop is logged in since 2026-10-25;
+   it used to deploy from the owner's main PC).
 4. A line in `CLAUDE.md` "Where this is right now" and in
    `SESSION_LOG.md`.
 

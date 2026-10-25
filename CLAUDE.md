@@ -17,7 +17,7 @@ HIT_ENTER_2's `he2-*`.
 **2026-10-25 — v0.1.0-beta.5 is out (M13, public communities)** — Linux,
 macOS, Windows on `isciuciustin/hitenter`, one `SHA256SUMS`; code tag
 `v0.1.0-beta.5` at `75bcfb6`; the VPS anchor runs it; site `ad44afb`
-(pushed, deployed from the owner's main PC). How a release is made:
+(deployed from the laptop with `npx wrangler@4 deploy`). How a release is made:
 `docs/RELEASING.md`. beta.4 had 11 app downloads. **M13's final check
 (the owner's name in Primal, browse → join from a second device, Chachi
 reading the anchor) is still owed.**
@@ -258,8 +258,8 @@ in that one session. `docs/SESSION_LOG.md` has an entry per piece.
    to ship without it; the site says "use a headset"). Owed: the
    canceller (`BUILD_WINDOWS.md` §3), and identity/call/link tests on
    Windows (§7). The site's Windows button is pushed to
-   `isciuciustin/hitenter` but deployed from the owner's main PC — the
-   laptop has no Cloudflare login, by choice.
+   `isciuciustin/hitenter` and deployed with `npx wrangler@4 deploy` — the
+   laptop is logged in to Cloudflare since 2026-10-25.
 1. **`TESTING.md` §6 — a real call.** Two people first, one on laptop
    speakers, ten minutes: echo, drift (the call bar's *audio glitches*),
    Bluetooth. Then the done-when: four people, two cities, thirty minutes.
