@@ -1394,3 +1394,16 @@ exist.
   DM correspondents. Signed with `sign_unjudged` (signs without storing:
   the store does not carry 10009). Joins now wake the publisher so the
   list follows at once, not at the ten-minute tick.
+- **beta.5 started; M13's final check, as far as it goes from here.**
+  `crates/hit-zap/tests/real_relays.rs` (ignored; needs the internet):
+  Damus, nos.lol and Primal each connect, answer a `REQ` with signed
+  events and say `EOSE` through our client — read-only, nothing
+  published; no HIT_ENTER announcements there yet. The anchor was built
+  at beta.5 (`target/u2204`), but **its deploy to the VPS was refused by
+  the agent's permission check** — the owner runs it (the commands are in
+  the session's last message; back up `/var/lib/hit-anchor` first:
+  migration 0005 means the old binary cannot open the upgraded store).
+  Linux beta.5 built (`scripts/release-linux.sh 0.1.0-beta.5`), the
+  `.deb` installed and ran on Debian 12. **Compatibility:** beta.4 peers
+  refuse a code-less join and ignore `public`/`about` edits, so a public
+  group needs beta.5 everywhere in it, its anchor included.

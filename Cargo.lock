@@ -2906,7 +2906,7 @@ dependencies = [
 
 [[package]]
 name = "hit-anchor"
-version = "0.1.0-beta.4"
+version = "0.1.0-beta.5"
 dependencies = [
  "anyhow",
  "axum",
@@ -2935,7 +2935,7 @@ dependencies = [
 
 [[package]]
 name = "hit-app-core"
-version = "0.1.0-beta.4"
+version = "0.1.0-beta.5"
 dependencies = [
  "hit-event",
  "hit-group",
@@ -2957,7 +2957,7 @@ dependencies = [
 
 [[package]]
 name = "hit-cli"
-version = "0.1.0-beta.4"
+version = "0.1.0-beta.5"
 dependencies = [
  "anyhow",
  "clap",
@@ -2975,7 +2975,7 @@ dependencies = [
 
 [[package]]
 name = "hit-desktop"
-version = "0.1.0-beta.4"
+version = "0.1.0-beta.5"
 dependencies = [
  "arboard",
  "chrono",
@@ -2998,7 +2998,7 @@ dependencies = [
 
 [[package]]
 name = "hit-event"
-version = "0.1.0-beta.4"
+version = "0.1.0-beta.5"
 dependencies = [
  "aes-gcm",
  "getrandom 0.4.3",
@@ -3015,7 +3015,7 @@ dependencies = [
 
 [[package]]
 name = "hit-group"
-version = "0.1.0-beta.4"
+version = "0.1.0-beta.5"
 dependencies = [
  "hit-event",
  "nostr",
@@ -3025,7 +3025,7 @@ dependencies = [
 
 [[package]]
 name = "hit-node"
-version = "0.1.0-beta.4"
+version = "0.1.0-beta.5"
 dependencies = [
  "bytes",
  "hex",
@@ -3049,7 +3049,7 @@ dependencies = [
 
 [[package]]
 name = "hit-proto"
-version = "0.1.0-beta.4"
+version = "0.1.0-beta.5"
 dependencies = [
  "iroh-base",
  "nostr",
@@ -3060,7 +3060,7 @@ dependencies = [
 
 [[package]]
 name = "hit-store"
-version = "0.1.0-beta.4"
+version = "0.1.0-beta.5"
 dependencies = [
  "hit-event",
  "nostr",
@@ -3073,7 +3073,7 @@ dependencies = [
 
 [[package]]
 name = "hit-voice"
-version = "0.1.0-beta.4"
+version = "0.1.0-beta.5"
 dependencies = [
  "cpal",
  "hit-event",
@@ -3093,7 +3093,7 @@ dependencies = [
 
 [[package]]
 name = "hit-zap"
-version = "0.1.0-beta.4"
+version = "0.1.0-beta.5"
 dependencies = [
  "axum",
  "futures-util",
