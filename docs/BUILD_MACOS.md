@@ -9,6 +9,10 @@ file in the same commit.
 M1, with every feature the Linux beta has, then uploaded to the public
 release (§7). Intel Macs are a later step (§8).
 
+**Making a release? Start with `docs/RELEASING.md`** — the current one
+(0.1.0-beta.5), what to smoke-test, and where the `.dmg` goes. This file
+is the background.
+
 ## 0. Since 0.1.0-beta.3: the Slint app (start here)
 
 Tauri and the web UI left the tree; §1–§9 below are the Tauri story, kept

@@ -4,6 +4,9 @@ The Slint window (`crates/hit-desktop`, binary `hit-enter`) for Windows
 x64, as a portable `.zip`. First built on 2026-10-18 on a Windows 11 Pro
 laptop; `0.1.0-beta.3`'s zip is on the release.
 
+**Making a release? Start with `docs/RELEASING.md`** — the current one
+(0.1.0-beta.5), what to smoke-test, and where the zip goes.
+
 ## 0. Short version
 
 ```powershell

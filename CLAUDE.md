@@ -424,6 +424,7 @@ enough.
 | `docs/SELF_HOSTING.md` | running an anchor on a Pi or a VPS: systemd, credentials, `wss://` |
 | `docs/BUILD_MACOS.md` | building, checking and publishing the macOS app on the owner's M1 — written on Linux, not yet run |
 | `docs/BUILD_WINDOWS.md` | building the Windows zip: the toolchain, the named pipe, the registry, why there is no echo canceller there, home paths in C |
+| `docs/RELEASING.md` | **making a release across Linux, macOS and Windows** — the current one (0.1.0-beta.5), each machine's steps and smoke test, the shared draft, checksums last |
 | `docs/SESSION_LOG.md` | what each session decided, and why — settled questions stay settled |
 | `spikes/voice/README.md` | S3: what `callme` proved locally, the two-city recipe, the verdict when it exists |
 | `scripts/gui/README.md` | driving two app windows from the agent: the scripts and their rules |
