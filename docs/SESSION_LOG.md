@@ -1407,3 +1407,14 @@ exist.
   `.deb` installed and ran on Debian 12. **Compatibility:** beta.4 peers
   refuse a code-less join and ignore `public`/`about` edits, so a public
   group needs beta.5 everywhere in it, its anchor included.
+- **The VPS anchor runs beta.5** (sha256 `aa2a8e1f…45b0da`, 05:32 UTC,
+  2026-10-25). The owner ran the deploy commands from the agent's message
+  and the `scp` failed on its *relative* path (run outside the repo), so
+  the second command stopped the service, took the backup and `.prev`,
+  then found no binary to install: about a minute down. The agent copied
+  the binary and started it. **Write deploy commands with absolute
+  paths.** Backup: `/var/backups/hit-anchor-pre-m13.tgz` (the old binary
+  cannot open the migrated store); old binary: `hit-anchor.prev`. From
+  outside: NIP-11 says `0.1.0-beta.5`, `auth_required: false`; an
+  unauthenticated `REQ` gets `AUTH`, then `EOSE` and no events — the
+  pinned group is private. The expired-binding refusals stopped.
