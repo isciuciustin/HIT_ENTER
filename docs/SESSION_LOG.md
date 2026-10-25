@@ -1441,3 +1441,17 @@ exist.
   ≈ 470 MB. Details in `BUILD_MACOS.md` §9 2026-10-25.
 - **Not done:** the beta.5 smoke test on macOS (not reported); links by
   Apple Event with the app closed.
+
+## 2026-10-25 — beta.5 on Windows: built, on the draft
+
+- **Windows beta.5 built and on the draft** (owner's PC, from `09b2dbf`):
+  `HIT_ENTER_0.1.0-beta.5_x64.zip`, 26.9 MB; the script's home-path and
+  DLL checks passed; the owner's smoke test was good. Build and clippy
+  are clean once `CMAKE_POLICY_VERSION_MINIMUM=3.5` is in the shell
+  (plain `cargo` fails on `audiopus_sys` without it; now in
+  `RELEASING.md`). **Two flaky tests**, both reading folded state right
+  after a sync: `hit-node` `m3_done_when::a_removed_member_stops_hearing_the_group`
+  (failed once in a full run, 3/3 alone) and `hit-app-core`
+  `the_owner_moderates_and_the_window_is_told_what_each_may_do`
+  (`state.rs:3054`, 2 of 5 runs). Not fixed; not Windows code. The draft
+  now holds the `.deb`, `.AppImage`, `.dmg` and `.zip`: §Last is next.

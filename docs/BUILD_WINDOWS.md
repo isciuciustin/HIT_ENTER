@@ -32,7 +32,9 @@ winget install --id Kitware.CMake -e
   `x86_64-pc-windows-msvc` here.
 - **CMake** builds libopus (`audiopus_sys` from source; no pkg-config, no
   vcpkg). CMake 4 refuses opus's `cmake_minimum_required` without
-  `CMAKE_POLICY_VERSION_MINIMUM=3.5` — the script sets it.
+  `CMAKE_POLICY_VERSION_MINIMUM=3.5` — the script sets it; for a plain
+  `cargo build`/`clippy`/`test`, set it in the shell first
+  (`$env:CMAKE_POLICY_VERSION_MINIMUM = '3.5'`), or `audiopus_sys` fails.
 - **Clone with `core.autocrlf false`**, or every file differs from the
   Linux checkouts by its line endings.
 

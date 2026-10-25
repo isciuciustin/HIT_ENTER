@@ -117,6 +117,7 @@ installed from beta.3/beta.4. PowerShell:
 cd $HOME\path\to\HIT_ENTER        # the clone on the PC
 git pull
 Select-String '^version' Cargo.toml   # must say 0.1.0-beta.5
+$env:CMAKE_POLICY_VERSION_MINIMUM = '3.5'   # CMake 4 vs libopus; the script sets it, plain cargo does not
 cargo build -p hit-desktop
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
