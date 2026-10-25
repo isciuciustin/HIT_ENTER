@@ -1418,3 +1418,26 @@ exist.
   outside: NIP-11 says `0.1.0-beta.5`, `auth_required: false`; an
   unauthenticated `REQ` gets `AUTH`, then `EOSE` and no events — the
   pinned group is private. The expired-binding refusals stopped.
+
+## 2026-10-25 — beta.5 on the M1: built, on the draft, 64 MB
+
+- **The Mac's clone was on the original HIT_ENTER's history** (`main` at
+  `fbc777e`, v0.1.1), unrelated to the public one — `git pull` would have
+  merged two unrelated trees. Reset to `origin/main` (`09b2dbf`); the old
+  branch deleted on the owner's word. Check `git merge-base --is-ancestor
+  main origin/main` on any clone older than 2026-10-22.
+- **Built with no change:** debug build, clippy, `cargo test --workspace`
+  (all pass, 2 ignored), `scripts/release-macos.sh 0.1.0-beta.5`.
+  `HIT_ENTER_0.1.0-beta.5_aarch64.dmg`, 26 MB, sha256 `a50294e0…5c0c92`,
+  **uploaded to the draft** `v0.1.0-beta.5` (with the `.deb`, `.AppImage`,
+  notices). Waiting on: Windows `.zip`, then `RELEASING.md` §Last.
+- **The keychain prompt again** (ad-hoc signature, `BUILD_MACOS.md` §9):
+  the owner did not know the login keychain password; Keychain Access's
+  change item was greyed out on macOS 26, so it was reset with
+  `security set-keychain-password`. Worth a line in the site's macOS
+  install notes until the app has a stable signature.
+- **Memory on the M1, beta.5, idle, real data folder:** 64 MB footprint
+  (peak 155 MB, RSS 161 MB, 21 threads). beta.3 here: 81–84 MB; beta.2
+  ≈ 470 MB. Details in `BUILD_MACOS.md` §9 2026-10-25.
+- **Not done:** the beta.5 smoke test on macOS (not reported); links by
+  Apple Event with the app closed.

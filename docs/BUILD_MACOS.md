@@ -391,4 +391,44 @@ password, or a reset of the login keychain and the
 copy; files and pictures between Mac and Linux; the keychain test;
 `cargo test --workspace` on macOS; the upload, on the owner's go.
 
+### 2026-10-25 — 0.1.0-beta.5: built, on the draft, the M1's memory
+
+**The clone was on the wrong history.** The Mac's `main` was still the
+original HIT_ENTER (`fbc777e`, v0.1.1), unrelated to the fresh public
+history, so `RELEASING.md`'s `git pull` would have tried to merge two
+unrelated trees. Moved with `git reset --hard origin/main` (`09b2dbf`,
+`version = "0.1.0-beta.5"`); the old commits were on no remote, and the
+owner had the backup branch deleted. Another Mac clone made before
+2026-10-22 has the same trap: check `git merge-base --is-ancestor main
+origin/main` before pulling.
+
+**Built first time, nothing changed** (macOS 26.6.2, cargo 1.94.1):
+`cargo build -p hit-desktop` 6 m 59 s from cold; clippy (`--all-targets
+-D warnings`) clean; `cargo test --workspace` with
+`HIT_PUBLIC_RELAYS=none` — all pass, 2 ignored (the internet tests).
+`scripts/release-macos.sh 0.1.0-beta.5`: release build 5 m 31 s, the
+`$HOME` and Homebrew checks passed.
+`HIT_ENTER_0.1.0-beta.5_aarch64.dmg`, 26 MB (26,813,980 bytes), sha256
+`a50294e0f2a52edf09788b70417b3f1a2e6453537adf8710a1997ce23e5c0c92` —
+uploaded to the draft `v0.1.0-beta.5`; GitHub's digest matches.
+
+**Installed as users will:** the old app removed from `/Applications`,
+the `.dmg` downloaded from the draft and installed by the owner. The
+keychain password prompt came back (the ad-hoc trap, 2026-10-18); the
+owner reset the login keychain's password with
+`security set-keychain-password ~/Library/Keychains/login.keychain-db`,
+because Keychain Access's *Change Password for Keychain "login"* was
+greyed out on macOS 26. The identity's entry (service `hit-enter`) was
+in the login keychain throughout.
+
+**Memory on the M1** (`footprint`, the owner's real data folder, no
+`HIT_DATA_DIR`, 7 m 34 s after launch, idle): **64 MB footprint, peak
+155 MB**; RSS 161 MB (counts shared system frameworks); 21 threads;
+0.0 % CPU. Beside beta.3 here: 84 MB after onboarding, 81 MB after a
+call; beta.2 (Tauri) ≈ 470 MB.
+
+**Still owed:** `RELEASING.md`'s beta.5 smoke test (browse communities,
+public profile, a group's *about*), not reported this session; links by
+Apple Event with the app closed.
+
 *(Later builds: the date, what broke and the fix, the checksum, results.)*
