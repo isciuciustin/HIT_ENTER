@@ -33,7 +33,7 @@ use crate::{
     pictures::{self, Pictures, Pixels},
     ui::{
         BanUi, ChannelUi, ChipUi, FileUi, GroupUi, MainWindow, MemberUi, MessageUi, PendingUi,
-        PersonUi, RoleUi, SettingsUi, ViewUi,
+        CommunityUi, PersonUi, RoleUi, SettingsUi, ViewUi,
     },
 };
 
@@ -219,6 +219,23 @@ impl Chat {
         let id = self.app.join(&link).await.map_err(|e| e.to_string())?;
         self.opened(id).await;
         Ok(())
+    }
+
+    /// Public groups announced on the public relays (M13).
+    pub async fn browse(&self) -> Result<Vec<CommunityUi>, String> {
+        let found = self.app.browse().await.map_err(|e| e.to_string())?;
+        Ok(found
+            .into_iter()
+            .map(|c| CommunityUi {
+                name: c.name.into(),
+                members: match c.members {
+                    1 => "1 member".into(),
+                    n => format!("{n} members").into(),
+                },
+                link: c.link.into(),
+                joined: c.joined,
+            })
+            .collect())
     }
 
     async fn opened(&self, id: String) {

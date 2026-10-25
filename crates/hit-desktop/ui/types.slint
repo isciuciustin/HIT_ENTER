@@ -196,6 +196,15 @@ export struct DeviceUi {
     name: string,
 }
 
+// A public group found on the public relays (M13): browse communities.
+export struct CommunityUi {
+    name: string,
+    // "12 members"
+    members: string,
+    link: string,
+    joined: bool,
+}
+
 // The profile dialog (ProfileDialog.svelte).
 export struct ProfileUi {
     loaded: bool,

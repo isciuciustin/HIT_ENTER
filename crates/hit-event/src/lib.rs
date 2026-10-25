@@ -25,6 +25,7 @@
 //!   onboarding, never sent, never written to a plain file.
 //! - Every kind we emit is documented in `docs/PROTOCOL.md` in the same commit.
 
+pub mod announce;
 pub mod binding;
 pub mod dm;
 pub mod group;

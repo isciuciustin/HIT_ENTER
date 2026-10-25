@@ -378,6 +378,9 @@ fn wire_chat(ui: &MainWindow, get: impl Fn() -> Option<Arc<Ctl>> + Clone + 'stat
     });
 
     let g = get.clone();
+    ui.on_browse(move || browse(&g));
+
+    let g = get.clone();
     ui.on_make_invite(move |hours| {
         let Some(c) = g() else { return };
         if let Some(ui) = c.ui.upgrade() {
@@ -464,6 +467,9 @@ fn wire_moderation(ui: &MainWindow, get: impl Fn() -> Option<Arc<Ctl>> + Clone +
                 let p = chat.profile().await;
                 let _ = ui.upgrade_in_event_loop(move |ui| ui.set_profile(p));
             });
+        }
+        if kind == "browse" {
+            browse(&g);
         }
         if kind == "audio"
             && let Some(c) = g()
@@ -1100,6 +1106,28 @@ fn done(ui: &slint::Weak<MainWindow>, result: String) {
 
 /// One of the profile's steps: busy meanwhile, then what it did or why
 /// not, and the profile read again.
+/// Asks the public relays for communities, for the browse list.
+fn browse(get: &impl Fn() -> Option<Arc<Ctl>>) {
+    let Some(c) = get() else { return };
+    if let Some(ui) = c.ui.upgrade() {
+        ui.set_browsed(false);
+        ui.set_dialog_error("".into());
+    }
+    c.with_chat(async move |chat, ui| {
+        let found = chat.browse().await;
+        let _ = ui.upgrade_in_event_loop(move |ui| {
+            ui.set_browsed(true);
+            match found {
+                Ok(list) => ui.set_communities(ModelRc::new(VecModel::from(list))),
+                Err(e) => {
+                    ui.set_communities(ModelRc::default());
+                    ui.set_dialog_error(e.into());
+                }
+            }
+        });
+    });
+}
+
 fn profile_step<F, Fut>(get: &impl Fn() -> Option<Arc<Ctl>>, step: F)
 where
     F: FnOnce(Arc<chat::Chat>) -> Fut + Send + 'static,

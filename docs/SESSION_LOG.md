@@ -1349,3 +1349,18 @@ exist.
   "public" now when it is. Found driving: a Slint field focused by Tab
   selects its text, so typing replaces it — handy, since BackSpace does
   not reach it.
+- **M13 step 5 built: announcements and browse communities.** Kind
+  39436, ours (deviation from the plan's `39000`, said in `PLAN.md`),
+  signed by the group key so the author is the group. The step-4
+  publisher became one task for the profile and every public group whose
+  key this device holds; `published.json` became a map (`"profile"` and
+  group npubs → what was said, which relays took it, when), so a step-4
+  file is unread once and the profile sent again — harmless, never
+  released. **Found by the test:** the announcement and the withdrawal
+  signed in one second; NIP-01's lowest id would settle that on a real
+  relay, maybe for the announcement — so each is dated after the last
+  one sent, and readers give ties to the withdrawal. **Found driving:**
+  the dialog opened on *browse* had nothing focused (no field to
+  autofocus) — *look again* takes the keyboard now. The rule's wording
+  moved again: `hit-zap` now also *reads* public relays — stored
+  announcements only, no live subscription.

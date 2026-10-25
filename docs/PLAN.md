@@ -1104,6 +1104,26 @@ restart; none means none) and driven in one window against the fake:
 the dialog saved two relays, the live one took the profile, the dead one
 was logged for retry. **Not yet:** Primal showing a real name — that is
 the done-when's, with a real install.
+**Step 5 built (same day):** kind **39436**, ours, not the plan's
+`39000` (ours carries the whole state, and a list of `39000`s would
+catch every NIP-29 relay's groups): addressable, signed by the group key,
+name + member count + public link, or `["private"]` to withdraw. The
+owner's app sends it with the profile (the same publisher task): on make
+public, rename, make private, and every ten minutes when the count
+changed; never for a group that was never announced. *Browse
+communities* — a third tab of the add-group dialog and a button on the
+empty home screen — asks the public relays (8 s), checks every event,
+keeps each group's newest, largest first; *open* reads the group (step
+3). **Found by the test:** an announcement and its withdrawal in the
+same second — a relay keeping one per group settles that by lowest id,
+so each is dated after the last sent, and a reader gives a tie to the
+withdrawal. Driven in two windows against the fake relay: Alice made
+*Open town* public, Bob found it (*1 member*), opened it, read her
+welcome. **Honest limits:** names and counts are the group's own word
+(a liar can claim a million members), and anyone can mint a group key
+and announce — spam is the next thing a real list will meet; ranking and
+search come later. Only the owner's app announces; an anchor holding the
+key could, and does not yet.
 
 **What to build, in order:**
 

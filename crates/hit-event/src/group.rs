@@ -236,7 +236,7 @@ impl GroupKey {
         Ok(Some(key))
     }
 
-    fn sign(&self, builder: EventBuilder) -> Result<Event, KeyError> {
+    pub(crate) fn sign(&self, builder: EventBuilder) -> Result<Event, KeyError> {
         builder.finalize(&self.keys).map_err(|_| KeyError::Sign)
     }
 }

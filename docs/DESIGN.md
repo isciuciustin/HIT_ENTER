@@ -772,9 +772,9 @@ Carried forward, reworded for a mesh:
   Public-group files are the one exception, and it is explicit per group.
 - **iroh owns the chat plane.** No WebSocket or HTTP carries chat.
   `wss://` exists only on an anchor that opted in; an HTTP or WebSocket
-  client exists only in `hit-zap` — for zaps, and since M13 for
-  publishing what is public anyway (a person's profile) to public relays,
-  publish only.
+  client exists only in `hit-zap` — for zaps, and since M13 for what is
+  public anyway on public relays: a person's profile and public groups'
+  announcements sent, announcements read back (stored ones only).
 - **HIT_ENTER never holds user funds.**
 - **The fee is a second payment, never a cut of the first** (§11). No code
   path routes a zap through a HIT_ENTER wallet, and the fee payment carries

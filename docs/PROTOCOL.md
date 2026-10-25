@@ -31,6 +31,7 @@ is ours.
 | `30436` | device binding / revocation | M1 | **provisional** — `DESIGN.md` §15 q4 |
 | `9734` / `9735` | zap request / zap receipt | M10 | NIP-57's, as specified; the request goes to the recipient's Lightning address server, the receipt comes back on the group's anchor's relay — **neither is stored or synced as itself** |
 | `9436` | a zap receipt carried into a group | M10 | **ours, provisional** (below) |
+| `39436` | a public group announcing itself on public relays | M13 | **ours, provisional**; addressable, signed by the group key, **never stored or synced in a group** (below) |
 
 Kind `1` was M2's test traffic and is no longer carried.
 
@@ -399,6 +400,40 @@ marks a channel 🔒 when the Member role is denied `VIEW_CHANNEL`.
 people in a call learn each other's IP addresses — as the group already
 can (`DESIGN.md` §8). Audio is encrypted per hop by QUIC, which in a mesh is
 end to end. Voice presence tells every member who is in which room.
+
+## Kind 39436 — a public group's announcement (M13)
+
+How a stranger finds a public group: *browse communities* reads these from
+the public relays (the same list a profile goes to). Addressable, `d`
+empty, **signed by the group key** — its `pubkey` is the group, so only a
+holder of the key can announce it.
+
+| Tag | Meaning |
+|---|---|
+| `["d", ""]` | one per group |
+| `["name", N]` | the group's name, 1–64 characters |
+| `["members", n]` | its member count — **the group's own word**, shown, never trusted |
+| `["link", L]` | its public link (`hit-enter:join?g=…&p=…`, no `c`) |
+| `["private"]` | instead of the three above: withdrawn — the group went private |
+
+**A reader drops** anything with a bad signature, a `d` that is not empty,
+a name empty or over 64 characters, a link over 2 KB, or a link naming
+another group or carrying an invite code. Each group's newest wins; **a
+withdrawal wins a tie** (hiding a group by mistake is the cheaper error).
+The list is largest first, then newest, at most 200.
+
+**Who sends it:** any app holding the group key — today the owner's —
+when the group is made public, renamed, or made private (the withdrawal),
+and every ten minutes if its words changed (a member count). Each is
+dated after the last one sent: a relay keeping one per group settles a
+same-second tie by NIP-01's lowest id. **A group never announced is never
+mentioned** — no withdrawal for a group that was always private, which
+would publish its existence. `published.json` records what went where.
+
+**Not NIP-29's `39000`:** ours is the whole state (members, roles) and
+for members' nodes; and a list of `39000`s would catch every NIP-29
+relay's groups, which this app cannot join. Implemented in
+`crates/hit-event/src/announce.rs`.
 
 ## Kind 0 — profile (M4)
 

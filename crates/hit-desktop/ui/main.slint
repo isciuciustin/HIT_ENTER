@@ -3,7 +3,7 @@ import { AboutSlint } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 import { Pill, Link, Note } from "widgets.slint";
 import { Onboarding, StatusUi } from "onboarding.slint";
-import { GroupUi, ChannelUi, MessageUi, MemberUi, ViewUi, ChipUi, SettingsUi, BanUi, PersonUi, RoleUi, FileUi, PendingUi, ConvUi, DmUi, VoicePersonUi, CallUi, DeviceUi, ProfileUi, ZapUi } from "types.slint";
+import { GroupUi, ChannelUi, MessageUi, MemberUi, ViewUi, ChipUi, SettingsUi, BanUi, PersonUi, RoleUi, FileUi, PendingUi, ConvUi, DmUi, VoicePersonUi, CallUi, DeviceUi, ProfileUi, ZapUi, CommunityUi } from "types.slint";
 import { DmPane } from "dms.slint";
 import { CallBar, IncomingCall } from "voice.slint";
 import { Rail, ChannelList, MessagePane, Composer, MemberList, Header } from "chat.slint";
@@ -173,6 +173,10 @@ export component MainWindow inherits Window {
     in property <bool> invite-copied;
     callback open-dialog(string);
     callback create-group(string, bool);
+    // Browse communities (M13).
+    callback browse();
+    in property <[CommunityUi]> communities;
+    in property <bool> browsed;
     callback set-public(bool);
     callback set-newcomer-wait(int);
     // Join the public group being read (M13).
@@ -305,7 +309,7 @@ export component MainWindow inherits Window {
             Note {
                 width: 380px;
                 horizontal-alignment: center;
-                text: "You are in no groups yet. Join one with a link somebody sent you, or make your own.";
+                text: "You are in no groups yet. Find a public one, join one with a link somebody sent you, or make your own.";
             }
         }
         HorizontalLayout {
@@ -319,6 +323,10 @@ export component MainWindow inherits Window {
             Pill {
                 text: "join with a link";
                 clicked => { root.open-dialog("join"); }
+            }
+            Pill {
+                text: "browse communities";
+                clicked => { root.open-dialog("browse"); }
             }
         }
     }
@@ -581,9 +589,12 @@ export component MainWindow inherits Window {
                 border-radius: 8px;
                 body := VerticalLayout {
                     padding: 16px;
-                    if root.dialog == "add" || root.dialog == "join" : AddGroupDialog {
+                    if root.dialog == "add" || root.dialog == "join" || root.dialog == "browse" : AddGroupDialog {
                         wrap => { shell.focus(); }
-                        start-mode: root.dialog == "join" ? "join" : "create";
+                        start-mode: root.dialog == "add" ? "create" : root.dialog;
+                        communities: root.communities;
+                        browsed: root.browsed;
+                        browse => { root.browse(); }
                         start-link: root.dialog-link;
                         busy: root.dialog-busy;
                         error: root.dialog-error;

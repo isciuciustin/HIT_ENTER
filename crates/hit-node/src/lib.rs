@@ -1096,6 +1096,34 @@ impl Node {
         })
     }
 
+    /// `group` announced on public relays (M13), signed by its key: its
+    /// name, member count and public link — or, once it is private, the
+    /// withdrawal. `None` where this device does not hold the group key.
+    /// Dated `at`: after the last one sent, or a relay keeping one per
+    /// group could keep the older (NIP-01's lowest id settles a tie).
+    pub async fn announcement(
+        &self,
+        group: &PublicKey,
+        secrets: &(dyn SecretStore + Sync),
+        addr: Option<SocketAddr>,
+        at: Timestamp,
+    ) -> Result<Option<Event>, NodeError> {
+        let Some(state) = self.group(group) else {
+            return Ok(None);
+        };
+        let Some(key) = GroupKey::load(secrets, &group.to_bech32_or_hex())? else {
+            return Ok(None);
+        };
+        let ev = if state.is_public() {
+            let link = self.public_link(group, addr).await?;
+            let members = u64::try_from(state.members().count()).unwrap_or(u64::MAX);
+            hit_event::announce::announce(&key, state.name(), members, &link.to_string(), at)?
+        } else {
+            hit_event::announce::withdraw(&key, at)?
+        };
+        Ok(Some(ev))
+    }
+
     /// Reads a public group without joining it (M13): carries it **in
     /// memory only** — a restart puts it down; joining keeps it — and syncs
     /// it from the link's peers, which serve a public group to anyone.

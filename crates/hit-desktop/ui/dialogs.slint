@@ -13,16 +13,21 @@ import { Panel } from "panel.slint";
 import { ScrollView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 import { Pill, Link, Field, Note } from "widgets.slint";
-import { ChannelUi, SettingsUi, BanUi, PersonUi, RoleUi, DeviceUi, ProfileUi, ZapUi } from "types.slint";
+import { ChannelUi, SettingsUi, BanUi, PersonUi, RoleUi, DeviceUi, ProfileUi, ZapUi, CommunityUi } from "types.slint";
 
 export component AddGroupDialog inherits Rectangle {
-    // "create" or "join": which half it opens on.
+    // "create", "join" or "browse": which part it opens on.
     in property <string> start-mode: "create";
     in property <bool> busy;
     in property <string> error;
+    // Browse communities (M13): what the public relays announced, and
+    // whether they have answered yet.
+    in property <[CommunityUi]> communities;
+    in property <bool> browsed;
     // The name, and public (M13) — private unless chosen.
     callback create(string, bool);
     callback join(string);
+    callback browse();
     callback cancel();
     property <string> mode: root.start-mode;
     property <bool> public;
@@ -31,6 +36,13 @@ export component AddGroupDialog inherits Rectangle {
     in property <string> start-link;
     property <string> name;
     property <string> link: root.start-link;
+    // Opened on browse, no field takes the keyboard: *look again* does,
+    // or the window would get no keys at all.
+    init => {
+        if (root.start-mode == "browse") {
+            go.focus();
+        }
+    }
     width: 440px;
     // Through the FocusScope below, which passes no layout on.
     min-height: body.min-height;
@@ -63,6 +75,16 @@ export component AddGroupDialog inherits Rectangle {
                 text: "join with a link";
                 selected: root.mode == "join";
                 clicked => { root.mode = "join"; }
+            }
+            Link {
+                text: "browse communities";
+                selected: root.mode == "browse";
+                clicked => {
+                    if (root.mode != "browse") {
+                        root.mode = "browse";
+                        root.browse();
+                    }
+                }
             }
         }
         if root.mode == "create" : VerticalLayout {
@@ -125,6 +147,47 @@ export component AddGroupDialog inherits Rectangle {
                 }
             }
         }
+        if root.mode == "browse" : VerticalLayout {
+            spacing: 8px;
+            Note {
+                width: 440px;
+                font-size: 12px;
+                text: "Public groups that announced themselves on public Nostr relays, largest first. Names and member counts are each group's own word. Opening one lets you read it before joining.";
+            }
+            if !root.browsed : Note { text: "Looking…"; font-size: 12px; }
+            if root.browsed && root.communities.length == 0 && root.error == "" : Note {
+                text: "None found.";
+                font-size: 12px;
+            }
+            if root.communities.length > 0 : ScrollView {
+                height: min(root.communities.length * 40px, 360px);
+                VerticalLayout {
+                    for c in root.communities : HorizontalLayout {
+                        height: 40px;
+                        spacing: 8px;
+                        Text {
+                            horizontal-stretch: 1;
+                            text: c.name;
+                            font-size: 13px;
+                            color: Theme.text;
+                            overflow: elide;
+                            vertical-alignment: center;
+                        }
+                        Text {
+                            text: c.members;
+                            font-size: 11px;
+                            color: Theme.muted;
+                            vertical-alignment: center;
+                        }
+                        Pill {
+                            text: c.joined ? "joined" : "open";
+                            enabled: !c.joined && !root.busy;
+                            clicked => { root.join(c.link); }
+                        }
+                    }
+                }
+            }
+        }
         if root.error != "" : Text {
             width: 440px;
             text: root.error;
@@ -141,12 +204,16 @@ export component AddGroupDialog inherits Rectangle {
             }
             go := Pill {
                 primary: true;
-                text: root.busy ? (root.mode == "create" ? "making…" : "joining…")
+                text: root.mode == "browse" ? (root.browsed ? "look again" : "looking…")
+                    : root.busy ? (root.mode == "create" ? "making…" : "joining…")
                     : (root.mode == "create" ? "make it" : "join");
-                enabled: !root.busy && (root.mode == "create" ? root.name != "" : root.link != "");
+                enabled: !root.busy && (root.mode == "create" ? root.name != ""
+                    : root.mode == "browse" ? root.browsed : root.link != "");
                 clicked => {
                     if (root.mode == "create") {
                         root.create(root.name, root.public);
+                    } else if (root.mode == "browse") {
+                        root.browse();
                     } else {
                         root.join(root.link);
                     }
@@ -1153,7 +1220,7 @@ export component ProfileDialog inherits Rectangle {
             Note {
                 width: 428px;
                 font-size: 11px;
-                text: "Your name and Lightning address go to these public Nostr relays, so Primal, Damus and other Nostr apps show them. They see your IP address when it is sent. Empty: nowhere, and only your groups know your name — what a relay already has stays there.";
+                text: "Your name and Lightning address go to these public Nostr relays, so Primal, Damus and other Nostr apps show them; the public groups you own are announced there, and browse communities looks there. They see your IP address. Empty: nowhere, and only your groups know your name — what a relay already has stays there.";
             }
             HorizontalLayout {
                 spacing: 8px;

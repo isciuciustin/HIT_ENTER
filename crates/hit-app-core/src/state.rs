@@ -21,7 +21,7 @@ use std::{
     time::Duration,
 };
 
-use hit_event::{KeyError, Person, SecretStore, group};
+use hit_event::{KeyError, Person, SecretStore, announce::Heard, group};
 use hit_group::Permissions;
 use hit_node::{Config, Node, NodeError, Relays};
 use hit_proto::invite::InviteLink;
@@ -30,7 +30,9 @@ use hit_voice::{
     device::{self, Devices},
 };
 use hit_zap::{LightningAddress, Quote, Wallet, Zapper};
-use nostr::prelude::{Event, EventId, FinalizeEvent, FromBech32, Keys, PublicKey, ToBech32};
+use nostr::prelude::{
+    Event, EventId, FinalizeEvent, FromBech32, Keys, PublicKey, Timestamp, ToBech32,
+};
 use serde::{Deserialize, Serialize};
 use tokio::task::JoinHandle;
 use zeroize::Zeroizing;
@@ -135,19 +137,46 @@ struct AppFile {
     public_relays: Option<Vec<String>>,
 }
 
-/// `published.json`: which public relays said `OK` to which profile, so a
-/// restart does not publish it again, and a relay that failed is tried
-/// again later.
+/// `published.json`: what went to the public relays and which said `OK` —
+/// `"profile"` and each announced group's npub — so a restart publishes
+/// nothing again, and a relay that failed is tried again later.
+type Published = BTreeMap<String, Sent>;
+
 #[derive(Debug, Default, Serialize, Deserialize)]
-struct Published {
-    profile: String,
+struct Sent {
+    /// What was said: the profile's id, or an announcement's words — its
+    /// date changes each time it is signed, its words only when they do.
+    what: String,
     relays: Vec<String>,
+    /// When it was signed: the next one is dated after it.
+    #[serde(default)]
+    at: u64,
 }
 
-/// How often a profile some relay has not taken is tried again.
+/// How often the profile and announcements are looked at again: a relay
+/// that failed is retried, a changed member count announced.
 const PUBLISH_RETRY: Duration = Duration::from_secs(600);
 /// The most public relays a person may name.
 pub const MAX_PUBLIC_RELAYS: usize = 8;
+
+/// A public group found on the public relays (M13), for *browse
+/// communities*. Its name and member count are its own word.
+#[derive(Debug, Clone, Serialize)]
+pub struct CommunityView {
+    pub group: String,
+    pub name: String,
+    pub members: u64,
+    /// Its public link: opening it reads the group.
+    pub link: String,
+    /// This person is a member already.
+    pub joined: bool,
+}
+
+/// How long *browse communities* waits for the public relays.
+const BROWSE_TIMEOUT: Duration = Duration::from_secs(8);
+/// The most announcements asked of one relay, and communities shown.
+const BROWSE_LIMIT: usize = 500;
+const BROWSE_SHOWN: usize = 200;
 
 /// Who is in each voice channel, and this person's call if any.
 #[derive(Debug, Clone, Serialize)]
@@ -786,7 +815,13 @@ impl App {
         });
         let voice = Voice::new(node.clone(), hit_voice::call::Config::default());
         let (publish, relays) = tokio::sync::watch::channel(self.public_relays());
-        let publisher = tokio::spawn(publish_profile(node.clone(), self.data_dir.clone(), relays));
+        let publisher = tokio::spawn(publish_public(
+            node.clone(),
+            self.data_dir.clone(),
+            self.secrets.clone(),
+            self.link_addr(),
+            relays,
+        ));
         *running = Some(Running {
             node,
             voice,
@@ -836,7 +871,7 @@ impl App {
             return Err(AppError::Refused("a name cannot be empty".into()));
         }
         self.node().await?.set_name(name).await?;
-        self.publish_profile().await;
+        self.publish_public().await;
         Ok(())
     }
 
@@ -884,12 +919,77 @@ impl App {
         let defaults = self.net.public_relays.as_ref();
         next.public_relays = (defaults != Some(&list)).then_some(list);
         self.save_file(next)?;
-        self.publish_profile().await;
+        self.publish_public().await;
         Ok(self.public_relays())
     }
 
-    /// Wakes the publisher: the profile, or the relays, changed.
-    async fn publish_profile(&self) {
+    /// Public groups announced on the public relays (M13): each group's
+    /// newest word, withdrawn ones gone, largest first and then newest.
+    /// Every announcement is checked: signed by the group key, its link to
+    /// that same group with no invite in it.
+    pub async fn browse(&self) -> Result<Vec<CommunityView>> {
+        let node = self.node().await?;
+        let relays = self.public_relays();
+        if relays.is_empty() {
+            return Err(AppError::Refused(
+                "no public relays to look on — set some in You".into(),
+            ));
+        }
+        let filter = nostr::prelude::Filter::new()
+            .kind(hit_event::announce::ANNOUNCEMENT)
+            .limit(BROWSE_LIMIT);
+        let heard = hit_zap::public::fetch(&relays, &filter, BROWSE_TIMEOUT).await;
+        let mut newest: BTreeMap<PublicKey, Heard> = BTreeMap::new();
+        for h in heard.iter().filter_map(hit_event::announce::read) {
+            // A tie goes to the withdrawal: hiding a group by mistake is
+            // the cheaper error.
+            let later = |n: &Heard| {
+                n.at() < h.at() || (n.at() == h.at() && matches!(h, Heard::Withdrawn { .. }))
+            };
+            if newest.get(&h.group()).is_none_or(later) {
+                newest.insert(h.group(), h);
+            }
+        }
+        let me = node.person();
+        let mut out: Vec<(Timestamp, CommunityView)> = newest
+            .into_values()
+            .filter_map(|h| match h {
+                Heard::Public(a) => Some(a),
+                Heard::Withdrawn { .. } => None,
+            })
+            .filter(|a| {
+                a.link
+                    .parse::<InviteLink>()
+                    .is_ok_and(|l| l.group == a.group && l.code.is_none())
+            })
+            .map(|a| {
+                let joined = node.group(&a.group).is_some_and(|s| s.is_member(&me));
+                let view = CommunityView {
+                    group: npub(&a.group),
+                    name: a.name,
+                    members: a.members,
+                    link: a.link,
+                    joined,
+                };
+                (a.at, view)
+            })
+            .collect();
+        out.sort_by(|(at_a, a), (at_b, b)| b.members.cmp(&a.members).then(at_b.cmp(at_a)));
+        Ok(out.into_iter().take(BROWSE_SHOWN).map(|(_, v)| v).collect())
+    }
+
+    /// Where a link says this device is: only with relays off, where an id
+    /// alone finds nobody.
+    fn link_addr(&self) -> Option<SocketAddr> {
+        match self.net.relays {
+            Relays::Disabled => self.net.invite_addr,
+            Relays::N0 | Relays::Custom(_) => None,
+        }
+    }
+
+    /// Wakes the publisher: the profile, a public group, or the relays
+    /// changed.
+    async fn publish_public(&self) {
         if let Some(r) = self.running.read().await.as_ref() {
             r.publish.send_replace(self.public_relays());
         }
@@ -1190,6 +1290,7 @@ impl App {
                 &[group::Edit::Name(name.trim().to_owned())],
             )
             .await?;
+        self.publish_public().await;
         Ok(())
     }
 
@@ -1200,6 +1301,7 @@ impl App {
             .await?
             .edit(&parse_key(group)?, &[group::Edit::Public(public)])
             .await?;
+        self.publish_public().await;
         Ok(())
     }
 
@@ -1616,6 +1718,9 @@ impl App {
             .await?
             .create_group_with(name, public, self.secrets.as_ref())
             .await?;
+        if public {
+            self.publish_public().await;
+        }
         Ok(npub(&g))
     }
 
@@ -1635,11 +1740,10 @@ impl App {
     /// and can be posted anywhere.
     pub async fn public_link(&self, group: &str) -> Result<String> {
         let node = self.node().await?;
-        let addr = match self.net.relays {
-            Relays::Disabled => self.net.invite_addr,
-            Relays::N0 | Relays::Custom(_) => None,
-        };
-        Ok(node.public_link(&parse_key(group)?, addr).await?.to_string())
+        Ok(node
+            .public_link(&parse_key(group)?, self.link_addr())
+            .await?
+            .to_string())
     }
 
     /// This person's contact link: someone with no group in common can
@@ -1952,18 +2056,22 @@ pub struct InvoiceView {
 
 /// HIT_ENTER's fee address: the constant, or — in a debug build only — the
 /// `HIT_ZAP_FEE_ADDRESS` a test against a fake network sets.
-/// Publishes this person's profile to the public relays in `relays` (M13),
-/// each time it or the list changes, and again later to any relay that
-/// failed. Only the kind 0 — the one thing of ours meant for everyone.
-async fn publish_profile(
+/// Publishes this person's profile, and an announcement of each public
+/// group whose key this device holds, to the public relays in `relays`
+/// (M13) — each time something or the list changes, and every
+/// [`PUBLISH_RETRY`]. A group that went private is withdrawn; one never
+/// announced is never mentioned.
+async fn publish_public(
     node: Node,
     dir: PathBuf,
+    secrets: Arc<dyn SecretStore + Send + Sync>,
+    addr: Option<SocketAddr>,
     mut relays: tokio::sync::watch::Receiver<Vec<String>>,
 ) {
     loop {
         let list = relays.borrow_and_update().clone();
-        if let Err(e) = publish_profile_once(&node, &dir, &list).await {
-            tracing::debug!("publishing the profile: {e}");
+        if let Err(e) = publish_public_once(&node, &dir, secrets.as_ref(), addr, &list).await {
+            tracing::debug!("publishing to public relays: {e}");
         }
         tokio::select! {
             r = relays.changed() => if r.is_err() { return },
@@ -1972,41 +2080,72 @@ async fn publish_profile(
     }
 }
 
-async fn publish_profile_once(node: &Node, dir: &Path, list: &[String]) -> Result<()> {
-    let Some(profile) = node.own_profile().await? else {
-        return Ok(());
-    };
+async fn publish_public_once(
+    node: &Node,
+    dir: &Path,
+    secrets: &(dyn SecretStore + Send + Sync),
+    addr: Option<SocketAddr>,
+    list: &[String],
+) -> Result<()> {
     let path = dir.join("published.json");
     let mut done: Published = std::fs::read(&path)
         .ok()
         .and_then(|b| serde_json::from_slice(&b).ok())
         .unwrap_or_default();
-    if done.profile != profile.id.to_hex() {
-        done = Published {
-            profile: profile.id.to_hex(),
-            relays: Vec::new(),
+    if let Some(profile) = node.own_profile().await? {
+        let id = profile.id.to_hex();
+        send_public(&mut done, "profile", id, &profile, list).await;
+    }
+    for (g, _) in node.groups() {
+        let key = npub(&g);
+        let at = done
+            .get(&key)
+            .map_or_else(Timestamp::now, |s| Timestamp::now().max(Timestamp::from(s.at + 1)));
+        let Some(ev) = node.announcement(&g, secrets, addr, at).await? else {
+            continue;
         };
-    }
-    let todo: Vec<String> = list
-        .iter()
-        .filter(|r| !done.relays.contains(r))
-        .cloned()
-        .collect();
-    if todo.is_empty() {
-        return Ok(());
-    }
-    let answers = hit_zap::public::publish(&profile, &todo).await;
-    for (url, answer) in todo.into_iter().zip(answers) {
-        match answer {
-            Ok(()) => done.relays.push(url),
-            Err(e) => tracing::info!("profile not published: {e}"),
+        let what = match hit_event::announce::read(&ev) {
+            Some(Heard::Public(a)) => format!("public\n{}\n{}\n{}", a.name, a.members, a.link),
+            _ => "private".to_owned(),
+        };
+        if what == "private" && !done.contains_key(&key) {
+            continue;
         }
+        send_public(&mut done, &key, what, &ev, list).await;
     }
     let bytes = serde_json::to_vec_pretty(&done).map_err(|e| AppError::Io(e.to_string()))?;
     let tmp = dir.join("published.json.tmp");
     std::fs::write(&tmp, bytes)?;
     std::fs::rename(&tmp, &path)?;
     Ok(())
+}
+
+/// Sends `event` — which says `what` — to the relays in `list` that have
+/// not yet taken it, and notes which do.
+async fn send_public(done: &mut Published, key: &str, what: String, event: &Event, list: &[String]) {
+    let sent = done.entry(key.to_owned()).or_default();
+    if sent.what != what {
+        *sent = Sent {
+            what,
+            relays: Vec::new(),
+            at: event.created_at.as_secs(),
+        };
+    }
+    let todo: Vec<String> = list
+        .iter()
+        .filter(|r| !sent.relays.contains(r))
+        .cloned()
+        .collect();
+    if todo.is_empty() {
+        return;
+    }
+    let answers = hit_zap::public::publish(event, &todo).await;
+    for (url, answer) in todo.into_iter().zip(answers) {
+        match answer {
+            Ok(()) => sent.relays.push(url),
+            Err(e) => tracing::info!("{key} not published: {e}"),
+        }
+    }
 }
 
 fn fee_address() -> Option<LightningAddress> {
@@ -2106,7 +2245,7 @@ impl App {
             let key = self.zapper()?.provider_of(&a).await?;
             node.set_lud16(Some((&a.to_string(), &key))).await?;
         }
-        self.publish_profile().await;
+        self.publish_public().await;
         self.wallet_view().await
     }
 
@@ -2973,6 +3112,68 @@ mod tests {
         assert_eq!(back, vec![relay.relay_url()]);
         assert!(within(named("Private Alice")).await);
         app.shutdown().await;
+    }
+
+    /// M13: a public group announces itself and a stranger's *browse
+    /// communities* finds it; a private one is never mentioned; going
+    /// private withdraws it.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_public_group_is_found_and_a_private_one_never_mentioned() {
+        use hit_event::announce::{ANNOUNCEMENT, Heard, read};
+        use hit_zap::fake::FakeLightning;
+        let relay = FakeLightning::start().await;
+        let keys = Arc::new(MemoryStore::default());
+        let dirs: Vec<_> = (0..2).map(|_| tempfile::tempdir().unwrap()).collect();
+        let mut apps = Vec::new();
+        for d in &dirs {
+            let to_relay = Net {
+                public_relays: Some(vec![relay.relay_url()]),
+                ..net()
+            };
+            let app = App::open(d.path(), keys.clone(), to_relay).await.unwrap();
+            app.import_identity(&Person::generate().reveal_nsec_for_backup(), None)
+                .await
+                .unwrap();
+            apps.push(app);
+        }
+        let (alice, bob) = (&apps[0], &apps[1]);
+        let secret = alice.create_group("Secret", false).await.unwrap();
+        let open = alice.create_group("Open town", true).await.unwrap();
+        let heard = || {
+            relay
+                .events_of(ANNOUNCEMENT)
+                .iter()
+                .filter_map(read)
+                .collect::<Vec<_>>()
+        };
+        assert!(
+            within(|| async { !heard().is_empty() }).await,
+            "nothing was announced"
+        );
+
+        let found = bob.browse().await.unwrap();
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert_eq!((found[0].name.as_str(), found[0].members), ("Open town", 1));
+        assert_eq!(found[0].group, open);
+        assert!(!found[0].joined);
+        let link: InviteLink = found[0].link.parse().unwrap();
+        assert_eq!((npub(&link.group), link.code), (open.clone(), None));
+        assert!(
+            heard().iter().all(|h| npub(&h.group()) != secret),
+            "the private group was mentioned"
+        );
+
+        // Private now: withdrawn, and gone from the list.
+        alice.set_public(&open, false).await.unwrap();
+        assert!(
+            within(|| async { heard().iter().any(|h| matches!(h, Heard::Withdrawn { .. })) })
+                .await,
+            "no withdrawal"
+        );
+        assert!(bob.browse().await.unwrap().is_empty());
+        for a in &apps {
+            a.shutdown().await;
+        }
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
