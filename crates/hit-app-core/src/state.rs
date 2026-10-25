@@ -168,12 +168,19 @@ pub const MAX_PUBLIC_RELAYS: usize = 8;
 pub struct CommunityView {
     pub group: String,
     pub name: String,
+    pub about: String,
     pub members: u64,
     /// Its public link: opening it reads the group.
     pub link: String,
     /// This person is a member already.
     pub joined: bool,
 }
+
+/// How long one answer from the public relays serves searches.
+const BROWSE_CACHE: Duration = Duration::from_secs(60);
+/// A public group is announced again at least this often, unchanged: how
+/// a list tells a live group from one nobody runs.
+const ANNOUNCE_EVERY: u64 = 24 * 60 * 60;
 
 /// How long *browse communities* waits for the public relays.
 const BROWSE_TIMEOUT: Duration = Duration::from_secs(8);
@@ -258,6 +265,9 @@ pub struct App {
     /// The DM inbox follows this person's groups' anchors (M13): on unless
     /// they turned it off. Read by the presence loop.
     inbox_on: Arc<std::sync::atomic::AtomicBool>,
+    /// The public relays' last answer for *browse communities*: when, and
+    /// each group's newest announcement, checked (M13).
+    browsed: Mutex<Option<(std::time::Instant, Vec<hit_event::announce::Announcement>)>>,
     /// Public groups being read, not joined (M13): the link each came by,
     /// to join with. In memory, as the reading is.
     reading: Mutex<BTreeMap<String, InviteLink>>,
@@ -320,6 +330,8 @@ pub struct GroupView {
     /// what the group itself set (M13).
     pub newcomer_wait: u32,
     pub newcomer_wait_set: u32,
+    /// What the group is about (M13), as it says.
+    pub about: String,
     /// When this person, a newcomer, may first post (unix seconds), while
     /// they still wait.
     pub posts_from: Option<u64>,
@@ -606,6 +618,7 @@ impl App {
             audio_watch: Mutex::new(None),
             zapper: std::sync::OnceLock::new(),
             pending_zap: Mutex::new(None),
+            browsed: Mutex::new(None),
             inbox_on: Arc::new(std::sync::atomic::AtomicBool::new(!file.inbox_off)),
             reading: Mutex::new(BTreeMap::new()),
             file: Mutex::new(file),
@@ -936,12 +949,47 @@ impl App {
         Ok(self.public_relays())
     }
 
-    /// Public groups announced on the public relays (M13): each group's
-    /// newest word, withdrawn ones gone, largest first and then newest.
-    /// Every announcement is checked: signed by the group key, its link to
-    /// that same group with no invite in it.
-    pub async fn browse(&self) -> Result<Vec<CommunityView>> {
+    /// Public groups announced on the public relays (M13), searched for
+    /// `query` (empty: all) and ranked ([`crate::browse`]). The relays are
+    /// asked again when `fresh`, or when their last answer is a minute old
+    /// — typing a search asks nobody. Every announcement is checked:
+    /// signed by the group key, its link to that same group with no invite.
+    pub async fn browse(&self, query: &str, fresh: bool) -> Result<Vec<CommunityView>> {
         let node = self.node().await?;
+        let cached = self
+            .browsed
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .filter(|(at, _)| !fresh && at.elapsed() < BROWSE_CACHE)
+            .map(|(_, list)| list.clone());
+        let found = match cached {
+            Some(list) => list,
+            None => {
+                let list = self.ask_for_communities().await?;
+                *self.browsed.lock().unwrap_or_else(|e| e.into_inner()) =
+                    Some((std::time::Instant::now(), list.clone()));
+                list
+            }
+        };
+        let me = node.person();
+        Ok(crate::browse::rank(found, query, Timestamp::now())
+            .into_iter()
+            .take(BROWSE_SHOWN)
+            .map(|a| CommunityView {
+                joined: node.group(&a.group).is_some_and(|s| s.is_member(&me)),
+                group: npub(&a.group),
+                name: a.name,
+                about: a.about,
+                members: a.members,
+                link: a.link,
+            })
+            .collect())
+    }
+
+    /// Each group's newest announcement on the public relays, withdrawn
+    /// ones gone.
+    async fn ask_for_communities(&self) -> Result<Vec<hit_event::announce::Announcement>> {
         let relays = self.public_relays();
         if relays.is_empty() {
             return Err(AppError::Refused(
@@ -963,8 +1011,7 @@ impl App {
                 newest.insert(h.group(), h);
             }
         }
-        let me = node.person();
-        let mut out: Vec<(Timestamp, CommunityView)> = newest
+        Ok(newest
             .into_values()
             .filter_map(|h| match h {
                 Heard::Public(a) => Some(a),
@@ -975,20 +1022,7 @@ impl App {
                     .parse::<InviteLink>()
                     .is_ok_and(|l| l.group == a.group && l.code.is_none())
             })
-            .map(|a| {
-                let joined = node.group(&a.group).is_some_and(|s| s.is_member(&me));
-                let view = CommunityView {
-                    group: npub(&a.group),
-                    name: a.name,
-                    members: a.members,
-                    link: a.link,
-                    joined,
-                };
-                (a.at, view)
-            })
-            .collect();
-        out.sort_by(|(at_a, a), (at_b, b)| b.members.cmp(&a.members).then(at_b.cmp(at_a)));
-        Ok(out.into_iter().take(BROWSE_SHOWN).map(|(_, v)| v).collect())
+            .collect())
     }
 
     /// Where a link says this device is: only with relays off, where an id
@@ -1045,6 +1079,7 @@ impl App {
                         public: s.is_public(),
                         reading: false,
                         newcomer_wait: s.newcomer_wait(),
+                        about: s.about().to_owned(),
                         newcomer_wait_set: s.newcomer_wait_set(),
                         posts_from: s
                             .posts_from(&me, nostr::prelude::Timestamp::now())
@@ -1092,6 +1127,7 @@ impl App {
                     public: s.is_public(),
                     reading,
                     newcomer_wait: s.newcomer_wait(),
+                    about: s.about().to_owned(),
                     newcomer_wait_set: s.newcomer_wait_set(),
                     posts_from: None,
                     ready: true,
@@ -1117,6 +1153,7 @@ impl App {
                     public: false,
                     reading: false,
                     newcomer_wait: 0,
+                    about: String::new(),
                     newcomer_wait_set: 0,
                     posts_from: None,
                     ready: false,
@@ -1302,6 +1339,17 @@ impl App {
                 &parse_key(group)?,
                 &[group::Edit::Name(name.trim().to_owned())],
             )
+            .await?;
+        self.publish_public().await;
+        Ok(())
+    }
+
+    /// Says what `group` is about (M13): shown in *browse communities* and
+    /// searched there. Empty clears it.
+    pub async fn set_about(&self, group: &str, about: &str) -> Result<()> {
+        self.node()
+            .await?
+            .edit(&parse_key(group)?, &[group::Edit::About(about.trim().to_owned())])
             .await?;
         self.publish_public().await;
         Ok(())
@@ -2137,6 +2185,14 @@ async fn publish_public_once(
     }
     for (g, _) in node.groups() {
         let key = npub(&g);
+        // Unchanged a day: said again, so lists see the group is alive.
+        let now = Timestamp::now().as_secs();
+        if let Some(sent) = done.get_mut(&key)
+            && sent.what != "private"
+            && sent.at + ANNOUNCE_EVERY < now
+        {
+            sent.what.clear();
+        }
         let at = done
             .get(&key)
             .map_or_else(Timestamp::now, |s| Timestamp::now().max(Timestamp::from(s.at + 1)));
@@ -2144,7 +2200,9 @@ async fn publish_public_once(
             continue;
         };
         let what = match hit_event::announce::read(&ev) {
-            Some(Heard::Public(a)) => format!("public\n{}\n{}\n{}", a.name, a.members, a.link),
+            Some(Heard::Public(a)) => {
+                format!("public\n{}\n{}\n{}\n{}", a.name, a.about, a.members, a.link)
+            }
             _ => "private".to_owned(),
         };
         if what == "private" && !done.contains_key(&key) {
@@ -3190,7 +3248,7 @@ mod tests {
             "nothing was announced"
         );
 
-        let found = bob.browse().await.unwrap();
+        let found = bob.browse("", true).await.unwrap();
         assert_eq!(found.len(), 1, "{found:?}");
         assert_eq!((found[0].name.as_str(), found[0].members), ("Open town", 1));
         assert_eq!(found[0].group, open);
@@ -3202,6 +3260,20 @@ mod tests {
             "the private group was mentioned"
         );
 
+        // What it is about, searched: found by a word of it, not by
+        // another — the second search answered from the first's fetch.
+        alice.set_about(&open, "Survival games, mods and maps").await.unwrap();
+        assert!(
+            within(|| async {
+                bob.browse("survival", true).await.unwrap().first().map(|c| c.about.clone())
+                    == Some("Survival games, mods and maps".into())
+            })
+            .await,
+            "the about never reached the list"
+        );
+        assert!(bob.browse("cooking", false).await.unwrap().is_empty());
+        assert_eq!(bob.browse("OPEN town", false).await.unwrap().len(), 1);
+
         // Private now: withdrawn, and gone from the list.
         alice.set_public(&open, false).await.unwrap();
         assert!(
@@ -3209,7 +3281,7 @@ mod tests {
                 .await,
             "no withdrawal"
         );
-        assert!(bob.browse().await.unwrap().is_empty());
+        assert!(bob.browse("", true).await.unwrap().is_empty());
         for a in &apps {
             a.shutdown().await;
         }

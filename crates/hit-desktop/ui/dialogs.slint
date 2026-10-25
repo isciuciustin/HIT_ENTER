@@ -27,7 +27,11 @@ export component AddGroupDialog inherits Rectangle {
     // The name, and public (M13) — private unless chosen.
     callback create(string, bool);
     callback join(string);
-    callback browse();
+    // The search, and whether to ask the relays again (else the last
+    // answer, a minute old at most, is searched).
+    callback browse(string, bool);
+    in-out property <string> query;
+    changed query => { root.browse(root.query, false); }
     callback cancel();
     property <string> mode: root.start-mode;
     property <bool> public;
@@ -36,13 +40,6 @@ export component AddGroupDialog inherits Rectangle {
     in property <string> start-link;
     property <string> name;
     property <string> link: root.start-link;
-    // Opened on browse, no field takes the keyboard: *look again* does,
-    // or the window would get no keys at all.
-    init => {
-        if (root.start-mode == "browse") {
-            go.focus();
-        }
-    }
     width: 440px;
     // Through the FocusScope below, which passes no layout on.
     min-height: body.min-height;
@@ -82,7 +79,7 @@ export component AddGroupDialog inherits Rectangle {
                 clicked => {
                     if (root.mode != "browse") {
                         root.mode = "browse";
-                        root.browse();
+                        root.browse(root.query, false);
                     }
                 }
             }
@@ -152,7 +149,14 @@ export component AddGroupDialog inherits Rectangle {
             Note {
                 width: 440px;
                 font-size: 12px;
-                text: "Public groups that announced themselves on public Nostr relays, largest first. Names and member counts are each group's own word. Opening one lets you read it before joining.";
+                text: "Public groups that announced themselves on public Nostr relays: larger and more recently active first. Names, descriptions and member counts are each group's own word. Opening one lets you read it before joining.";
+            }
+            // Takes the keyboard, as each part's field does: opened on
+            // browse, nothing else would, and the window would get no keys.
+            Field {
+                placeholder: "search names and descriptions";
+                text <=> root.query;
+                init => { self.focus(); }
             }
             if !root.browsed : Note { text: "Looking…"; font-size: 12px; }
             if root.browsed && root.communities.length == 0 && root.error == "" : Note {
@@ -160,18 +164,26 @@ export component AddGroupDialog inherits Rectangle {
                 font-size: 12px;
             }
             if root.communities.length > 0 : ScrollView {
-                height: min(root.communities.length * 40px, 360px);
+                height: min(root.communities.length * 52px, 360px);
                 VerticalLayout {
                     for c in root.communities : HorizontalLayout {
-                        height: 40px;
+                        height: 52px;
                         spacing: 8px;
-                        Text {
+                        VerticalLayout {
                             horizontal-stretch: 1;
-                            text: c.name;
-                            font-size: 13px;
-                            color: Theme.text;
-                            overflow: elide;
-                            vertical-alignment: center;
+                            alignment: center;
+                            Text {
+                                text: c.name;
+                                font-size: 13px;
+                                color: Theme.text;
+                                overflow: elide;
+                            }
+                            if c.about != "" : Text {
+                                text: c.about;
+                                font-size: 11px;
+                                color: Theme.muted;
+                                overflow: elide;
+                            }
                         }
                         Text {
                             text: c.members;
@@ -213,7 +225,7 @@ export component AddGroupDialog inherits Rectangle {
                     if (root.mode == "create") {
                         root.create(root.name, root.public);
                     } else if (root.mode == "browse") {
-                        root.browse();
+                        root.browse(root.query, true);
                     } else {
                         root.join(root.link);
                     }
@@ -392,6 +404,7 @@ export component SettingsDialog inherits Rectangle {
     in property <string> error;
     in property <string> done;
     callback rename(string);
+    callback set-about(string);
     callback set-public(bool);
     // Seconds a newcomer waits before posting (M13).
     callback set-newcomer-wait(int);
@@ -403,6 +416,7 @@ export component SettingsDialog inherits Rectangle {
     callback compact();
     callback close();
     property <string> name: root.settings.name;
+    property <string> about: root.settings.about;
     property <string> new-channel;
     at-end: close.has-focus;
     property <bool> new-voice;
@@ -480,6 +494,25 @@ export component SettingsDialog inherits Rectangle {
                 text: "rename";
                 enabled: !root.busy && root.name != "" && root.name != root.settings.name;
                 clicked => { root.rename(root.name); }
+            }
+        }
+        // Same permission as the name: both say what the group is.
+        if root.settings.can-rename : HorizontalLayout {
+            spacing: 8px;
+            Field {
+                horizontal-stretch: 1;
+                text <=> root.about;
+                placeholder: "what it is about — shown when people browse";
+                accepted => {
+                    if (!root.busy && root.about != root.settings.about) {
+                        root.set-about(root.about);
+                    }
+                }
+            }
+            Pill {
+                text: "save";
+                enabled: !root.busy && root.about != root.settings.about;
+                clicked => { root.set-about(root.about); }
             }
         }
         if root.settings.me-owner : VerticalLayout {

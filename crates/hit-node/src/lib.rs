@@ -1120,7 +1120,14 @@ impl Node {
         let ev = if state.is_public() {
             let link = self.public_link(group, addr).await?;
             let members = u64::try_from(state.members().count()).unwrap_or(u64::MAX);
-            hit_event::announce::announce(&key, state.name(), members, &link.to_string(), at)?
+            hit_event::announce::announce(
+                &key,
+                state.name(),
+                state.about(),
+                members,
+                &link.to_string(),
+                at,
+            )?
         } else {
             hit_event::announce::withdraw(&key, at)?
         };
@@ -1871,6 +1878,7 @@ pub fn genesis(
         public,
         // A public group's floor applies whatever this says.
         newcomer_wait: 0,
+        about: String::new(),
         channels: vec![Channel {
             id: "general".into(),
             name: "general".into(),

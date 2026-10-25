@@ -112,6 +112,8 @@ pub struct GroupState {
     /// Seconds a newcomer waits before posting, as the group set it; see
     /// [`Self::newcomer_wait`] for what applies (M13).
     newcomer_wait: u32,
+    /// What the group is about (M13).
+    about: String,
     /// When each member who joined by themselves (a `9021`) since the
     /// cutoff did so — the newcomers. Members the snapshot names are not.
     joined: BTreeMap<PublicKey, Timestamp>,
@@ -164,6 +166,7 @@ impl GroupState {
             name: String::new(),
             public: false,
             newcomer_wait: 0,
+            about: String::new(),
             joined: BTreeMap::new(),
             owner: None,
             named_owner: None,
@@ -189,12 +192,14 @@ impl GroupState {
                     name,
                     public,
                     newcomer_wait,
+                    about,
                     channels,
                     overrides,
                 } => {
                     state.name = name;
                     state.public = public;
                     state.newcomer_wait = newcomer_wait;
+                    state.about = about;
                     state.channels = channels;
                     state.overrides = overrides;
                 }
@@ -550,6 +555,14 @@ impl GroupState {
                 }
                 self.newcomer_wait = secs;
             }
+            // The name's permission: both say what the group is.
+            Edit::About(a) => {
+                before.require(actor, Permissions::MANAGE_GROUP)?;
+                if a.trim().chars().count() > hit_event::group::MAX_ABOUT {
+                    return Err(Refusal::BadEdit);
+                }
+                self.about = a.trim().to_owned();
+            }
             Edit::Channel(c) => {
                 before.require(actor, Permissions::MANAGE_CHANNELS)?;
                 label(&c.id)?;
@@ -696,6 +709,11 @@ impl GroupState {
 
     pub fn name(&self) -> &str {
         &self.name
+    }
+
+    /// What the group is about, in its own words (M13); empty is none.
+    pub fn about(&self) -> &str {
+        &self.about
     }
 
     /// Anyone may find, read and join it (M13).
@@ -1108,6 +1126,7 @@ impl GroupState {
             name: self.name.clone(),
             public: self.public,
             newcomer_wait: self.newcomer_wait,
+            about: self.about.clone(),
             channels: self.channels.clone(),
             overrides: self.overrides.clone(),
             roles: self.roles.values().cloned().collect(),

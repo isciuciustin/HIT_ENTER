@@ -174,10 +174,12 @@ export component MainWindow inherits Window {
     callback open-dialog(string);
     callback create-group(string, bool);
     // Browse communities (M13).
-    callback browse();
+    callback browse(string, bool);
+    in-out property <string> browse-query;
     in property <[CommunityUi]> communities;
     in property <bool> browsed;
     callback set-public(bool);
+    callback set-about(string);
     callback set-newcomer-wait(int);
     // Join the public group being read (M13).
     callback join-reading();
@@ -594,7 +596,8 @@ export component MainWindow inherits Window {
                         start-mode: root.dialog == "add" ? "create" : root.dialog;
                         communities: root.communities;
                         browsed: root.browsed;
-                        browse => { root.browse(); }
+                        query <=> root.browse-query;
+                        browse(q, fresh) => { root.browse(q, fresh); }
                         start-link: root.dialog-link;
                         busy: root.dialog-busy;
                         error: root.dialog-error;
@@ -677,6 +680,7 @@ export component MainWindow inherits Window {
                         error: root.dialog-error;
                         done: root.dialog-done;
                         rename(n) => { root.rename(n); }
+                        set-about(a) => { root.set-about(a); }
                         set-public(p) => { root.set-public(p); }
                         set-newcomer-wait(w) => { root.set-newcomer-wait(w); }
                         save-channel(id, n, s, v) => { root.save-channel(id, n, s, v); }

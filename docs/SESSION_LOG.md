@@ -1374,3 +1374,15 @@ exist.
   other person's wrap expires the same way, which changed the dialog's
   promise for two people with no anchor ("up to 7 days"). `published.json`
   untouched; `app.json` gained `inbox_off`. sqlx cache regenerated.
+- **Search and ranking for public communities** (the owner asked with
+  step 6). Groups have an **about** now (wire change, `PROTOCOL.md`).
+  Ranking is the uncomfortable part said out loud: every field of an
+  announcement is the group's own word, so the count enters by its
+  logarithm under a 100,000 ceiling, and freshness (half-life 7 days,
+  re-announced daily, gone at 30) does the rest. Search is in the app
+  over the cached relay answer; the window drops a search answer whose
+  query is no longer the one typed (they can arrive out of order). The
+  browse tab's search field takes the keyboard on open — which also
+  replaces step 5's "look again" focus fix. **Found by the test:** the
+  publisher's record of what it said lacked the about, so a changed about
+  was never re-sent.

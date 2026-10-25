@@ -1140,6 +1140,24 @@ the app naming an anchor unasked and remembering *off* across a restart.
 **Not driven in windows** — the window only changed words. Existing
 users who had chosen off before M13 are switched on once: the choice was
 never recorded.
+**Search and ranking for public communities (same day, the owner's
+ask):** groups gained an **about** (NIP-29's `about` in `39000`, a
+`9002` edit with *manage group*, ≤ 280 characters; the bridge serves it;
+a field under the name in settings), carried in announcements. Ranking
+(`hit-app-core/src/browse.rs`, pure, tested): a count is the group's own
+claim, so it counts as `ln(1 + min(n, 100,000))` — a liar claiming a
+billion ranks under 1.4× an honest 5,000 — times a freshness that halves
+every 7 days; the owner's app re-announces at least daily, so a group
+nobody runs sinks, and after 30 days it is gone. Search runs over the
+relays' last answer (a minute's cache, so typing asks nobody): every
+word must match the name or about; exact name, then a name word starting
+with it, then inside the name, then the about. Driven in two windows:
+Alice's *Unturned Modding* with its about, *Cooking club* without; Bob's
+list showed both, typing *plugins* left only the first. **Honest
+limits:** client-side over at most 500 announcements a relay — a real
+directory at scale needs NIP-50 or our own index relay; a copycat name
+and a fresh key per day still rank; nothing yet says what your friends
+joined. Those are the next ranking signals.
 
 **What to build, in order:**
 

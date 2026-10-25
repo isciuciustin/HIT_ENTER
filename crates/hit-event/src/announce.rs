@@ -26,6 +26,8 @@ const MAX_NAME: usize = 64;
 pub struct Announcement {
     pub group: PublicKey,
     pub name: String,
+    /// What it is about, in its own words; empty is none.
+    pub about: String,
     pub members: u64,
     /// The group's public link (`hit-enter:join?g=…&p=…`, no code).
     pub link: String,
@@ -55,22 +57,28 @@ impl Heard {
     }
 }
 
-/// `key`'s group, announced: `name`, `members`, `link`.
+/// `key`'s group, announced: `name`, `about` (empty for none), `members`,
+/// `link`.
 pub fn announce(
     key: &GroupKey,
     name: &str,
+    about: &str,
     members: u64,
     link: &str,
     at: Timestamp,
 ) -> Result<Event, KeyError> {
+    let mut tags = vec![
+        Tag::identifier(""),
+        Tag::custom("name", [name]),
+        Tag::custom("members", [members.to_string()]),
+        Tag::custom("link", [link]),
+    ];
+    if !about.is_empty() {
+        tags.push(Tag::custom("about", [about]));
+    }
     key.sign(
         EventBuilder::new(ANNOUNCEMENT, "")
-            .tags([
-                Tag::identifier(""),
-                Tag::custom("name", [name]),
-                Tag::custom("members", [members.to_string()]),
-                Tag::custom("link", [link]),
-            ])
+            .tags(tags)
             .custom_created_at(at),
     )
 }
@@ -110,18 +118,27 @@ pub fn read(event: &Event) -> Option<Heard> {
             at: event.created_at,
         });
     }
-    let name: String = value("name")??
-        .chars()
-        .filter(|c| !c.is_control())
-        .collect();
-    let name = name.trim();
+    let clean = |s: String| -> String {
+        s.chars()
+            .map(|c| if c.is_control() { ' ' } else { c })
+            .collect::<String>()
+            .trim()
+            .to_owned()
+    };
+    let name = clean(value("name")??);
+    let about = value("about").flatten().map(clean).unwrap_or_default();
     let link = value("link")??;
-    if name.is_empty() || name.chars().count() > MAX_NAME || link.len() > MAX_LINK {
+    if name.is_empty()
+        || name.chars().count() > MAX_NAME
+        || about.chars().count() > crate::group::MAX_ABOUT
+        || link.len() > MAX_LINK
+    {
         return None;
     }
     Some(Heard::Public(Announcement {
         group: event.pubkey,
-        name: name.to_owned(),
+        name,
+        about,
         members: value("members")??.parse().ok()?,
         link,
         at: event.created_at,
@@ -140,12 +157,13 @@ mod tests {
     fn an_announcement_reads_back_and_a_withdrawal_says_so() {
         let key = GroupKey::generate();
         let at = Timestamp::from(1_700_000_000);
-        let ev = announce(&key, "Town", 12, "hit-enter:join?g=x", at).unwrap();
+        let ev = announce(&key, "Town", "a town square", 12, "hit-enter:join?g=x", at).unwrap();
         assert_eq!(ev.pubkey, key.public_key());
         let Some(Heard::Public(a)) = read(&ev) else {
             panic!("not read")
         };
         assert_eq!((a.name.as_str(), a.members), ("Town", 12));
+        assert_eq!(a.about, "a town square");
         assert_eq!(a.link, "hit-enter:join?g=x");
         let gone = withdraw(&key, at + 1).unwrap();
         assert_eq!(
@@ -161,7 +179,7 @@ mod tests {
     fn a_forged_or_empty_announcement_is_not_read() {
         let key = GroupKey::generate();
         let at = Timestamp::from(1_700_000_000);
-        let mut ev = announce(&key, "Town", 1, "hit-enter:join?g=x", at).unwrap();
+        let mut ev = announce(&key, "Town", "", 1, "hit-enter:join?g=x", at).unwrap();
         ev.tags = nostr::prelude::Tags::from_list(vec![
             Tag::identifier(""),
             Tag::custom("name", ["Evil"]),
@@ -169,7 +187,7 @@ mod tests {
             Tag::custom("link", ["hit-enter:join?g=x"]),
         ]);
         assert_eq!(read(&ev), None, "a changed announcement kept its signature");
-        let nameless = announce(&key, "  ", 1, "x", at).unwrap();
+        let nameless = announce(&key, "  ", "", 1, "x", at).unwrap();
         assert_eq!(read(&nameless), None);
         let other = EventBuilder::new(Kind::from_u16(39000), "")
             .tag(Tag::identifier(""))

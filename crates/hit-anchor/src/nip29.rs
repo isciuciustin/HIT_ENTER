@@ -39,7 +39,12 @@ pub fn translate(
         .tag(row("name", vec![state.name().to_owned()]))
         .tag(row(
             "about",
-            vec!["A HIT_ENTER group, read through one of its anchors.".into()],
+            // The group's own words (M13), else what it is.
+            vec![if state.about().is_empty() {
+                "A HIT_ENTER group, read through one of its anchors.".into()
+            } else {
+                state.about().to_owned()
+            }],
         ));
     for t in hit_event::group::visibility_tags(state.is_public()) {
         meta = meta.tag(t);

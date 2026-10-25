@@ -222,12 +222,17 @@ impl Chat {
     }
 
     /// Public groups announced on the public relays (M13).
-    pub async fn browse(&self) -> Result<Vec<CommunityUi>, String> {
-        let found = self.app.browse().await.map_err(|e| e.to_string())?;
+    pub async fn browse(&self, query: &str, fresh: bool) -> Result<Vec<CommunityUi>, String> {
+        let found = self
+            .app
+            .browse(query, fresh)
+            .await
+            .map_err(|e| e.to_string())?;
         Ok(found
             .into_iter()
             .map(|c| CommunityUi {
                 name: c.name.into(),
+                about: c.about.into(),
                 members: match c.members {
                     1 => "1 member".into(),
                     n => format!("{n} members").into(),
@@ -924,6 +929,7 @@ impl Chat {
             public: g.public,
             newcomer_wait_set: i32::try_from(g.newcomer_wait_set).unwrap_or(i32::MAX),
             newcomer_wait: i32::try_from(g.newcomer_wait).unwrap_or(i32::MAX),
+            about: g.about.as_str().into(),
             me_owner: g.me_owner,
             can_rename: g.can_rename,
             can_manage: g.can_manage_channels,

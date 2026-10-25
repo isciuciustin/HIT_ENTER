@@ -61,6 +61,7 @@ impl G {
             name: "Test".into(),
             public: false,
             newcomer_wait: 0,
+            about: String::new(),
             channels: vec![
                 Channel {
                     id: "general".into(),

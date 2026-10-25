@@ -110,6 +110,8 @@ export struct SettingsUi {
     // floor included).
     newcomer-wait-set: int,
     newcomer-wait: int,
+    // What it is about (M13): shown and searched in browse communities.
+    about: string,
     me-owner: bool,
     can-rename: bool,
     can-manage: bool,
@@ -199,6 +201,7 @@ export struct DeviceUi {
 // A public group found on the public relays (M13): browse communities.
 export struct CommunityUi {
     name: string,
+    about: string,
     // "12 members"
     members: string,
     link: string,

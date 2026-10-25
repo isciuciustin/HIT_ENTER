@@ -6,6 +6,7 @@
 //! [`events::Sink`]. The Tauri shell is one sink; the native window
 //! (`hit-desktop`) is another. Neither holds logic of its own.
 
+pub mod browse;
 pub mod events;
 
 /// The scheme of join and contact links (`hit-enter:join?…`).

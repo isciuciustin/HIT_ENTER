@@ -130,7 +130,7 @@ not state.
 
 | kind | tags |
 |---|---|
-| `39000` metadata | `["name", …]`, `["public"]` + `["open"]` or `["private"]` + `["closed"]` (M13, NIP-29's words — always one pair; **public only with `public` and without `private`**, so every earlier group, which wrote neither, stays private), `["newcomer_wait", seconds]` (M13; absent is 0, at most a day), `["channel", id, name, "text"\|"voice", slowmode]`… (slowmode in seconds, since M5; absent is 0), `["override", channel, role, allow, deny]`… (bits as decimal strings) |
+| `39000` metadata | `["name", …]`, `["public"]` + `["open"]` or `["private"]` + `["closed"]` (M13, NIP-29's words — always one pair; **public only with `public` and without `private`**, so every earlier group, which wrote neither, stays private), `["newcomer_wait", seconds]` (M13; absent is 0, at most a day), `["about", text]` (M13, NIP-29's word; absent is none, at most 280 characters), `["channel", id, name, "text"\|"voice", slowmode]`… (slowmode in seconds, since M5; absent is 0), `["override", channel, role, allow, deny]`… (bits as decimal strings) |
 | `39001` admins | `["p", owner, "owner"]`, and `["p", member, role…]` for every member holding roles beyond the default |
 | `39002` members | `["p", member]`…, `["ban", person]`… and `["mute", member, until]`… (since M5) |
 | `39003` roles | `["role", id, name, perms, position]`… — `perms` a decimal bitset, `position` higher = higher rank. The role every member holds is `member`; `owner` is reserved |
@@ -151,7 +151,7 @@ roles, `10` manage group, `11` attach files. Unknown bits are dropped.
 | `9001` + `["ban"]` | as above | *ban*, and outranks the target. The target need not be a member — banning someone who left keeps them out. A ban stops any join or put of the target until lifted |
 | `9001` + `["unban"]` | as above | *ban*; the target is banned. Adds nobody |
 | `9030` | `["h", G]`, `["p", target, until]` — `until` 0 lifts a mute | *mute*, outranking a member target; `until` after the action's own time |
-| `9002` | `["h", G]` and one or more of: `["name", N]`; `["public"]` or `["private"]` (M13); `["newcomer_wait", seconds]` (M13); `["channel", id, name, kind, slowmode]` (create or replace); `["channel-delete", id]`; `["override", channel, role, allow, deny]` (0 and 0 removes it); `["role", id, name, perms, position]` (create or replace); `["role-delete", id]` | **every edit or none**, each judged against the state *before* the event: the name needs *manage group*; public or private **only the owner** — no role grants it; the newcomer wait *manage channels*, at most a day; channels and slowmode (≤ 6 h) *manage channels*; overrides *manage roles*, outranking the role, only channel bits survive, and granting nothing the actor lacks in that channel; roles *manage roles*, outranking the role before and after, position > 0, granting nothing the actor lacks; the default role only by the owner, at position 0, never deleted; deleting a role takes its assignments and overrides with it. Labels 1–64 characters |
+| `9002` | `["h", G]` and one or more of: `["name", N]`; `["public"]` or `["private"]` (M13); `["newcomer_wait", seconds]` (M13); `["about", text]` (M13; empty clears it); `["channel", id, name, kind, slowmode]` (create or replace); `["channel-delete", id]`; `["override", channel, role, allow, deny]` (0 and 0 removes it); `["role", id, name, perms, position]` (create or replace); `["role-delete", id]` | **every edit or none**, each judged against the state *before* the event: the name needs *manage group*; public or private **only the owner** — no role grants it; the newcomer wait *manage channels*, at most a day; the about *manage group*, at most 280 characters; channels and slowmode (≤ 6 h) *manage channels*; overrides *manage roles*, outranking the role, only channel bits survive, and granting nothing the actor lacks in that channel; roles *manage roles*, outranking the role before and after, position > 0, granting nothing the actor lacks; the default role only by the owner, at position 0, never deleted; deleting a role takes its assignments and overrides with it. Labels 1–64 characters |
 | `9005` | `["h", G]`, `["channel", C]`, `["e", id]`… | *manage messages* in `C` — HIT_ENTER_2's rule, no rank. Removes only messages and reactions **in `G` and `C`**, by anyone |
 | `9009` | `["h", G]`, `["code", hex]`, optional NIP-40 `["expiration", t]` | the author may *create invite* — checked again when a join uses it |
 | `9021` | `["h", G]`, `["code", hex]` — or no `code`, to a public group (M13) | not yet a member, not banned; some `9009` with that code, dated no later than the join, unexpired at the join's time, by someone who may invite **at that point in the fold** — or, without a code, the group public **at that point in the fold**. Whoever joins this way is a **newcomer** until the next snapshot |
@@ -412,6 +412,7 @@ holder of the key can announce it.
 |---|---|
 | `["d", ""]` | one per group |
 | `["name", N]` | the group's name, 1–64 characters |
+| `["about", text]` | optional: what it is about, at most 280 characters (M13) |
 | `["members", n]` | its member count — **the group's own word**, shown, never trusted |
 | `["link", L]` | its public link (`hit-enter:join?g=…&p=…`, no `c`) |
 | `["private"]` | instead of the three above: withdrawn — the group went private |
@@ -420,11 +421,20 @@ holder of the key can announce it.
 a name empty or over 64 characters, a link over 2 KB, or a link naming
 another group or carrying an invite code. Each group's newest wins; **a
 withdrawal wins a tie** (hiding a group by mistake is the cheaper error).
-The list is largest first, then newest, at most 200.
+**Ranking and search** (`crates/hit-app-core/src/browse.rs`, in the
+app; the default relays have no NIP-50 search): a score of
+`ln(1 + min(members, 100,000))`, halved every 7 days since the
+announcement; announced over 30 days ago, not shown. A query matches
+when every word is in the name or the about, case aside, and ranks by
+where — the whole name, then a name word starting with each, then inside
+the name, then the about only — and by score within each. At most 200
+shown. The relays' answer serves searches for a minute.
 
 **Who sends it:** any app holding the group key — today the owner's —
-when the group is made public, renamed, or made private (the withdrawal),
-and every ten minutes if its words changed (a member count). Each is
+when the group is made public, renamed, re-described, or made private
+(the withdrawal), every ten minutes if its words changed (a member
+count), and **at least once a day unchanged**, so a list can tell a live
+group from one nobody runs. Each is
 dated after the last one sent: a relay keeping one per group settles a
 same-second tie by NIP-01's lowest id. **A group never announced is never
 mentioned** — no withdrawal for a group that was always private, which

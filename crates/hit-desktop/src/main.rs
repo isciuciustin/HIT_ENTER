@@ -378,7 +378,7 @@ fn wire_chat(ui: &MainWindow, get: impl Fn() -> Option<Arc<Ctl>> + Clone + 'stat
     });
 
     let g = get.clone();
-    ui.on_browse(move || browse(&g));
+    ui.on_browse(move |query, fresh| browse(&g, query.to_string(), fresh));
 
     let g = get.clone();
     ui.on_make_invite(move |hours| {
@@ -469,7 +469,8 @@ fn wire_moderation(ui: &MainWindow, get: impl Fn() -> Option<Arc<Ctl>> + Clone +
             });
         }
         if kind == "browse" {
-            browse(&g);
+            ui.set_browse_query("".into());
+            browse(&g, String::new(), false);
         }
         if kind == "audio"
             && let Some(c) = g()
@@ -509,6 +510,14 @@ fn wire_moderation(ui: &MainWindow, get: impl Fn() -> Option<Arc<Ctl>> + Clone +
         let name = name.to_string();
         moderate(&g, "renamed", false, async move |app, group, _| {
             app.rename_group(&group, &name).await
+        });
+    });
+
+    let g = get.clone();
+    ui.on_set_about(move |about| {
+        let about = about.to_string();
+        moderate(&g, "saved", false, async move |app, group, _| {
+            app.set_about(&group, &about).await
         });
     });
 
@@ -1106,16 +1115,23 @@ fn done(ui: &slint::Weak<MainWindow>, result: String) {
 
 /// One of the profile's steps: busy meanwhile, then what it did or why
 /// not, and the profile read again.
-/// Asks the public relays for communities, for the browse list.
-fn browse(get: &impl Fn() -> Option<Arc<Ctl>>) {
+/// The browse list for `query`: the public relays asked again when
+/// `fresh`, else their last answer searched. An answer for a query no
+/// longer typed is dropped — they can arrive out of order.
+fn browse(get: &impl Fn() -> Option<Arc<Ctl>>, query: String, fresh: bool) {
     let Some(c) = get() else { return };
     if let Some(ui) = c.ui.upgrade() {
-        ui.set_browsed(false);
+        if fresh || ui.get_communities().row_count() == 0 {
+            ui.set_browsed(false);
+        }
         ui.set_dialog_error("".into());
     }
     c.with_chat(async move |chat, ui| {
-        let found = chat.browse().await;
+        let found = chat.browse(&query, fresh).await;
         let _ = ui.upgrade_in_event_loop(move |ui| {
+            if ui.get_browse_query().as_str() != query {
+                return;
+            }
             ui.set_browsed(true);
             match found {
                 Ok(list) => ui.set_communities(ModelRc::new(VecModel::from(list))),

@@ -63,6 +63,8 @@ pub const MAX_SLOWMODE: u32 = 6 * 60 * 60;
 /// The longest a group may make a newcomer wait before posting, in
 /// seconds: a day (M13).
 pub const MAX_NEWCOMER_WAIT: u32 = 24 * 60 * 60;
+/// The longest a group's *about* may be, in characters (M13).
+pub const MAX_ABOUT: usize = 280;
 /// The shortest wait a **public** group's newcomer has, whatever the
 /// group says: five minutes (M13, the owner's floor). In the rule, so no
 /// edit and no client gets under it.
@@ -313,6 +315,9 @@ pub struct Snapshot {
     /// (M13); 0 is none. A public group never waits less than
     /// [`PUBLIC_NEWCOMER_FLOOR`], whatever this says.
     pub newcomer_wait: u32,
+    /// What the group is, in a line or two (M13, NIP-29's `about`); empty
+    /// is none.
+    pub about: String,
     pub channels: Vec<Channel>,
     pub overrides: Vec<Override>,
     pub roles: Vec<RoleDef>,
@@ -345,6 +350,9 @@ impl Snapshot {
         }
         if self.newcomer_wait > 0 {
             meta = meta.tag(tag("newcomer_wait", [self.newcomer_wait.to_string()]));
+        }
+        if !self.about.is_empty() {
+            meta = meta.tag(tag("about", [self.about.clone()]));
         }
         for c in &self.channels {
             meta = meta.tag(channel_tag(c));
@@ -417,6 +425,7 @@ pub enum StatePiece {
         name: String,
         public: bool,
         newcomer_wait: u32,
+        about: String,
         channels: Vec<Channel>,
         overrides: Vec<Override>,
     },
@@ -444,6 +453,7 @@ pub fn parse_state(event: &Event) -> Option<(PublicKey, u64, StatePiece)> {
         let mut name = String::new();
         let (mut public, mut private) = (false, false);
         let mut newcomer_wait = 0;
+        let mut about = String::new();
         let (mut channels, mut overrides) = (Vec::new(), Vec::new());
         for row in rows() {
             match row {
@@ -451,6 +461,7 @@ pub fn parse_state(event: &Event) -> Option<(PublicKey, u64, StatePiece)> {
                 [n, ..] if n == "public" => public = true,
                 [n, ..] if n == "private" => private = true,
                 [n, v, ..] if n == "newcomer_wait" => newcomer_wait = v.parse().ok()?,
+                [n, v, ..] if n == "about" => about = v.clone(),
                 [n, rest @ ..] if n == "channel" => channels.push(parse_channel(rest)?),
                 [n, channel, role, allow, deny, ..] if n == "override" => {
                     overrides.push(Override {
@@ -469,6 +480,7 @@ pub fn parse_state(event: &Event) -> Option<(PublicKey, u64, StatePiece)> {
             // Both, or neither (every group before M13): private.
             public: public && !private,
             newcomer_wait,
+            about,
             channels,
             overrides,
         }
@@ -572,7 +584,8 @@ pub enum Action {
 
 /// One change a `9002` makes. Tags, in order: `["name", N]`;
 /// `["public"]` or `["private"]` (M13, the owner only);
-/// `["newcomer_wait", seconds]` (M13);
+/// `["newcomer_wait", seconds]` (M13); `["about", text]` (M13, empty
+/// clears it);
 /// `["channel", id, name, kind, slowmode]` (create or replace);
 /// `["channel-delete", id]`; `["override", channel, role, allow, deny]`
 /// (both 0 removes it); `["role", id, name, perms, position]` (create or
@@ -584,6 +597,8 @@ pub enum Edit {
     Public(bool),
     /// Seconds a newcomer waits before posting.
     NewcomerWait(u32),
+    /// What the group is about; empty clears it (M13).
+    About(String),
     Channel(Channel),
     ChannelDelete(String),
     Override(Override),
@@ -598,6 +613,7 @@ impl Edit {
             Self::Public(true) => tag("public", Vec::<String>::new()),
             Self::Public(false) => tag("private", Vec::<String>::new()),
             Self::NewcomerWait(s) => tag("newcomer_wait", [s.to_string()]),
+            Self::About(a) => tag("about", [a.clone()]),
             Self::Channel(c) => channel_tag(c),
             Self::ChannelDelete(id) => tag("channel-delete", [id.clone()]),
             Self::Override(o) => tag(
@@ -628,6 +644,7 @@ impl Edit {
             [n, ..] if n == "public" => Self::Public(true),
             [n, ..] if n == "private" => Self::Public(false),
             [n, v, ..] if n == "newcomer_wait" => Self::NewcomerWait(v.parse().ok()?),
+            [n, v, ..] if n == "about" => Self::About(v.clone()),
             [n, rest @ ..] if n == "channel" => Self::Channel(parse_channel(rest)?),
             [n, id, ..] if n == "channel-delete" => Self::ChannelDelete(id.clone()),
             [n, channel, role, allow, deny, ..] if n == "override" => Self::Override(Override {
@@ -647,6 +664,7 @@ impl Edit {
                 if [
                     "name",
                     "newcomer_wait",
+                    "about",
                     "channel",
                     "channel-delete",
                     "override",
@@ -1043,6 +1061,7 @@ mod tests {
             name: "Friends".into(),
             public: true,
             newcomer_wait: 600,
+            about: "for friends".into(),
             channels: vec![
                 Channel {
                     id: "general".into(),
@@ -1110,12 +1129,14 @@ mod tests {
                     name,
                     public,
                     newcomer_wait,
+                    about,
                     channels,
                     overrides,
                 } => {
                     back.name = name;
                     back.public = public;
                     back.newcomer_wait = newcomer_wait;
+                    back.about = about;
                     back.channels = channels;
                     back.overrides = overrides;
                 }
