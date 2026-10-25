@@ -1473,3 +1473,27 @@ exist.
   list/download/upload/edit, `git pull`/`fetch`/`tag`, pushes to
   `main`/`master`/`v*`, `sha256sum`, `mkdir`, `mktemp`
   (`.claude/settings.local.json`, per machine, not in git).
+- hitenter.app deployed from the laptop (`npx wrangler@4 deploy`, version
+  `3addd8e1`); the live page checked: beta.5 links, all four sha256 lines.
+
+## 2026-10-25 — after beta.5: launch plan, video, the cursor
+
+- **Getting known:** `docs/LAUNCH.md`. The order is to make the
+  two-network run work first, then Nostr, then Show HN, then one real
+  community. It holds both drafts. **The 1% fee cannot be turned off by
+  a user** (`fee_on` only means the build has a fee address), so the HN
+  text says "a 1% fee", not "optional".
+- **Videos that play by themselves:** `PLAN.md` M14. The owner posted a
+  video in a group and could only download it. Autoplay is muted, one at a
+  time, and on screen only. **The licence rule rules out FFmpeg,
+  GStreamer and VLC**, so the plan starts with H.264 through Cisco's
+  prebuilt `openh264` (Cisco pays the patents only for its own binary).
+  iPhone HEVC gets "can't play this here" for now. Budget: +25 MB while
+  playing.
+- **The terminal cursor:** `PLAN.md` "Polish". A solid green block,
+  `#3ddc84` (`Theme.accent`, measured on the icon), blinking 0.75 s on and
+  0.75 s off, solid while typing, hollow without focus. To check first:
+  whether Slint's `TextInput` lets us set its cursor's colour and blink.
+- Outside the repo: Omarchy's Discord web app was removed on the owner's
+  laptop (`omarchy webapp remove Discord`); the installed `discord`
+  package stays.

@@ -1262,6 +1262,123 @@ list in one place, checked again before beta.5.
 
 **Open questions:** none from the owner; the build will find some.
 
+### M14 — Videos play in the chat
+**Size: L**
+
+The owner, 2026-10-25, after posting a video in a group: it shows as a
+file you can download, and nothing more. **A video in a channel should
+play by itself, in the message list**, the way a picture shows itself
+(M8, `is_picture` in `hit-desktop/src/chat.rs`). Discord makes you click;
+Twitter and Telegram play muted. We play muted.
+
+**The behaviour:**
+
+1. **Autoplay, muted, looped, while it is on screen.** Only one video at a
+   time: the one most in view. It pauses when scrolled away, when the
+   window loses focus or is minimised, and during a call.
+2. **A click turns the sound on** and shows the controls: play/pause, a
+   seek bar, the time, volume, *open full size*, *save*. Sound goes to the
+   audio device chosen in settings (`HIT_AUDIO_OUT` for test windows),
+   like voice. **Never the microphone.**
+3. **Size limit for autoplay.** A video is fetched from peers whole (M8),
+   so autoplay means downloading. Autoplay a video under **25 MB**, or one
+   already in the cache. A larger one shows its poster and *play*, and
+   fetches only when clicked.
+4. **A setting:** *play videos automatically* (on by default).
+5. **What it cannot play** stays exactly what it is today: a file line
+   with *save*, plus "can't play this format here".
+
+**The hard part is the decoder, and the licence decides it.** FFmpeg,
+GStreamer, libmpv and VLC are all LGPL or GPL. The rule in `CLAUDE.md` and
+`about.toml` forbids every one of them, so the usual answer is out. What
+is left:
+
+| Format | What phones and screen recorders make | Decoder that fits the licence rule |
+|---|---|---|
+| MP4 + H.264 + AAC | Android, OBS, most clips people share | **`openh264`** (BSD-2, Cisco) + `symphonia` for AAC (MPL-2.0, already allowed) + an MP4 demuxer (MIT) |
+| WebM + VP9 / AV1 + Opus | browsers, Discord's own re-encodes | `dav1d` / `rav1d` for AV1 (BSD-2), libvpx for VP9 (BSD-3), our libopus |
+| MOV/MP4 + **HEVC** | **iPhones, by default** | nothing royalty-free; the OS decoder only (VideoToolbox on macOS; Windows only with the paid HEVC extension; Linux: none) |
+
+**Recommendation:** start with **MP4 + H.264 + AAC**, through `openh264`
+**loaded from Cisco's own prebuilt binary**, downloaded on first play.
+Cisco pays the H.264 patent royalties for that binary, but not for one we
+compile ourselves. That is the uncomfortable part: H.264 is patented, and
+shipping our own build of the decoder puts the licence question on us.
+WebM/AV1 second. HEVC through the OS decoder on macOS last. Until then an
+iPhone video gets "can't play this here" (the sender can pick
+*Most Compatible* in the camera settings).
+
+**Lightness is the selling point (M12), so it has a budget:**
+- One decoder alive at a time.
+- Frames scaled to the size on screen before they reach Slint
+  (`SharedPixelBuffer` → `Image`).
+- **At most +25 MB of RAM while a video plays**, measured as in M12-9.
+- Nothing decoded while nothing is visible.
+- The CPU cost of 720p30 through the software renderer is unknown. Measure
+  it in a spike before building anything else. If it is too slow, lower
+  the frame rate rather than give up the renderer.
+
+**On the wire (`PROTOCOL.md`, same commit):** NIP-92 `imeta` already has
+`dim`, `thumb` and `blurhash`. The sender adds `dim`, a `duration`, and a
+small poster frame as its own blob (`thumb`), so a receiver can lay the
+message out and show something before the video arrives. Old clients
+ignore the tags.
+
+**Done when:** an MP4 from an Android phone and an OBS recording, posted in
+a channel, play muted on their own in the other window on Linux, macOS and
+Windows. Scrolling away pauses them, a click gives sound and seeking, and
+the RAM stays within the budget. A 100 MB video shows a poster and does
+not download until clicked.
+
+**Deliberately not:**
+- Transcoding (we never re-encode what someone sent).
+- Streaming a video before it is fully fetched (iroh-blobs ranges, later).
+- YouTube or other embeds (a web request per message).
+- Screen sharing (that is voice's job, and a later one).
+
+**Open questions:**
+- 25 MB, or lower on a metered connection?
+- Loop short clips only (under a minute), or all videos?
+- Pay for nothing, or eventually license HEVC?
+
+### Polish — the terminal cursor
+**Size: S**
+
+The owner, 2026-10-25: **the text cursor should look like an old-school
+terminal's: a solid green block that blinks every 0.75 seconds.**
+
+- **The colour is the icon's green, `#3ddc84`**, which is `Theme.accent`
+  (`ui/theme.slint`). Measured on `packaging/icons/icon.png`, not
+  guessed.
+- **The shape is a block one character wide**, the width of a JetBrains
+  Mono cell (bundled, `assets/JetBrainsMono.ttf`), and one line high.
+- **The blink is 0.75 s on, 0.75 s off.** It stays solid while you type,
+  and starts blinking again 0.75 s after the last key, like a terminal.
+- **When the window does not have focus,** the block turns into a hollow
+  outline, as xterm and foot do.
+- **Where:** the composer (`ui/chat.slint`), every field built from
+  `widgets.slint`'s input, and onboarding. One component, used everywhere.
+- **Reduce motion:** if the OS asks for less animation, the block stays
+  steady.
+
+**What to check first:** Slint's `TextInput` draws its own thin cursor,
+with a width (`text-cursor-width`) but, as far as we know, no colour of
+its own and no blink rate. Check 1.18's API before building.
+
+- If Slint has no hook, hide its cursor (`text-cursor-width: 0`) and draw
+  our own block, positioned from the text up to the cursor. That is easy
+  on one line and hard once the text wraps over several.
+- In that case, offer Slint upstream a `cursor-color` and a blink interval
+  (it is MIT/GPL dual-licensed, and contributing is fine) rather than
+  maintaining a fork.
+- **Hand focus on correctly** (the recurring focus bug, `CLAUDE.md`). The
+  new cursor must never be the thing that holds focus.
+
+**Done when:** in the composer, a search field and onboarding, the cursor
+is a green block that blinks at 0.75 s (measured from a screen recording),
+stays solid while typing, and goes hollow when the window loses focus. The
+idle CPU of a focused, empty window does not rise measurably.
+
 ---
 
 ## 4. What that adds up to
