@@ -1386,3 +1386,11 @@ exist.
   replaces step 5's "look again" focus fix. **Found by the test:** the
   publisher's record of what it said lacked the about, so a changed about
   was never re-sent.
+- **The friend signal** (the owner asked, after search and ranking).
+  Chose NIP-51's kind 10009 over a kind of our own: other clients read
+  it, and it names nothing new — a public group's members are already
+  readable by anyone. "People you know" deliberately excludes members of
+  public groups you share (strangers, at Unturned's scale) and includes
+  DM correspondents. Signed with `sign_unjudged` (signs without storing:
+  the store does not carry 10009). Joins now wake the publisher so the
+  list follows at once, not at the ten-minute tick.

@@ -11,16 +11,23 @@
 //! - **Freshness halves the score every [`HALF_LIFE`]**: a live group is
 //!   re-announced at least daily by its owner's app, so a group nobody
 //!   runs sinks, and after [`STALE_AFTER`] it is gone from the list.
+//! - **People you know count before size**: a group listed by more of
+//!   them (their own NIP-51 groups lists, signed by them — the group cannot
+//!   fake these) ranks above one listed by fewer, whatever its size. Who
+//!   you know is the app's to say: those you share a private group with,
+//!   and those you have written to.
 //! - **A search ranks by where the words matched first** — the whole name,
 //!   then a word of the name beginning with them, then anywhere in the
 //!   name, then only in *about* — and by score within each. Every word of
 //!   the query must match somewhere.
 //!
-//! What it does not do: verify a count, catch a group copying another's
-//! name, or know what your friends joined. Said in `PLAN.md`.
+//! What it does not do: verify a count, or catch a group copying another's
+//! name. Said in `PLAN.md`.
+
+use std::collections::BTreeMap;
 
 use hit_event::announce::Announcement;
-use nostr::prelude::Timestamp;
+use nostr::prelude::{PublicKey, Timestamp};
 
 /// Claims above this many members rank as this many.
 pub const MEMBER_CEILING: u64 = 100_000;
@@ -38,24 +45,32 @@ enum Matched {
     Name,
 }
 
-/// `found`, searched for `query` (empty: everything) and ranked best first.
-pub fn rank(found: Vec<Announcement>, query: &str, now: Timestamp) -> Vec<Announcement> {
+/// `found`, searched for `query` (empty: everything) and ranked best
+/// first; `known` is how many people this person knows list each group.
+pub fn rank(
+    found: Vec<Announcement>,
+    known: &BTreeMap<PublicKey, usize>,
+    query: &str,
+    now: Timestamp,
+) -> Vec<Announcement> {
     let words: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
-    let mut scored: Vec<(Matched, f64, Announcement)> = found
+    let mut scored: Vec<(Matched, usize, f64, Announcement)> = found
         .into_iter()
         .filter(|a| now.as_secs().saturating_sub(a.at.as_secs()) <= STALE_AFTER)
         .filter_map(|a| {
             let m = matches(&a, query, &words)?;
-            Some((m, score(&a, now), a))
+            let friends = known.get(&a.group).copied().unwrap_or(0);
+            Some((m, friends, score(&a, now), a))
         })
         .collect();
-    scored.sort_by(|(ma, sa, a), (mb, sb, b)| {
+    scored.sort_by(|(ma, fa, sa, a), (mb, fb, sb, b)| {
         mb.cmp(ma)
+            .then(fb.cmp(fa))
             .then(sb.total_cmp(sa))
             .then(b.at.cmp(&a.at))
             .then(a.group.cmp(&b.group))
     });
-    scored.into_iter().map(|(_, _, a)| a).collect()
+    scored.into_iter().map(|(_, _, _, a)| a).collect()
 }
 
 /// Size in its logarithm, halved every [`HALF_LIFE`] of silence.
@@ -123,7 +138,7 @@ mod tests {
             a("Big but silent", "", 5_000, 21),
             a("Dead", "", 50_000, 31),
         ];
-        let ranked = rank(list, "", Timestamp::from(NOW));
+        let ranked = rank(list, &BTreeMap::new(), "", Timestamp::from(NOW));
         // Three weeks of silence cost a 5,000-member group more than a
         // live 10-member one.
         assert_eq!(names(&ranked), ["Big", "Small", "Big but silent"]);
@@ -136,7 +151,7 @@ mod tests {
             a("Liar", "", u64::MAX, 0),
             a("Liar, a month quiet", "", u64::MAX, 28),
         ];
-        let ranked = rank(list, "", Timestamp::from(NOW));
+        let ranked = rank(list, &BTreeMap::new(), "", Timestamp::from(NOW));
         // The liar is first — but by the ceiling's log, not a billion to
         // one, and a fortnight's silence costs it more than the lie won.
         assert_eq!(names(&ranked)[0], "Liar");
@@ -157,15 +172,16 @@ mod tests {
             a("Returned items", "", 9_000, 0),
         ];
         let now = Timestamp::from(NOW);
-        let ranked = rank(list.clone(), "unturned", now);
+        let none = BTreeMap::new();
+        let ranked = rank(list.clone(), &none, "unturned", now);
         // The exact name, then a name starting with it, then the about.
         assert_eq!(
             names(&ranked),
             ["Unturned", "Unturned Modding", "Survival games"]
         );
         // Case and spacing do not matter; every word must match.
-        assert_eq!(names(&rank(list.clone(), "  MOD  unturned ", now)), ["Unturned Modding"]);
-        assert!(rank(list.clone(), "unturned cooking", now).is_empty());
+        assert_eq!(names(&rank(list.clone(), &none, "  MOD  unturned ", now)), ["Unturned Modding"]);
+        assert!(rank(list.clone(), &none, "unturned cooking", now).is_empty());
         // A word inside the name ranks after a name word starting with it,
         // however much larger.
         let inside = vec![
@@ -173,8 +189,32 @@ mod tests {
             a("Unturned Modding", "", 50, 0),
         ];
         assert_eq!(
-            names(&rank(inside, "mod", now)),
+            names(&rank(inside, &none, "mod", now)),
             ["Unturned Modding", "Commodity traders"]
+        );
+    }
+
+    #[test]
+    fn groups_people_you_know_are_in_come_first_within_a_match() {
+        let big = a("Big", "games", 50_000, 0);
+        let small = a("Small", "games", 12, 0);
+        let friends_two = a("Two friends", "games", 30, 0);
+        let known = BTreeMap::from([(small.group, 1), (friends_two.group, 2)]);
+        let now = Timestamp::from(NOW);
+        let list = vec![big.clone(), small.clone(), friends_two.clone()];
+        assert_eq!(
+            names(&rank(list.clone(), &known, "", now)),
+            ["Two friends", "Small", "Big"]
+        );
+        // A better match still comes first: friends rank within it.
+        assert_eq!(
+            names(&rank(list, &known, "big", now)),
+            ["Big"]
+        );
+        let exact = vec![a("Games", "", 5, 0), friends_two];
+        assert_eq!(
+            names(&rank(exact, &known, "games", now)),
+            ["Games", "Two friends"]
         );
     }
 }

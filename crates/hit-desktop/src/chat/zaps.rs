@@ -82,6 +82,7 @@ impl Chat {
         }
         p.publishes = self.app.publishes();
         p.public_relays = self.app.public_relays().join(", ").into();
+        p.lists_groups = self.app.lists_groups();
         if let Some(w) = wallet {
             p.address = w.address.unwrap_or_default().into();
             p.zappable = w.zappable;
@@ -154,6 +155,19 @@ impl Chat {
             0 => "Your profile goes to no public relay now.".into(),
             1 => "Your profile goes to 1 public relay.".into(),
             n => format!("Your profile goes to {n} public relays."),
+        })
+    }
+
+    pub async fn toggle_list_groups(&self) -> Result<String, String> {
+        let on = !self.app.lists_groups();
+        self.app
+            .set_list_groups(on)
+            .await
+            .map_err(|e| e.to_string())?;
+        Ok(if on {
+            "Your public groups are listed for people you know.".into()
+        } else {
+            "Your public groups are no longer listed.".into()
         })
     }
 

@@ -1158,6 +1158,20 @@ limits:** client-side over at most 500 announcements a relay — a real
 directory at scale needs NIP-50 or our own index relay; a copycat name
 and a fresh key per day still rank; nothing yet says what your friends
 joined. Those are the next ranking signals.
+**The friend signal (same day):** each app lists its person's public
+groups on the public relays as NIP-51's kind 10009 (a standard Chachi
+and others read; the row's relay is an anchor's `wss://`, so a NIP-29
+client can follow it), on by default, off in *you*. Browsing asks for
+the lists of the people you know — those you share a **private** group
+with, and those you wrote to — and ranks a group by how many of them
+list it, inside each search tier and above size: the group cannot fake
+it. A row says *"Bob and 2 others you know are here"*. Tested (the rank
+order; Alice hears Bob is in Carol's public group, and stops hearing it
+once Bob hides his list) and driven in two windows: Bob, in Alice's
+private group, saw *Quiet club — Alice is here*. **Limits:** someone you
+know can list a group they are not in (it is their word, as the count is
+the group's); the 500 people asked at once; and knowing someone through
+a big *public* group counts for nothing on purpose.
 
 **What to build, in order:**
 

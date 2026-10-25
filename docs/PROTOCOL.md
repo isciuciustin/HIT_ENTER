@@ -31,6 +31,7 @@ is ours.
 | `30436` | device binding / revocation | M1 | **provisional** — `DESIGN.md` §15 q4 |
 | `9734` / `9735` | zap request / zap receipt | M10 | NIP-57's, as specified; the request goes to the recipient's Lightning address server, the receipt comes back on the group's anchor's relay — **neither is stored or synced as itself** |
 | `9436` | a zap receipt carried into a group | M10 | **ours, provisional** (below) |
+| `10009` | a person's public groups — the friend signal | M13 | NIP-51's simple groups list; public relays only, never stored or synced in a group (below) |
 | `39436` | a public group announcing itself on public relays | M13 | **ours, provisional**; addressable, signed by the group key, **never stored or synced in a group** (below) |
 
 Kind `1` was M2's test traffic and is no longer carried.
@@ -421,13 +422,29 @@ holder of the key can announce it.
 a name empty or over 64 characters, a link over 2 KB, or a link naming
 another group or carrying an invite code. Each group's newest wins; **a
 withdrawal wins a tie** (hiding a group by mistake is the cheaper error).
+**The friend signal — kind 10009, NIP-51's simple groups list**, signed
+by a person: `["group", <group key hex>, <an anchor's wss:// or "">]`
+per public group they are in — the id is what our bridge serves the
+group as, so a NIP-29 client can follow the row. Sent by the app with
+the profile, to the same relays, when it changes (a join wakes it);
+turned off in *you*, an empty list replaces the last one; never sent
+while there was nothing to say. Private groups are never listed. It
+tells a stranger nothing new: a public group's members are anyone's to
+read. **Read** when browsing: the lists of the people this person knows
+— whoever they share a *private* group with (a public one's members are
+mostly strangers) and whoever they wrote to or heard from, anchors and
+themselves aside, at most 500 asked — each person's newest, only from
+someone asked about, signatures checked.
+
 **Ranking and search** (`crates/hit-app-core/src/browse.rs`, in the
 app; the default relays have no NIP-50 search): a score of
 `ln(1 + min(members, 100,000))`, halved every 7 days since the
 announcement; announced over 30 days ago, not shown. A query matches
 when every word is in the name or the about, case aside, and ranks by
 where — the whole name, then a name word starting with each, then inside
-the name, then the about only — and by score within each. At most 200
+the name, then the about only — then **by how many people this person
+knows list it**, then by score. The group cannot fake that count: each
+person signs their own list. At most 200
 shown. The relays' answer serves searches for a minute.
 
 **Who sends it:** any app holding the group key — today the owner's —

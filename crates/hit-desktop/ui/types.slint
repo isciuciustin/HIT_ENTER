@@ -202,6 +202,8 @@ export struct DeviceUi {
 export struct CommunityUi {
     name: string,
     about: string,
+    // "Bob and 2 others you know are here" (M13), or empty.
+    known: string,
     // "12 members"
     members: string,
     link: string,
@@ -232,6 +234,8 @@ export struct ProfileUi {
     // is false when this device publishes nowhere at all.
     publishes: bool,
     public-relays: string,
+    // Their public groups listed there too, for people they know (M13).
+    lists-groups: bool,
 }
 
 // The zap dialog: "pick", "qr", "fee" or "done".

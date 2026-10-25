@@ -233,6 +233,7 @@ impl Chat {
             .map(|c| CommunityUi {
                 name: c.name.into(),
                 about: c.about.into(),
+                known: known_line(&c.known, c.known_count).into(),
                 members: match c.members {
                     1 => "1 member".into(),
                     n => format!("{n} members").into(),
@@ -1335,5 +1336,39 @@ mod tests {
             "npub1abcde…wxyz"
         );
         assert_eq!(short_key("short"), "short");
+    }
+}
+
+/// "Bob is here", "Bob and Carol are here", "Bob, Carol and 3 others you
+/// know are here" — the friend signal on a browse row (M13).
+fn known_line(names: &[String], count: usize) -> String {
+    let others = count.saturating_sub(names.len());
+    let Some((last, rest)) = names.split_last() else {
+        return String::new();
+    };
+    match (rest, others) {
+        ([], 0) => format!("{last} is here"),
+        (rest, 0) => format!("{} and {last} are here", rest.join(", ")),
+        (_, n) => format!(
+            "{} and {n} other{} you know are here",
+            names.join(", "),
+            if n == 1 { "" } else { "s" }
+        ),
+    }
+}
+
+#[cfg(test)]
+mod known_tests {
+    use super::known_line;
+
+    #[test]
+    fn the_friend_line_reads_right() {
+        let n = |v: &[&str]| v.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
+        assert_eq!(known_line(&[], 0), "");
+        assert_eq!(known_line(&n(&["Bob"]), 1), "Bob is here");
+        assert_eq!(known_line(&n(&["Bob", "Carol"]), 2), "Bob and Carol are here");
+        assert_eq!(known_line(&n(&["A", "B", "C"]), 3), "A, B and C are here");
+        assert_eq!(known_line(&n(&["Bob"]), 2), "Bob and 1 other you know are here");
+        assert_eq!(known_line(&n(&["A", "B", "C"]), 9), "A, B, C and 6 others you know are here");
     }
 }

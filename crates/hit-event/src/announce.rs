@@ -8,6 +8,12 @@
 //! `39000`s would catch every NIP-29 relay's groups, which a HIT_ENTER app
 //! cannot join.
 //!
+//! **The friend signal** — NIP-51's *simple groups list* (kind 10009),
+//! signed by a person: the public groups they are in. A list ranks a
+//! group higher when people you know list it; the group cannot fake that,
+//! since each person signs their own. It says nothing a stranger could not
+//! learn already — a public group's members are anyone's to read (M13).
+//!
 //! A group that goes private replaces its announcement with a withdrawal:
 //! `["private"]`, no name, no link. Everything else here is the group's own
 //! word — the member count included; a list shows it, it does not trust it.
@@ -17,6 +23,10 @@ use nostr::prelude::{Event, EventBuilder, Kind, PublicKey, Tag, Timestamp};
 use crate::{GroupKey, KeyError};
 
 pub const ANNOUNCEMENT: Kind = Kind::from_u16(39436);
+/// NIP-51's simple groups list: a person's public groups (M13).
+pub const GROUPS_LIST: Kind = Kind::from_u16(10009);
+/// The most groups read from one list.
+pub const MAX_LISTED: usize = 500;
 /// The longest link an announcement may carry.
 pub const MAX_LINK: usize = 2048;
 const MAX_NAME: usize = 64;
@@ -93,6 +103,36 @@ pub fn withdraw(key: &GroupKey, at: Timestamp) -> Result<Event, KeyError> {
             ])
             .custom_created_at(at),
     )
+}
+
+/// A person's public groups, as NIP-51 lists them: `["group", id, relay]`
+/// — the id the group's key in hex (what our bridge serves it as), the
+/// relay an anchor's `wss://`, or empty where the group has none.
+pub fn groups_list(groups: &[(PublicKey, Option<String>)]) -> EventBuilder {
+    EventBuilder::new(GROUPS_LIST, "").tags(groups.iter().map(|(g, relay)| {
+        Tag::custom(
+            "group",
+            [g.to_hex(), relay.clone().unwrap_or_default()],
+        )
+    }))
+}
+
+/// Reads a groups list from a public relay: its author and the groups it
+/// names that are ours to know (a key in hex). `None` for anything else —
+/// a bad signature first.
+pub fn read_groups_list(event: &Event) -> Option<(PublicKey, Vec<PublicKey>)> {
+    if event.kind != GROUPS_LIST || event.verify().is_err() {
+        return None;
+    }
+    let groups = event
+        .tags
+        .iter()
+        .map(|t| t.as_slice())
+        .filter(|t| t.first().is_some_and(|n| n == "group"))
+        .filter_map(|t| PublicKey::from_hex(t.get(1)?).ok())
+        .take(MAX_LISTED)
+        .collect();
+    Some((event.pubkey, groups))
 }
 
 /// Reads an announcement from a public relay: `None` for anything not one
@@ -173,6 +213,25 @@ mod tests {
                 at: at + 1
             })
         );
+    }
+
+    #[test]
+    fn a_groups_list_reads_back_and_a_forged_one_does_not() {
+        let me = Keys::generate();
+        let (a, b) = (GroupKey::generate(), GroupKey::generate());
+        let ev = groups_list(&[
+            (a.public_key(), Some("wss://anchor.example".into())),
+            (b.public_key(), None),
+        ])
+        .finalize(&me)
+        .unwrap();
+        assert_eq!(
+            read_groups_list(&ev),
+            Some((me.public_key(), vec![a.public_key(), b.public_key()]))
+        );
+        let mut forged = ev.clone();
+        forged.tags = nostr::prelude::Tags::from_list(vec![Tag::custom("group", [a.public_key().to_hex()])]);
+        assert_eq!(read_groups_list(&forged), None);
     }
 
     #[test]

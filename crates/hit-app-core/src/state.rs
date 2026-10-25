@@ -138,7 +138,23 @@ struct AppFile {
     /// The person turned their DM inbox off (M13: it is on unless they do).
     #[serde(default)]
     inbox_off: bool,
+    /// The person keeps their public groups off the public relays (M13).
+    #[serde(default)]
+    hide_groups: bool,
 }
+
+/// What *browse communities* last heard: each group's newest announcement,
+/// and who of the people this person knows lists which group.
+#[derive(Debug, Clone, Default)]
+struct Browsed {
+    found: Vec<hit_event::announce::Announcement>,
+    known: BTreeMap<PublicKey, Vec<PublicKey>>,
+}
+
+/// The most known people whose groups lists are asked for at once.
+const KNOWN_ASKED: usize = 500;
+/// The most of them named on a row.
+const KNOWN_NAMED: usize = 3;
 
 /// `published.json`: what went to the public relays and which said `OK` —
 /// `"profile"` and each announced group's npub — so a restart publishes
@@ -170,6 +186,10 @@ pub struct CommunityView {
     pub name: String,
     pub about: String,
     pub members: u64,
+    /// People this person knows who list it (M13), by name, at most
+    /// three; and how many there are in all.
+    pub known: Vec<String>,
+    pub known_count: usize,
     /// Its public link: opening it reads the group.
     pub link: String,
     /// This person is a member already.
@@ -267,7 +287,10 @@ pub struct App {
     inbox_on: Arc<std::sync::atomic::AtomicBool>,
     /// The public relays' last answer for *browse communities*: when, and
     /// each group's newest announcement, checked (M13).
-    browsed: Mutex<Option<(std::time::Instant, Vec<hit_event::announce::Announcement>)>>,
+    browsed: Mutex<Option<(std::time::Instant, Browsed)>>,
+    /// Lists this person's public groups on the public relays — the friend
+    /// signal others rank by (M13): on unless they turned it off.
+    list_groups: Arc<std::sync::atomic::AtomicBool>,
     /// Public groups being read, not joined (M13): the link each came by,
     /// to join with. In memory, as the reading is.
     reading: Mutex<BTreeMap<String, InviteLink>>,
@@ -515,6 +538,12 @@ pub struct Unread {
     pub count: usize,
 }
 
+/// An npub cut short, for someone with no name here.
+fn short_npub(p: &PublicKey) -> String {
+    let full = npub(p);
+    format!("{}…", full.get(..12).unwrap_or(&full))
+}
+
 pub fn npub(p: &PublicKey) -> String {
     p.to_bech32().unwrap_or_else(|_| p.to_hex())
 }
@@ -619,6 +648,7 @@ impl App {
             zapper: std::sync::OnceLock::new(),
             pending_zap: Mutex::new(None),
             browsed: Mutex::new(None),
+            list_groups: Arc::new(std::sync::atomic::AtomicBool::new(!file.hide_groups)),
             inbox_on: Arc::new(std::sync::atomic::AtomicBool::new(!file.inbox_off)),
             reading: Mutex::new(BTreeMap::new()),
             file: Mutex::new(file),
@@ -846,6 +876,7 @@ impl App {
             self.data_dir.clone(),
             self.secrets.clone(),
             self.link_addr(),
+            self.list_groups.clone(),
             relays,
         ));
         *running = Some(Running {
@@ -922,6 +953,24 @@ impl App {
         self.net.public_relays.is_some()
     }
 
+    /// Whether this person's public groups are listed on the public relays
+    /// (M13's friend signal).
+    pub fn lists_groups(&self) -> bool {
+        self.list_groups.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Lists this person's public groups on the public relays, or stops:
+    /// an empty list then replaces the last one.
+    pub async fn set_list_groups(&self, on: bool) -> Result<()> {
+        let mut next = self.file().clone();
+        next.hide_groups = !on;
+        self.save_file(next)?;
+        self.list_groups
+            .store(on, std::sync::atomic::Ordering::Relaxed);
+        self.publish_public().await;
+        Ok(())
+    }
+
     /// Picks the public relays for this person's profile — empty for none,
     /// the defaults again when the list is theirs — and publishes it to any
     /// that do not have it yet. A profile already on a relay stays there.
@@ -962,34 +1011,78 @@ impl App {
             .unwrap_or_else(|e| e.into_inner())
             .as_ref()
             .filter(|(at, _)| !fresh && at.elapsed() < BROWSE_CACHE)
-            .map(|(_, list)| list.clone());
-        let found = match cached {
-            Some(list) => list,
+            .map(|(_, b)| b.clone());
+        let heard = match cached {
+            Some(b) => b,
             None => {
-                let list = self.ask_for_communities().await?;
+                let b = self.ask_for_communities(&node).await?;
                 *self.browsed.lock().unwrap_or_else(|e| e.into_inner()) =
-                    Some((std::time::Instant::now(), list.clone()));
-                list
+                    Some((std::time::Instant::now(), b.clone()));
+                b
             }
         };
+        let counts: BTreeMap<PublicKey, usize> =
+            heard.known.iter().map(|(g, people)| (*g, people.len())).collect();
         let me = node.person();
-        Ok(crate::browse::rank(found, query, Timestamp::now())
+        let ranked: Vec<_> = crate::browse::rank(heard.found, &counts, query, Timestamp::now())
             .into_iter()
             .take(BROWSE_SHOWN)
-            .map(|a| CommunityView {
-                joined: node.group(&a.group).is_some_and(|s| s.is_member(&me)),
-                group: npub(&a.group),
-                name: a.name,
-                about: a.about,
-                members: a.members,
-                link: a.link,
+            .collect();
+        let named: Vec<PublicKey> = ranked
+            .iter()
+            .filter_map(|a| heard.known.get(&a.group))
+            .flat_map(|p| p.iter().take(KNOWN_NAMED).copied())
+            .collect();
+        let names = node.names(&named).await?;
+        Ok(ranked
+            .into_iter()
+            .map(|a| {
+                let people = heard.known.get(&a.group).cloned().unwrap_or_default();
+                CommunityView {
+                    joined: node.group(&a.group).is_some_and(|s| s.is_member(&me)),
+                    known: people
+                        .iter()
+                        .take(KNOWN_NAMED)
+                        .map(|p| names.get(p).cloned().unwrap_or_else(|| short_npub(p)))
+                        .collect(),
+                    known_count: people.len(),
+                    group: npub(&a.group),
+                    name: a.name,
+                    about: a.about,
+                    members: a.members,
+                    link: a.link,
+                }
             })
             .collect())
     }
 
+    /// The people this person knows (M13's friend signal): whoever they
+    /// share a **private** group with — a public one's members are mostly
+    /// strangers — and whoever they have written to or heard from. Not
+    /// anchors, not themselves.
+    async fn people_known(&self, node: &Node) -> Result<BTreeSet<PublicKey>> {
+        let me = node.person();
+        let mut known = BTreeSet::new();
+        for (g, state) in node.groups() {
+            let Some(s) = state else { continue };
+            if s.is_public() || !s.is_member(&me) {
+                continue;
+            }
+            let anchors = node.anchors(&g).await?;
+            known.extend(s.members().filter(|p| !anchors.contains(p)).copied());
+        }
+        for d in node.dms().await? {
+            known.insert(d.from);
+            known.insert(d.to);
+        }
+        known.remove(&me);
+        Ok(known)
+    }
+
     /// Each group's newest announcement on the public relays, withdrawn
-    /// ones gone.
-    async fn ask_for_communities(&self) -> Result<Vec<hit_event::announce::Announcement>> {
+    /// ones gone; and the groups lists of the people this person knows,
+    /// asked at the same time.
+    async fn ask_for_communities(&self, node: &Node) -> Result<Browsed> {
         let relays = self.public_relays();
         if relays.is_empty() {
             return Err(AppError::Refused(
@@ -999,7 +1092,42 @@ impl App {
         let filter = nostr::prelude::Filter::new()
             .kind(hit_event::announce::ANNOUNCEMENT)
             .limit(BROWSE_LIMIT);
-        let heard = hit_zap::public::fetch(&relays, &filter, BROWSE_TIMEOUT).await;
+        let known: Vec<PublicKey> = self
+            .people_known(node)
+            .await?
+            .into_iter()
+            .take(KNOWN_ASKED)
+            .collect();
+        let lists_filter = nostr::prelude::Filter::new()
+            .kind(hit_event::announce::GROUPS_LIST)
+            .authors(known.clone());
+        let (heard, lists) = tokio::join!(
+            hit_zap::public::fetch(&relays, &filter, BROWSE_TIMEOUT),
+            async {
+                if known.is_empty() {
+                    Vec::new()
+                } else {
+                    hit_zap::public::fetch(&relays, &lists_filter, BROWSE_TIMEOUT).await
+                }
+            }
+        );
+        // Each person's newest list — and only from someone asked about:
+        // a relay may answer with anyone's.
+        let mut newest_list: BTreeMap<PublicKey, (Timestamp, Vec<PublicKey>)> = BTreeMap::new();
+        for ev in &lists {
+            if let Some((who, groups)) = hit_event::announce::read_groups_list(ev)
+                && known.contains(&who)
+                && newest_list.get(&who).is_none_or(|(at, _)| *at < ev.created_at)
+            {
+                newest_list.insert(who, (ev.created_at, groups));
+            }
+        }
+        let mut by_group: BTreeMap<PublicKey, Vec<PublicKey>> = BTreeMap::new();
+        for (who, (_, groups)) in newest_list {
+            for g in groups {
+                by_group.entry(g).or_default().push(who);
+            }
+        }
         let mut newest: BTreeMap<PublicKey, Heard> = BTreeMap::new();
         for h in heard.iter().filter_map(hit_event::announce::read) {
             // A tie goes to the withdrawal: hiding a group by mistake is
@@ -1011,7 +1139,7 @@ impl App {
                 newest.insert(h.group(), h);
             }
         }
-        Ok(newest
+        let found = newest
             .into_values()
             .filter_map(|h| match h {
                 Heard::Public(a) => Some(a),
@@ -1022,7 +1150,11 @@ impl App {
                     .parse::<InviteLink>()
                     .is_ok_and(|l| l.group == a.group && l.code.is_none())
             })
-            .collect())
+            .collect();
+        Ok(Browsed {
+            found,
+            known: by_group,
+        })
     }
 
     /// Where a link says this device is: only with relays off, where an id
@@ -1860,6 +1992,7 @@ impl App {
             return Ok(npub(&link.group));
         }
         node.join(&link).await?;
+        self.publish_public().await;
         Ok(npub(&link.group))
     }
 
@@ -1882,6 +2015,7 @@ impl App {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .remove(group);
+        self.publish_public().await;
         Ok(())
     }
 
@@ -2153,11 +2287,15 @@ async fn publish_public(
     dir: PathBuf,
     secrets: Arc<dyn SecretStore + Send + Sync>,
     addr: Option<SocketAddr>,
+    list_groups: Arc<std::sync::atomic::AtomicBool>,
     mut relays: tokio::sync::watch::Receiver<Vec<String>>,
 ) {
     loop {
         let list = relays.borrow_and_update().clone();
-        if let Err(e) = publish_public_once(&node, &dir, secrets.as_ref(), addr, &list).await {
+        let groups = list_groups.load(std::sync::atomic::Ordering::Relaxed);
+        if let Err(e) =
+            publish_public_once(&node, &dir, secrets.as_ref(), addr, groups, &list).await
+        {
             tracing::debug!("publishing to public relays: {e}");
         }
         tokio::select! {
@@ -2172,6 +2310,7 @@ async fn publish_public_once(
     dir: &Path,
     secrets: &(dyn SecretStore + Send + Sync),
     addr: Option<SocketAddr>,
+    list_groups: bool,
     list: &[String],
 ) -> Result<()> {
     let path = dir.join("published.json");
@@ -2182,6 +2321,32 @@ async fn publish_public_once(
     if let Some(profile) = node.own_profile().await? {
         let id = profile.id.to_hex();
         send_public(&mut done, "profile", id, &profile, list).await;
+    }
+    // The public groups this person is in (NIP-51), for the people who
+    // know them to rank by — or, turned off, an empty list in its place.
+    // Never sent while there was never anything to say.
+    let me = node.person();
+    let mut mine = Vec::new();
+    if list_groups {
+        for (g, state) in node.groups() {
+            if state.is_some_and(|s| s.is_public() && s.is_member(&me)) {
+                let relay = node.receipt_relays(&g).await?.into_iter().next();
+                mine.push((g, relay));
+            }
+        }
+    }
+    let what = format!(
+        "groups\n{}",
+        mine.iter().map(|(g, _)| g.to_hex()).collect::<Vec<_>>().join("\n")
+    );
+    if !mine.is_empty() || done.contains_key("groups") {
+        let at = done.get("groups").map_or_else(Timestamp::now, |s| {
+            Timestamp::now().max(Timestamp::from(s.at + 1))
+        });
+        let ev = node.sign_unjudged(
+            hit_event::announce::groups_list(&mine).custom_created_at(at),
+        )?;
+        send_public(&mut done, "groups", what, &ev, list).await;
     }
     for (g, _) in node.groups() {
         let key = npub(&g);
@@ -3452,6 +3617,76 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
         n
+    }
+
+    /// M13's friend signal: Bob, who shares a private group with Alice,
+    /// joins Carol's public group; Alice's list says Bob is there — and
+    /// stops saying it once Bob hides his groups. Another public group,
+    /// which nobody Alice knows is in, says nobody.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_public_group_people_you_know_are_in_says_so() {
+        use hit_zap::fake::FakeLightning;
+        let relay = FakeLightning::start().await;
+        let keys = Arc::new(MemoryStore::default());
+        let dirs: Vec<_> = (0..3).map(|_| tempfile::tempdir().unwrap()).collect();
+        let mut apps = Vec::new();
+        for d in &dirs {
+            let to_relay = Net {
+                public_relays: Some(vec![relay.relay_url()]),
+                ..net()
+            };
+            let app = App::open(d.path(), keys.clone(), to_relay).await.unwrap();
+            app.import_identity(&Person::generate().reveal_nsec_for_backup(), None)
+                .await
+                .unwrap();
+            apps.push(app);
+        }
+        let (alice, bob, carol) = (&apps[0], &apps[1], &apps[2]);
+        let nodes = [
+            alice.node().await.unwrap(),
+            bob.node().await.unwrap(),
+            carol.node().await.unwrap(),
+        ];
+        for x in &nodes {
+            for y in &nodes {
+                if x.id() != y.id() {
+                    x.add_peer(local_addr(y));
+                }
+            }
+        }
+        bob.set_name("Bob").await.unwrap();
+        // Alice and Bob: a private group.
+        let friends = alice.create_group("Friends", false).await.unwrap();
+        let link = nodes[0]
+            .invite(&parse_key(&friends).unwrap(), None, Some(local(&nodes[0])))
+            .await
+            .unwrap();
+        bob.join(&link.to_string()).await.unwrap();
+        // Carol: two public groups; Bob joins one.
+        let quiet = carol.create_group("Quiet club", true).await.unwrap();
+        carol.create_group("Busy hall", true).await.unwrap();
+        let link = nodes[2]
+            .invite(&parse_key(&quiet).unwrap(), None, Some(local(&nodes[2])))
+            .await
+            .unwrap();
+        bob.join(&link.to_string()).await.unwrap();
+
+        let says = |want: usize| async move {
+            let list = alice.browse("", true).await.unwrap();
+            let q = list.iter().find(|c| c.name == "Quiet club");
+            let b = list.iter().find(|c| c.name == "Busy hall");
+            q.is_some_and(|q| q.known_count == want && (want == 0 || q.known == ["Bob"]))
+                && b.is_some_and(|b| b.known_count == 0)
+        };
+        assert!(within(|| says(1)).await, "Alice never heard Bob is in Quiet club");
+        assert_eq!(alice.browse("", false).await.unwrap()[0].name, "Quiet club");
+
+        bob.set_list_groups(false).await.unwrap();
+        assert!(!bob.lists_groups());
+        assert!(within(|| says(0)).await, "Bob's hidden list still counted");
+        for a in &apps {
+            a.shutdown().await;
+        }
     }
 
     /// M13: the DM inbox is on by default — the list names a group's
