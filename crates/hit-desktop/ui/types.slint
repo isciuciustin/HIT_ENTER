@@ -216,6 +216,10 @@ export struct ProfileUi {
     inbox-enabled: bool,
     inbox-available: int,
     min-password: int,
+    // Where the profile is published (M13), comma-separated; `publishes`
+    // is false when this device publishes nowhere at all.
+    publishes: bool,
+    public-relays: string,
 }
 
 // The zap dialog: "pick", "qr", "fee" or "done".

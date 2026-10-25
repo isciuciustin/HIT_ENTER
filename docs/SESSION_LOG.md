@@ -1334,3 +1334,18 @@ exist.
   Alice's public group with her name shown, joined from the banner, and
   the keyboard stayed in the composer (the button vanishing is the focus
   trap). `wtype`'s BackSpace does not reach Slint either.
+- **M13 step 4 built: profiles to public relays.** The rule's wording
+  moved from "iroh owns the transport" to **"iroh owns the chat plane"**:
+  `hit-zap` (still the only crate with a WebSocket client) gained
+  `public.rs`, publish-only, and the app's publisher task sends the
+  person's own kind 0 there — never chat, never another kind. Deviation,
+  said: not to the group's anchors (they have it by sync). Which relays
+  took which profile is `published.json`, so a restart sends nothing new
+  and a failed relay is retried every ten minutes. **Test windows publish
+  nowhere** (`HIT_PUBLIC_RELAYS=none` in `launch.sh`, the bench scripts and
+  `TESTING.md`'s recipes): otherwise every driven Alice would land on
+  Damus. The *you* dialog's old line "shown to the people you share a
+  group with, and nobody else" was false from this step on — it says
+  "public" now when it is. Found driving: a Slint field focused by Tab
+  selects its text, so typing replaces it — handy, since BackSpace does
+  not reach it.

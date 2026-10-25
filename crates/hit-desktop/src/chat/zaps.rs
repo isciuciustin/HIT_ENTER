@@ -80,6 +80,8 @@ impl Chat {
             p.relays = st.relays;
             p.min_password = i32::try_from(st.min_password).unwrap_or(i32::MAX);
         }
+        p.publishes = self.app.publishes();
+        p.public_relays = self.app.public_relays().join(", ").into();
         if let Some(w) = wallet {
             p.address = w.address.unwrap_or_default().into();
             p.zappable = w.zappable;
@@ -138,6 +140,20 @@ impl Chat {
             "Your groups' anchors will keep your DMs while you are away.".into()
         } else {
             "Your DMs now wait only on the sender's device until you are back.".into()
+        })
+    }
+
+    pub async fn set_public_relays(&self, relays: String) -> Result<String, String> {
+        let list: Vec<String> = relays.split([',', ' ']).map(str::to_owned).collect();
+        let now = self
+            .app
+            .set_public_relays(&list)
+            .await
+            .map_err(|e| e.to_string())?;
+        Ok(match now.len() {
+            0 => "Your profile goes to no public relay now.".into(),
+            1 => "Your profile goes to 1 public relay.".into(),
+            n => format!("Your profile goes to {n} public relays."),
         })
     }
 

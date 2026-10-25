@@ -16,6 +16,7 @@ fi
 comm=hit-enter
 mkdir -p "$dir"
 HIT_DATA_DIR=$dir HIT_KEYCHAIN_SERVICE=hit-enter-gui-test HIT_RELAYS=none HIT_PORT=$2 \
+  HIT_PUBLIC_RELAYS=${HIT_PUBLIC_RELAYS:-none} \
   HIT_PEERS=${HIT_PEERS:-} HIT_AUDIO_IN=pulse HIT_AUDIO_OUT=pulse \
   PULSE_SOURCE=hit_$1_in.monitor PULSE_SINK=hit_$1_out \
   setsid "$bin" "${@:3}" >>"$dir.log" 2>&1 &

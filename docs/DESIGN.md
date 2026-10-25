@@ -770,9 +770,11 @@ Carried forward, reworded for a mesh:
 - **A blob store is never served unauthenticated** — and never with
   `Remote::fetch` on the upload path (HIT_ENTER_2 M7's existence oracle).
   Public-group files are the one exception, and it is explicit per group.
-- **iroh owns the transport.** No WebSocket or HTTP in the chat plane.
-  `wss://` exists only on an anchor that opted in; an HTTP client exists
-  only in `hit-zap`.
+- **iroh owns the chat plane.** No WebSocket or HTTP carries chat.
+  `wss://` exists only on an anchor that opted in; an HTTP or WebSocket
+  client exists only in `hit-zap` — for zaps, and since M13 for
+  publishing what is public anyway (a person's profile) to public relays,
+  publish only.
 - **HIT_ENTER never holds user funds.**
 - **The fee is a second payment, never a cut of the first** (§11). No code
   path routes a zap through a HIT_ENTER wallet, and the fee payment carries

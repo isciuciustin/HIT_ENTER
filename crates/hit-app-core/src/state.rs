@@ -107,6 +107,11 @@ pub struct Net {
     /// CLI's `peer` does. With relays off nothing else finds a device after
     /// a restart; with relays on, discovery does and this stays empty.
     pub peers: Vec<(iroh::EndpointId, SocketAddr)>,
+    /// The public Nostr relays a profile goes to unless the person picked
+    /// their own (M13): [`hit_zap::PUBLIC_RELAYS`] in the app. `None`
+    /// publishes nowhere, whatever was picked — tests, and
+    /// `HIT_PUBLIC_RELAYS=none` for windows driven on one machine.
+    pub public_relays: Option<Vec<String>>,
 }
 
 /// `app.json`: public facts only, never a secret.
@@ -124,7 +129,25 @@ struct AppFile {
     /// canceller that misbehaves.
     #[serde(default)]
     no_echo_cancel: bool,
+    /// The public relays the person picked for their profile (M13);
+    /// `None` is [`Net::public_relays`], an empty list is nowhere.
+    #[serde(default)]
+    public_relays: Option<Vec<String>>,
 }
+
+/// `published.json`: which public relays said `OK` to which profile, so a
+/// restart does not publish it again, and a relay that failed is tried
+/// again later.
+#[derive(Debug, Default, Serialize, Deserialize)]
+struct Published {
+    profile: String,
+    relays: Vec<String>,
+}
+
+/// How often a profile some relay has not taken is tried again.
+const PUBLISH_RETRY: Duration = Duration::from_secs(600);
+/// The most public relays a person may name.
+pub const MAX_PUBLIC_RELAYS: usize = 8;
 
 /// Who is in each voice channel, and this person's call if any.
 #[derive(Debug, Clone, Serialize)]
@@ -180,6 +203,8 @@ struct Running {
     node: Node,
     voice: Arc<Voice>,
     tasks: Vec<JoinHandle<()>>,
+    /// The profile publisher's list of relays; sending wakes it to publish.
+    publish: tokio::sync::watch::Sender<Vec<String>>,
 }
 
 pub struct App {
@@ -760,10 +785,13 @@ impl App {
             }
         });
         let voice = Voice::new(node.clone(), hit_voice::call::Config::default());
+        let (publish, relays) = tokio::sync::watch::channel(self.public_relays());
+        let publisher = tokio::spawn(publish_profile(node.clone(), self.data_dir.clone(), relays));
         *running = Some(Running {
             node,
             voice,
-            tasks: vec![sync, presence],
+            tasks: vec![sync, presence, publisher],
+            publish,
         });
         Ok(())
     }
@@ -808,7 +836,63 @@ impl App {
             return Err(AppError::Refused("a name cannot be empty".into()));
         }
         self.node().await?.set_name(name).await?;
+        self.publish_profile().await;
         Ok(())
+    }
+
+    // --- the public profile (M13) -----------------------------------------
+
+    /// The public relays this person's profile goes to: their own pick,
+    /// or the defaults.
+    pub fn public_relays(&self) -> Vec<String> {
+        match &self.net.public_relays {
+            None => Vec::new(),
+            Some(defaults) => self
+                .file()
+                .public_relays
+                .clone()
+                .unwrap_or_else(|| defaults.clone()),
+        }
+    }
+
+    /// Whether this device publishes profiles at all: not with
+    /// `HIT_PUBLIC_RELAYS=none`.
+    pub fn publishes(&self) -> bool {
+        self.net.public_relays.is_some()
+    }
+
+    /// Picks the public relays for this person's profile — empty for none,
+    /// the defaults again when the list is theirs — and publishes it to any
+    /// that do not have it yet. A profile already on a relay stays there.
+    pub async fn set_public_relays(&self, relays: &[String]) -> Result<Vec<String>> {
+        let mut list: Vec<String> = Vec::new();
+        for r in relays.iter().map(|r| r.trim().trim_end_matches('/')) {
+            if r.is_empty() || list.iter().any(|x| x == r) {
+                continue;
+            }
+            if !(r.starts_with("wss://") || r.starts_with("ws://")) || r.len() > 200 {
+                return Err(AppError::Refused(format!("{r} is not a wss:// relay")));
+            }
+            list.push(r.to_owned());
+        }
+        if list.len() > MAX_PUBLIC_RELAYS {
+            return Err(AppError::Refused(format!(
+                "at most {MAX_PUBLIC_RELAYS} relays"
+            )));
+        }
+        let mut next = self.file().clone();
+        let defaults = self.net.public_relays.as_ref();
+        next.public_relays = (defaults != Some(&list)).then_some(list);
+        self.save_file(next)?;
+        self.publish_profile().await;
+        Ok(self.public_relays())
+    }
+
+    /// Wakes the publisher: the profile, or the relays, changed.
+    async fn publish_profile(&self) {
+        if let Some(r) = self.running.read().await.as_ref() {
+            r.publish.send_replace(self.public_relays());
+        }
     }
 
     pub async fn groups(&self) -> Result<Vec<GroupView>> {
@@ -1868,6 +1952,63 @@ pub struct InvoiceView {
 
 /// HIT_ENTER's fee address: the constant, or — in a debug build only — the
 /// `HIT_ZAP_FEE_ADDRESS` a test against a fake network sets.
+/// Publishes this person's profile to the public relays in `relays` (M13),
+/// each time it or the list changes, and again later to any relay that
+/// failed. Only the kind 0 — the one thing of ours meant for everyone.
+async fn publish_profile(
+    node: Node,
+    dir: PathBuf,
+    mut relays: tokio::sync::watch::Receiver<Vec<String>>,
+) {
+    loop {
+        let list = relays.borrow_and_update().clone();
+        if let Err(e) = publish_profile_once(&node, &dir, &list).await {
+            tracing::debug!("publishing the profile: {e}");
+        }
+        tokio::select! {
+            r = relays.changed() => if r.is_err() { return },
+            () = tokio::time::sleep(PUBLISH_RETRY) => {}
+        }
+    }
+}
+
+async fn publish_profile_once(node: &Node, dir: &Path, list: &[String]) -> Result<()> {
+    let Some(profile) = node.own_profile().await? else {
+        return Ok(());
+    };
+    let path = dir.join("published.json");
+    let mut done: Published = std::fs::read(&path)
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_default();
+    if done.profile != profile.id.to_hex() {
+        done = Published {
+            profile: profile.id.to_hex(),
+            relays: Vec::new(),
+        };
+    }
+    let todo: Vec<String> = list
+        .iter()
+        .filter(|r| !done.relays.contains(r))
+        .cloned()
+        .collect();
+    if todo.is_empty() {
+        return Ok(());
+    }
+    let answers = hit_zap::public::publish(&profile, &todo).await;
+    for (url, answer) in todo.into_iter().zip(answers) {
+        match answer {
+            Ok(()) => done.relays.push(url),
+            Err(e) => tracing::info!("profile not published: {e}"),
+        }
+    }
+    let bytes = serde_json::to_vec_pretty(&done).map_err(|e| AppError::Io(e.to_string()))?;
+    let tmp = dir.join("published.json.tmp");
+    std::fs::write(&tmp, bytes)?;
+    std::fs::rename(&tmp, &path)?;
+    Ok(())
+}
+
 fn fee_address() -> Option<LightningAddress> {
     #[cfg(debug_assertions)]
     if let Ok(a) = std::env::var("HIT_ZAP_FEE_ADDRESS") {
@@ -1965,6 +2106,7 @@ impl App {
             let key = self.zapper()?.provider_of(&a).await?;
             node.set_lud16(Some((&a.to_string(), &key))).await?;
         }
+        self.publish_profile().await;
         self.wallet_view().await
     }
 
@@ -2232,6 +2374,7 @@ mod tests {
             port: None,
             invite_addr: None,
             peers: Vec::new(),
+            public_relays: None,
         }
     }
 
@@ -2770,6 +2913,66 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
         false
+    }
+
+    /// M13: the profile goes to the public relays — on start, on each
+    /// change, and once only — and to none when the person says none.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn the_profile_is_published_to_the_public_relays() {
+        use hit_zap::fake::FakeLightning;
+        let relay = FakeLightning::start().await;
+        let dir = tempfile::tempdir().unwrap();
+        let keys = Arc::new(MemoryStore::default());
+        let to_relay = Net {
+            public_relays: Some(vec![relay.relay_url()]),
+            ..net()
+        };
+        let app = App::open(dir.path(), keys.clone(), to_relay).await.unwrap();
+        let alice = Person::generate();
+        app.import_identity(&alice.reveal_nsec_for_backup(), None)
+            .await
+            .unwrap();
+        let me = alice.public_key();
+        let named = |name: &'static str| {
+            let relay = &relay;
+            move || {
+                let found = relay.events_of(nostr::prelude::Kind::Metadata).iter().any(|e| {
+                    e.pubkey == me
+                        && hit_event::profile::name_of(e).as_deref() == Some(name)
+                });
+                async move { found }
+            }
+        };
+        app.set_name("Alice").await.unwrap();
+        assert!(within(named("Alice")).await, "the name never reached the relay");
+
+        // A restart publishes nothing again: the relay already has it.
+        app.shutdown().await;
+        drop(app);
+        let app = App::open(
+            dir.path(),
+            keys.clone(),
+            Net {
+                public_relays: Some(vec![relay.relay_url()]),
+                ..net()
+            },
+        )
+        .await
+        .unwrap();
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        assert_eq!(relay.events_of(nostr::prelude::Kind::Metadata).len(), 1);
+
+        // None: a new name stays off the relay.
+        assert!(app.set_public_relays(&[]).await.unwrap().is_empty());
+        assert!(app.set_public_relays(&["http://x".into()]).await.is_err());
+        app.set_name("Private Alice").await.unwrap();
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        assert!(!named("Private Alice")().await);
+        // And back to the defaults: it goes.
+        let back = app.set_public_relays(&[relay.relay_url()]).await.unwrap();
+        assert_eq!(back, vec![relay.relay_url()]);
+        assert!(within(named("Private Alice")).await);
+        app.shutdown().await;
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

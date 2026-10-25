@@ -35,7 +35,7 @@ carol=$(cat target/bench/carol.device)@127.0.0.1:47120
 sample() { python3 scripts/bench/sample.py "$A" "$1" "$app: $2" | tee -a "$out"; }
 # A link handed over as the desktop would: a second copy with the URL.
 link() {
-  HIT_DATA_DIR=target/gui/a HIT_KEYCHAIN_SERVICE=hit-enter-gui-test HIT_RELAYS=none \
+  HIT_DATA_DIR=target/gui/a HIT_KEYCHAIN_SERVICE=hit-enter-gui-test HIT_RELAYS=none HIT_PUBLIC_RELAYS=none \
     HIT_PORT=47101 "$bin" "$(awk -v g="$1" '$1==g{print $2}' target/bench/links)" || true
   sleep 3
   scripts/gui/focus.sh "$A"; sleep 0.5

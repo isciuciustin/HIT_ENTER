@@ -457,8 +457,10 @@ enough.
   Groups are plaintext at rest and the UI says who can read them.
 - **No blob served unauthenticated; never `Remote::fetch` on an upload**
   (HIT_ENTER_2 M7).
-- **iroh owns the transport.** No HTTP or WebSocket in the chat plane.
-  `wss://` only on an anchor that opted in; an HTTP client only in `hit-zap`.
+- **iroh owns the chat plane.** No HTTP or WebSocket carries chat.
+  `wss://` only on an anchor that opted in; an HTTP or WebSocket client
+  only in `hit-zap` — zaps, and publishing what is public anyway to public
+  relays (M13: the person's own profile), publish only.
 - **HIT_ENTER never holds user funds.** Zaps go wallet to wallet.
 - **The 1% fee is a second payment on top, from the sender's wallet — never a
   cut of the zap**, shown before sending, zap first and fee best-effort, and

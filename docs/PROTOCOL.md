@@ -429,8 +429,20 @@ Apps show it as *anchor*, and invite links name its devices (below).
   name only these relays in a zap request (below). `ws://` is accepted
   only to loopback (tests).
 
-Nothing here publishes a profile to public Nostr relays; that is opt-in and
-later (`DESIGN.md` §8). Implemented in `crates/hit-event/src/profile.rs`.
+**Published to public relays (M13)**, unchanged: the app sends a person's
+own kind 0 — and nothing else of theirs — to `wss://relay.damus.io`,
+`wss://nos.lol` and `wss://relay.primal.net` by default
+(`hit_zap::PUBLIC_RELAYS`), or to the list the person set (empty: none),
+so other Nostr apps show their name. Publish only: no subscription, no
+chat. Sent at start, on each change, and every ten minutes to a relay that
+has not said `OK` to the current one (`published.json` in the data
+directory records who has). **Not to the group's anchors**, though the
+plan said so: an anchor already holds its members' profiles by sync, and
+its bridge serves them. An anchor's own kind 0 is never published.
+`HIT_PUBLIC_RELAYS=none` turns it off on a device (windows driven in
+tests); a comma-separated list replaces the defaults. A profile a relay
+already has stays there — Nostr has no recall. Implemented in
+`crates/hit-event/src/profile.rs` and `hit-zap/src/public.rs`.
 
 ## Invite links (M3)
 

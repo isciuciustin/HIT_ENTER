@@ -80,6 +80,7 @@ export component MainWindow inherits Window {
     callback connect-wallet(string);
     callback disconnect-wallet();
     callback toggle-inbox();
+    callback set-public-relays(string);
     callback backup-again(string);
     in property <ZapUi> zap;
     in-out property <string> zap-amount: "1000";
@@ -615,6 +616,7 @@ export component MainWindow inherits Window {
                         connect(c) => { root.connect-wallet(c); }
                         disconnect => { root.disconnect-wallet(); }
                         toggle-inbox => { root.toggle-inbox(); }
+                        set-public-relays(r) => { root.set-public-relays(r); }
                         backup(pw) => { root.backup-again(pw); }
                         close => { root.dialog = ""; }
                     }

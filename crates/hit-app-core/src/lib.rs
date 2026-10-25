@@ -21,7 +21,8 @@ use state::{App, Net};
 
 /// Opens the app over the OS keychain, with the environment every window
 /// honours (`docs/TESTING.md`): `HIT_KEYCHAIN_SERVICE`, `HIT_PORT`,
-/// `HIT_RELAYS=none`, `HIT_PEERS`. The error is a sentence for the window —
+/// `HIT_RELAYS=none`, `HIT_PEERS`, `HIT_PUBLIC_RELAYS` (`none`, or a
+/// comma-separated list in place of the defaults). The error is a sentence for the window —
 /// shown there rather than a process that dies before drawing anything.
 pub async fn open_from_env(data_dir: &std::path::Path) -> Result<Arc<App>, String> {
     let service =
@@ -39,6 +40,16 @@ pub async fn open_from_env(data_dir: &std::path::Path) -> Result<Arc<App>, Strin
         relays,
         port,
         peers: peers_from_env()?,
+        public_relays: match std::env::var("HIT_PUBLIC_RELAYS").as_deref() {
+            Ok("none") => None,
+            Ok(list) => Some(list.split(',').map(|r| r.trim().to_owned()).collect()),
+            Err(_) => Some(
+                hit_zap::PUBLIC_RELAYS
+                    .iter()
+                    .map(|r| (*r).to_owned())
+                    .collect(),
+            ),
+        },
     };
     App::open(data_dir, Arc::new(keychain), net)
         .await

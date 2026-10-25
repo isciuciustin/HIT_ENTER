@@ -1090,6 +1090,20 @@ the keyboard stayed in the composer. **Not yet:** a reader's files (the
 blob gate should pass — the reader's binding sits in the serving node's
 book for the session — untested); putting a read group down without a
 restart.
+**Step 4 built (2026-10-25):** the app publishes the person's own kind 0
+to Damus, nos.lol and Primal (`hit_zap::PUBLIC_RELAYS`, `public.rs`:
+connect, `EVENT`, wait for `OK`, all three at once) — at start, on each
+name or address change, and every ten minutes to a relay that has not
+taken the current one (`published.json`). The *you* dialog has a
+**public profile** list (comma-separated, empty for none; the line under
+the name says it is public when it is). **Not to the anchors**, against
+the plan: they hold members' profiles by sync already. Test windows and
+the by-hand recipes set `HIT_PUBLIC_RELAYS=none` — a throwaway profile on
+Damus is litter. Tested against the fake relay (once only across a
+restart; none means none) and driven in one window against the fake:
+the dialog saved two relays, the live one took the profile, the dead one
+was logged for retry. **Not yet:** Primal showing a real name — that is
+the done-when's, with a real install.
 
 **What to build, in order:**
 

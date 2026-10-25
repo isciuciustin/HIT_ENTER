@@ -16,6 +16,8 @@
 //!   (`DESIGN.md` §11).
 //! - **HIT_ENTER's fee address** ([`fee`]): a plain payment of the fee,
 //!   with a fixed memo and nothing else — no message id, no pubkey.
+//! - **Public relays** ([`public`], M13): the person's own profile, and
+//!   only what is public anyway — never chat.
 //!
 //! What a receipt *means* is `hit-event`'s ([`hit_event::zap`]) and
 //! whether a group takes it is `hit-group`'s; this crate fetches and pays.
@@ -27,6 +29,7 @@ pub mod address;
 pub mod fee;
 pub mod lnurl;
 pub mod nwc;
+pub mod public;
 pub mod relay;
 pub mod zap;
 
@@ -36,6 +39,7 @@ pub mod fake;
 pub use address::LightningAddress;
 pub use fee::{FEE_ADDRESS, FEE_MEMO, FEE_MIN_SATS, FEE_PERCENT, fee_for};
 pub use nwc::Wallet;
+pub use public::PUBLIC_RELAYS;
 pub use zap::{Fee, Quote, Zapped, Zapper};
 
 use std::time::Duration;

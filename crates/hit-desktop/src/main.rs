@@ -866,6 +866,11 @@ fn wire_you_and_zaps(ui: &MainWindow, get: impl Fn() -> Option<Arc<Ctl>> + Clone
         profile_step(&g, async move |chat| chat.toggle_inbox().await);
     });
     let g = get.clone();
+    ui.on_set_public_relays(move |r| {
+        let r = r.to_string();
+        profile_step(&g, async move |chat| chat.set_public_relays(r).await);
+    });
+    let g = get.clone();
     ui.on_backup_again(move |password| {
         let password = password.to_string();
         profile_step(&g, async move |chat| {

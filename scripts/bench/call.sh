@@ -33,7 +33,7 @@ window() { # $1 name, $2 port, $3 person → pid, onboarded, in the group
   sleep 6
   scripts/gui/onboard.sh "$pid" "$3" >/dev/null
   sleep 8
-  HIT_DATA_DIR=target/gui/$1 HIT_KEYCHAIN_SERVICE=hit-enter-gui-test HIT_RELAYS=none \
+  HIT_DATA_DIR=target/gui/$1 HIT_KEYCHAIN_SERVICE=hit-enter-gui-test HIT_RELAYS=none HIT_PUBLIC_RELAYS=none \
     HIT_PORT=$2 "$bin" "$link" || true
   sleep 3
   scripts/gui/focus.sh "$pid" >/dev/null; sleep 0.5

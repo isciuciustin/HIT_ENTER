@@ -976,12 +976,14 @@ export component ProfileDialog inherits Rectangle {
     callback connect(string);
     callback disconnect();
     callback toggle-inbox();
+    callback set-public-relays(string);
     callback backup(string);
     callback close();
     out property <bool> at-end: close.has-focus;
     callback wrap();
     property <string> name: root.p.name;
     property <string> address: root.p.address;
+    property <string> public-relays: root.p.public-relays;
     property <string> connection;
     property <string> password;
     width: 440px;
@@ -1022,7 +1024,13 @@ export component ProfileDialog inherits Rectangle {
                 clicked => { root.set-name(root.name); }
             }
         }
-        Note { width: 428px; font-size: 11px; text: "Shown to the people you share a group with, and nobody else."; }
+        Note {
+            width: 428px;
+            font-size: 11px;
+            text: root.p.publishes && root.p.public-relays != ""
+                ? "Shown to the people you share a group with, and public: other Nostr apps show it too (below)."
+                : "Shown to the people you share a group with.";
+        }
         Heading { text: "your public key (npub)"; }
         Copyable { text: root.p.npub; label: "your npub"; copy => { root.copy(root.p.npub); } }
         Heading { text: "this device"; }
@@ -1136,6 +1144,29 @@ export component ProfileDialog inherits Rectangle {
                     text: (root.p.inbox-enabled ? "✓ " : "") + "let my groups' anchors (\{root.p.inbox-available}) keep my DMs";
                     selected: root.p.inbox-enabled;
                     clicked => { root.toggle-inbox(); }
+                }
+            }
+        }
+        if root.p.publishes : VerticalLayout {
+            spacing: 6px;
+            Heading { text: "public profile"; }
+            Note {
+                width: 428px;
+                font-size: 11px;
+                text: "Your name and Lightning address go to these public Nostr relays, so Primal, Damus and other Nostr apps show them. They see your IP address when it is sent. Empty: nowhere, and only your groups know your name — what a relay already has stays there.";
+            }
+            HorizontalLayout {
+                spacing: 8px;
+                Field {
+                    horizontal-stretch: 1;
+                    placeholder: "none — wss://relay.example, …";
+                    text <=> root.public-relays;
+                    accepted => { if (!root.busy && root.public-relays != root.p.public-relays) { root.set-public-relays(root.public-relays); } }
+                }
+                Pill {
+                    text: "save";
+                    enabled: !root.busy && root.public-relays != root.p.public-relays;
+                    clicked => { root.set-public-relays(root.public-relays); }
                 }
             }
         }

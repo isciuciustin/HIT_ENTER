@@ -125,7 +125,7 @@ directory, its own port. Identities go under a test keychain service.
 eval "$(mise env -s bash)"
 (cd web && npm install && npm run build)
 cargo build -p hit-app --features custom-protocol   # serves web/dist
-export HIT_KEYCHAIN_SERVICE=hit-enter-m4-test HIT_RELAYS=none
+export HIT_KEYCHAIN_SERVICE=hit-enter-m4-test HIT_RELAYS=none HIT_PUBLIC_RELAYS=none
 HIT_DATA_DIR=/tmp/hit-a HIT_PORT=7301 ./target/debug/hit-enter &
 HIT_DATA_DIR=/tmp/hit-b HIT_PORT=7302 ./target/debug/hit-enter &
 # afterwards
@@ -253,7 +253,7 @@ the app's settings, and the ALSA `pulse` device follows `PULSE_SOURCE` /
 
 ```bash
 for n in a_in a_out b_in b_out; do pactl load-module module-null-sink sink_name=hit_$n; done
-export HIT_KEYCHAIN_SERVICE=hit-enter-m9-test HIT_RELAYS=none HIT_AUDIO_IN=pulse HIT_AUDIO_OUT=pulse
+export HIT_KEYCHAIN_SERVICE=hit-enter-m9-test HIT_RELAYS=none HIT_PUBLIC_RELAYS=none HIT_AUDIO_IN=pulse HIT_AUDIO_OUT=pulse
 PULSE_SOURCE=hit_a_in.monitor PULSE_SINK=hit_a_out HIT_DATA_DIR=/tmp/hit-a HIT_PORT=7901 ./target/debug/hit-enter &
 PULSE_SOURCE=hit_b_in.monitor PULSE_SINK=hit_b_out HIT_DATA_DIR=/tmp/hit-b HIT_PORT=7902 \
   HIT_PEERS=<A's device>@127.0.0.1:7901 ./target/debug/hit-enter &
