@@ -1455,3 +1455,21 @@ exist.
   `the_owner_moderates_and_the_window_is_told_what_each_may_do`
   (`state.rs:3054`, 2 of 5 runs). Not fixed; not Windows code. The draft
   now holds the `.deb`, `.AppImage`, `.dmg` and `.zip`: §Last is next.
+
+## 2026-10-25 — beta.5 published
+
+- `SHA256SUMS` computed on the laptop from the five files downloaded back
+  from the draft (Linux and `.dmg` sums matched what their sessions
+  recorded); uploaded, release published as a pre-release on the owner's
+  word. Code tag `v0.1.0-beta.5` at `75bcfb6` — the Mac and Windows builds
+  came from `09b2dbf`, which differs only in docs.
+- Site `ad44afb`: links, versions and sha256 lines → beta.5, "New in
+  beta.5" (says beta.4 cannot join a public group). Deployed from the
+  owner's main PC.
+- beta.4's downloads at the switch: AppImage 4, `.zip` 3, `.deb` 2,
+  `.dmg` 2 (11 app files, some ours).
+- Permissions: auto mode's checker kept refusing `gh release` with no
+  verdict; the owner added allow rules for `gh release`
+  list/download/upload/edit, `git pull`/`fetch`/`tag`, pushes to
+  `main`/`master`/`v*`, `sha256sum`, `mkdir`, `mktemp`
+  (`.claude/settings.local.json`, per machine, not in git).

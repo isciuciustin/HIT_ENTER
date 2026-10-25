@@ -14,6 +14,14 @@ HIT_ENTER_2's `he2-*`.
 
 ## Where this is right now
 
+**2026-10-25 — v0.1.0-beta.5 is out (M13, public communities)** — Linux,
+macOS, Windows on `isciuciustin/hitenter`, one `SHA256SUMS`; code tag
+`v0.1.0-beta.5` at `75bcfb6`; the VPS anchor runs it; site `ad44afb`
+(pushed, deployed from the owner's main PC). How a release is made:
+`docs/RELEASING.md`. beta.4 had 11 app downloads. **M13's final check
+(the owner's name in Primal, browse → join from a second device, Chachi
+reading the anchor) is still owed.**
+
 **2026-10-24 — the VPS is live, early.** `wss://anchor.hitenter.app` runs on
 an OVH VPS (Canada, Debian 13, `ssh hitenter`), not the laptop's tunnel:
 `hit-anchor` under systemd + Caddy, one group pinned. Traps, open items and
